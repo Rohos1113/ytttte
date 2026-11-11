@@ -2259,6 +2259,126 @@ async def regenerate_item(
     }
 
 
+async def _shift_item_media(session: AsyncSession, p: Project, removed_index: int) -> tuple[int, list[str]]:
+    """Сдвинуть предметы после удалённого: файлы `predmetN` и их артефакты.
+
+    Индекс предмета — его позиция в `item_descriptions`, поэтому после удаления
+    все последующие сдвигаются на единицу. Иначе картинка `predmet3` осталась бы
+    привязанной к описанию, которое теперь стало вторым.
+    """
+    renamed: list[str] = []
+    path_map: dict[str, str] = {}
+    items_dir = p.data_dir / "items"
+    if items_dir.is_dir():
+        for f in sorted(items_dir.glob("predmet*")):
+            if not f.is_file():
+                continue
+            stem = f.stem
+            rest = stem[len("predmet") :]
+            num_part, _, tail = rest.partition("_")
+            if not num_part.isdigit():
+                continue
+            num = int(num_part)
+            if num <= removed_index:
+                continue
+            new_name = f"predmet{num - 1}" + (f"_{tail}" if tail else "") + f.suffix
+            new_path = f.with_name(new_name)
+            try:
+                f.rename(new_path)
+            except OSError as e:  # noqa: BLE001
+                logger.warning("[#{}] item shift: не удалось переименовать {} ({})", p.id, f, e)
+                continue
+            path_map[str(f)] = str(new_path)
+            renamed.append(str(new_path))
+
+    arts = (
+        await session.execute(
+            select(Artifact).where(
+                Artifact.project_id == p.id,
+                Artifact.kind == ArtifactKind.item_reference,
+            )
+        )
+    ).scalars().all()
+    touched = 0
+    for a in arts:
+        meta = dict(a.meta or {})
+        idx = meta.get("item_index")
+        if not isinstance(idx, int) or idx <= removed_index:
+            continue
+        meta["item_index"] = idx - 1
+        meta["item_id"] = f"predmet{idx - 1}"
+        a.meta = meta
+        if a.path in path_map:
+            a.path = path_map[a.path]
+        touched += 1
+    return touched, renamed
+
+
+@router.delete("/{project_id}/items/{index}")
+async def delete_item(
+    project_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Удалить предмет: описание, его картинку и сдвинуть следующие.
+
+    Как и у персонажей, одной строки мало: картинка (`items/predmetN*.png` и
+    `item_reference` артефакт) иначе осталась бы в результатах ноды.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    p = _project_or_404(await session.get(Project, project_id))
+    if index < 1:
+        raise HTTPException(status_code=400, detail="index must be >= 1")
+
+    descriptions = [d for d in list(p.item_descriptions or [])]
+    has_description = index <= len(descriptions)
+    removed_artifacts, removed_files = await _wipe_item_media(session, p, index)
+    if not has_description and not removed_artifacts and not removed_files:
+        raise HTTPException(status_code=404, detail=f"item {index} not found")
+
+    if has_description:
+        descriptions.pop(index - 1)
+        p.item_descriptions = descriptions
+        flag_modified(p, "item_descriptions")
+
+    shifted_artifacts, renamed_files = await _shift_item_media(session, p, index)
+
+    # Данные предметов в meta сдвигаются вместе с индексами.
+    meta = dict(p.meta or {})
+    attrs_map = meta.get("item_attrs")
+    if isinstance(attrs_map, dict) and attrs_map:
+        shifted: dict[str, Any] = {}
+        for key, value in attrs_map.items():
+            try:
+                num = int(str(key))
+            except (TypeError, ValueError):
+                shifted[str(key)] = value
+                continue
+            if num == index:
+                continue
+            shifted[str(num - 1 if num > index else num)] = value
+        meta["item_attrs"] = shifted
+        p.meta = meta
+        flag_modified(p, "meta")
+
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"item_deleted": index},
+    )
+    return {
+        "ok": True,
+        "index": index,
+        "removed_artifacts": removed_artifacts,
+        "removed_files": removed_files,
+        "shifted_artifacts": shifted_artifacts,
+        "renamed_files": renamed_files,
+        "remaining": len(descriptions),
+    }
+
+
 def _rel_path(path: str | None) -> str:
     if not path:
         return ""

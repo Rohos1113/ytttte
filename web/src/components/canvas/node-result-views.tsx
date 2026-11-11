@@ -1345,10 +1345,13 @@ function HeroResultsView({
 }
 
 /**
- * Предметы: только предметы (никаких персонажей), сеткой по 2 в ряд.
- * Пока картинки нет — рамка 16:9 с подписью `empty`; когда появилась —
- * показывается в своём формате. ID предмета (`pN`) — в углу картинки.
+ * Предметы: та же раскладка, что и у персонажей — сетка по 2 в ряд, рамка
+ * 16:9 пока картинки нет, ID в углу, под картинкой кнопка «Характеристики
+ * предмета» (раскрывает данные предмета), перегенерация, загрузка референса,
+ * скачивание, удаление и плитка «Добавить предмет».
  */
+export type ItemAttrs = { name?: string; description?: string; look?: string };
+
 function itemIndexFromRaw(raw: string): number | null {
   const m = raw.match(/predmet(\d+)/i);
   if (m) {
@@ -1356,6 +1359,110 @@ function itemIndexFromRaw(raw: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
   }
   return null;
+}
+
+/** Данные предметов лежат в `project.meta.item_attrs` по номеру предмета. */
+function itemAttrsMap(project: ProjectDetail | undefined): Record<string, ItemAttrs> {
+  const raw = (project?.meta as Record<string, unknown> | undefined)?.item_attrs;
+  return raw && typeof raw === "object" ? (raw as Record<string, ItemAttrs>) : {};
+}
+
+function itemCode(index: number): string {
+  return `p${String(index).padStart(2, "0")}`;
+}
+
+/** Текст, который уходит в шаг «Предметы» (`item_descriptions[index-1]`). */
+export function composeItemText(attrs: ItemAttrs): string {
+  return [attrs.name, attrs.description, attrs.look]
+    .map((v) => (v ?? "").trim())
+    .filter(Boolean)
+    .join(". ");
+}
+
+function ItemDetailsCard({
+  projectId,
+  index,
+  descriptions,
+  attrs,
+  attrsMap,
+}: {
+  projectId: number;
+  index: number;
+  descriptions: string[];
+  attrs: ItemAttrs;
+  attrsMap: Record<string, ItemAttrs>;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(attrs.name ?? "");
+  const [description, setDescription] = useState(attrs.description ?? descriptions[index - 1] ?? "");
+  const [look, setLook] = useState(attrs.look ?? "");
+  useEffect(() => {
+    setName(attrs.name ?? "");
+    setDescription(attrs.description ?? descriptions[index - 1] ?? "");
+    setLook(attrs.look ?? "");
+  }, [attrs, descriptions, index]);
+
+  const current: ItemAttrs = { name, description, look };
+  const dirty =
+    name !== (attrs.name ?? "") ||
+    description !== (attrs.description ?? descriptions[index - 1] ?? "") ||
+    look !== (attrs.look ?? "");
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const nextDescriptions = [...descriptions];
+      while (nextDescriptions.length < index) nextDescriptions.push("");
+      nextDescriptions[index - 1] = composeItemText(current) || nextDescriptions[index - 1] || "";
+      return api.patchProject(projectId, {
+        item_descriptions: nextDescriptions,
+        meta: { item_attrs: { ...attrsMap, [String(index)]: current } },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Данные предмета сохранены");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  return (
+    <div className="mt-2 w-full rounded-md border border-white/10 bg-black/25 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-white">Характеристики предмета</span>
+        <span className="font-mono text-xs text-white/50">{itemCode(index)}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Название
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: старый фотоаппарат" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Описание
+          <Textarea
+            className="w-full"
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Что это за предмет и какую роль играет в ролике"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Внешний вид
+          <Textarea
+            className="w-full"
+            rows={2}
+            value={look}
+            onChange={(e) => setLook(e.target.value)}
+            placeholder="Материал, цвет, размер, состояние"
+          />
+        </label>
+        <Button size="sm" variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          Сохранить
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function ItemResultsView({
@@ -1375,7 +1482,9 @@ function ItemResultsView({
     refetchInterval: 8000,
   });
   const descriptions = project.data?.item_descriptions ?? [];
+  const attrsMap = itemAttrsMap(project.data);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [openCard, setOpenCard] = useState<number | null>(null);
 
   // Только предметы: kind item_* или файл items/predmetN.png.
   const images = useMemo(() => {
@@ -1388,9 +1497,7 @@ function ItemResultsView({
         index: idx,
         previewUrl,
         filePath,
-        downloadUrl: previewUrl.includes("/api/files?path=")
-          ? `${previewUrl}&download=1`
-          : previewUrl,
+        downloadUrl: previewUrl.includes("/api/files?path=") ? `${previewUrl}&download=1` : previewUrl,
       });
     };
     for (const a of assets.data ?? []) {
@@ -1407,6 +1514,25 @@ function ItemResultsView({
   const maxReady = images.length ? Math.max(...images.map((i) => i.index)) : 0;
   const total = Math.max(descriptions.length, maxReady, 0);
 
+  const addItem = useMutation({
+    mutationFn: async () => {
+      const nextDescriptions = [...descriptions];
+      const nextIndex = nextDescriptions.length + 1;
+      const attrs: ItemAttrs = { name: `Предмет ${nextIndex}`, description: "", look: "" };
+      nextDescriptions.push(composeItemText(attrs));
+      return api.patchProject(projectId, {
+        item_descriptions: nextDescriptions,
+        meta: { item_attrs: { ...attrsMap, [String(nextIndex)]: attrs } },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Предмет добавлен");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  /** Перегенерация одной картинки: шаг items дорисует только этот предмет. */
   const regenItem = useMutation({
     mutationFn: async (index: number) => {
       const res = await api.regenerateItem(projectId, index);
@@ -1421,11 +1547,12 @@ function ItemResultsView({
     onSuccess: (data) => {
       toast.success(
         data.runStarted
-          ? `Перегенерация предмета ${data.index} запущена`
-          : `Картинка p${data.index} сброшена — запусти шаг «Предметы» кнопкой ▶`,
+          ? `Перегенерация предмета ${itemCode(data.index)} запущена`
+          : `Картинка ${itemCode(data.index)} сброшена — запусти шаг «Предметы» кнопкой ▶`,
       );
       qc.invalidateQueries({ queryKey: ["project-assets", projectId, "items"] });
       qc.invalidateQueries({ queryKey: ["artifacts", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -1440,6 +1567,18 @@ function ItemResultsView({
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
+  const deleteItem = useMutation({
+    mutationFn: (index: number) => api.deleteItem(projectId, index),
+    onSuccess: (data) => {
+      toast.success(`Предмет ${itemCode(data.index)} удалён`);
+      setOpenCard(null);
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["artifacts", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1449,14 +1588,11 @@ function ItemResultsView({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {total === 0 ? (
-          <p className="col-span-2 rounded-xl border border-dashed border-white/15 bg-black/20 px-3 py-6 text-center text-[12px] text-white/40">
-            Предметов пока нет — добавь описание предмета в настройках ноды, и здесь появится место под картинку (16:9).
-          </p>
-        ) : null}
         {Array.from({ length: total }).map((_, i) => {
           const index = i + 1;
           const img = byIndex.get(index);
+          const hasDescription = Boolean(descriptions[i]?.trim());
+          const attrs = attrsMap[String(index)] ?? { description: descriptions[i] ?? "" };
           return (
             <div key={`item-slot-${index}`} className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 p-2">
               <div
@@ -1485,13 +1621,23 @@ function ItemResultsView({
                   className="pointer-events-none absolute right-1.5 top-1.5 z-[2] rounded bg-black/75 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
                   title="ID предмета"
                 >
-                  p{index}
+                  {itemCode(index)}
                 </span>
               </div>
-              <p className="line-clamp-2 min-h-[2.1em] text-[11px] leading-snug text-white/55" title={descriptions[i] ?? ""}>
-                {descriptions[i] ?? "—"}
-              </p>
               <div className="flex items-center gap-1.5">
+                {hasDescription || attrs.name ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 gap-1.5 text-[11px]"
+                    onClick={() => setOpenCard((cur) => (cur === i ? null : i))}
+                  >
+                    <ScrollText className="h-3.5 w-3.5" />
+                    Характеристики предмета
+                  </Button>
+                ) : (
+                  <span className="flex-1" />
+                )}
                 <button
                   type="button"
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-primary/60 hover:text-white disabled:opacity-50"
@@ -1527,10 +1673,47 @@ function ItemResultsView({
                     <Download className="h-3.5 w-3.5" />
                   </a>
                 ) : null}
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-500/30 text-rose-300/80 hover:border-rose-400/60 hover:bg-rose-500/10 hover:text-rose-200"
+                  title="Удалить предмет"
+                  disabled={deleteItem.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`Удалить предмет ${itemCode(index)}? Картинка и описание тоже удалятся.`)) return;
+                    deleteItem.mutate(index);
+                  }}
+                >
+                  {deleteItem.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
               </div>
+              {openCard === i ? (
+                <div className="mt-1">
+                  <ItemDetailsCard
+                    projectId={projectId}
+                    index={index}
+                    descriptions={descriptions}
+                    attrs={attrs}
+                    attrsMap={attrsMap}
+                  />
+                </div>
+              ) : null}
             </div>
           );
         })}
+        <button
+          type="button"
+          title="Добавить предмет"
+          disabled={addItem.isPending || project.isLoading}
+          onClick={() => addItem.mutate()}
+          className="group flex h-full min-h-[150px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/15 bg-black/20 transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 hover:shadow-[0_0_28px_-8px_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {addItem.isPending ? (
+            <Loader2 className="h-10 w-10 animate-spin text-white/50" />
+          ) : (
+            <Plus className="h-10 w-10 text-white/30 transition-transform duration-200 ease-out group-hover:scale-125 group-hover:text-white/75" />
+          )}
+          <span className="text-[11px] text-white/35 transition-colors group-hover:text-white/75">Добавить предмет</span>
+        </button>
       </div>
 
       {zoom
@@ -1539,7 +1722,10 @@ function ItemResultsView({
               className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
               onClick={() => setZoom(null)}
             >
-              <div className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <img src={zoom} alt="" className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" />
                 <div className="absolute right-2 top-2 flex items-center gap-2">
                   <Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs" asChild>

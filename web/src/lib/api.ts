@@ -3006,6 +3006,17 @@ export const api = {
       { method: "POST" },
     ),
 
+  deleteItem: (projectId: number, index: number) =>
+    http<{
+      ok: boolean;
+      index: number;
+      removed_artifacts: number;
+      removed_files: string[];
+      shifted_artifacts: number;
+      renamed_files: string[];
+      remaining: number;
+    }>(`/api/projects/${projectId}/items/${index}`, { method: "DELETE" }),
+
   regenerateHeroCharacter: (projectId: number, code: string) =>
     http<{
       ok: boolean;
