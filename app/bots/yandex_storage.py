@@ -155,8 +155,22 @@ async def upload_public_bytes(
     if not yandex_storage_configured():
         raise RuntimeError("yandex storage: не настроен (bucket/access/secret)")
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
-    if ext not in ("jpg", "jpeg", "png", "webp", "gif", "bin"):
-        ext = "jpg"
+    if ext not in (
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+        "gif",
+        "mp4",
+        "webm",
+        "mov",
+        "mp3",
+        "wav",
+        "m4a",
+        "ogg",
+        "bin",
+    ):
+        ext = "bin"
     object_key = f"vp-frames/{datetime.now(UTC).strftime('%Y%m%d')}/{uuid4().hex}.{ext}"
     url = public_object_url(object_key)
     headers = build_put_headers(

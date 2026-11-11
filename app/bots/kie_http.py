@@ -121,40 +121,79 @@ async def get_credits() -> float | None:
         return None
 
 
+_MIME_BY_EXT = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+    "mov": "video/quicktime",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
+    "ogg": "audio/ogg",
+}
+
+
+async def _mirror_to_yandex(content: bytes, filename: str) -> str | None:
+    """Фолбэк загрузки: файл → публичный URL в Yandex Object Storage.
+
+    KIE-загрузчик на этой сети рвёт соединение на файлах крупнее ~10 КБ.
+    Внешний https-URL KIE скачивает сам, поэтому референс всё равно доходит.
+    """
+    try:
+        from app.bots.yandex_storage import upload_public_bytes, yandex_storage_configured
+
+        if not yandex_storage_configured():
+            return None
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+        mime = _MIME_BY_EXT.get(ext, "application/octet-stream")
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            return await upload_public_bytes(client, content, mime, filename)
+    except Exception as e:  # noqa: BLE001 — фолбэк не должен ломать основной путь
+        logger.warning("kie upload: бакет тоже не принял {}: {}", filename, e)
+        return None
+
+
 async def upload_file(content: bytes, filename: str, *, upload_path: str = "images/studio-create") -> str:
     """Файл → публичный URL kie (tempfile.redpandaai.co, живёт ~3 суток).
 
     Kie обрывает соединение на крупных файлах и под нагрузкой (httpx.ReadError:
-    «сервер закрыл соединение, не дочитав ответ»). Транспортный обрыв лечится
-    повтором, поэтому три попытки с нарастающей паузой; после них — понятная
-    ошибка вместо голого ReadError.
+    «сервер закрыл соединение, не дочитав ответ»). Одна попытка в Kie, затем
+    фолбэк в Yandex Object Storage: ретраи Kie на этой сети дают по ~20 с
+    ожидания каждый, а бакет принимает файл сразу. KIE внешний https-URL
+    скачивает сам, поэтому референс всё равно доходит до генерации.
     """
     url = f"{settings.kie_upload_base_url.rstrip('/')}{_UPLOAD_PATH}"
     r: httpx.Response | None = None
     last_exc: Exception | None = None
-    for attempt in (1, 2, 3):
-        try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                r = await client.post(
-                    url,
-                    headers=_auth_headers(),
-                    files={"file": (filename, content)},
-                    data={"uploadPath": upload_path, "fileName": filename},
-                )
-            last_exc = None
-            break
-        except httpx.TransportError as e:
-            last_exc = e
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            r = await client.post(
+                url,
+                headers=_auth_headers(),
+                files={"file": (filename, content)},
+                data={"uploadPath": upload_path, "fileName": filename},
+            )
+    except httpx.TransportError as e:
+        last_exc = e
+        logger.warning(
+            "kie upload failed for {} ({} KiB): {}",
+            filename,
+            max(1, len(content) // 1024),
+            type(e).__name__,
+        )
+    if last_exc is not None or r is None:
+        mirrored = await _mirror_to_yandex(content, filename)
+        if mirrored:
             logger.warning(
-                "kie upload attempt {}/3 failed for {} ({} KiB): {}",
-                attempt,
+                "kie upload: файл {} ({} KiB) не принят Kie, отдаю внешний URL из бакета",
                 filename,
                 max(1, len(content) // 1024),
-                type(e).__name__,
             )
-            if attempt < 3:
-                await asyncio.sleep(1.5 * attempt)
-    if last_exc is not None or r is None:
+            return mirrored
         raise KieHttpError(
             "Kie оборвал загрузку файла "
             f"({type(last_exc).__name__ if last_exc else 'нет ответа'}); "
