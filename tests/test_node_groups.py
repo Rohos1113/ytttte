@@ -588,3 +588,47 @@ def test_script_frames_qc_needs_upgrade_flags_stale_group() -> None:
     assert ng.script_frames_qc_needs_upgrade(stale) is True
     assert ng.script_frames_qc_needs_upgrade({}) is False
     assert ng.script_frames_qc_needs_upgrade(None) is False
+
+
+async def test_insert_plan_cinema_after_plan_with_model(mem_db) -> None:
+    """«Кино по плану» вставляется после plan, ноды — gpt-6.1-sol-52pay/medium."""
+    async with mem_db() as session:
+        project = await _mk_project(session)
+        res = await insert_node_group(session, project, "plan_cinema")
+
+    assert res["after"] == "n_plan"
+    assert len(res["nodes"]) == 9
+    cg = project.meta["canvas_graph"]
+    by_id = {n["id"]: n for n in cg["nodes"]}
+    for suffix in (
+        "scenes",
+        "cast",
+        "skeleton",
+        "dialogues",
+        "backgrounds",
+        "shots",
+        "qc",
+        "style",
+        "report",
+    ):
+        data = by_id[f"n_excel_gpt_pk_{suffix}"]["data"]
+        assert data["modelId"] == "gpt-6.1-sol-52pay"
+        assert data["reasoningEffort"] == "medium"
+    assert project.meta.get("source_mode") == "plan"
+    # Цепочка начинается с «Сцены по плану» и упирается в отчёт.
+    assert by_id["n_excel_gpt_pk_report"]["data"]["label"] == "Отчёт"
+    assert by_id["n_excel_gpt_pk_scenes"]["data"]["label"] == "Сцены по плану"
+
+
+async def test_insert_boundaries_chain_after_plan_without_platform(mem_db) -> None:
+    """«Границы -> каркас -> шоты + QC»: 6 нод, площадки (fw_action) в группе нет."""
+    async with mem_db() as session:
+        project = await _mk_project(session)
+        res = await insert_node_group(session, project, "script_frames_qc")
+
+    assert res["after"] == "n_plan"
+    assert len(res["nodes"]) == 6
+    ids = {n["id"] for n in project.meta["canvas_graph"]["nodes"]}
+    assert "n_excel_gpt_fw_action" not in ids
+    for suffix in ("boundaries", "script", "shots", "qc", "style", "report"):
+        assert f"n_excel_gpt_fw_{suffix}" in ids
