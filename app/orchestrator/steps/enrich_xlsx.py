@@ -1840,7 +1840,19 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if str(node_key or "").endswith("_fw_boundaries"):
         await _run_fw_boundaries_node(session, project, node_key=str(node_key), slot_idx=slot_idx)
         return
-    prompt_step_code = EXCEL_GPT_STEP_CODE
+    # «Кино по плану»: ветка для нод pk_* (группа node_groups/plan_cinema.json).
+    # Обработчики и вся механика — в app/services/plan_cinema/nodes.py;
+    # на старые ноды не влияет: чужие node_key сюда не попадают.
+    from app.services.plan_cinema.nodes import (
+        is_plan_cinema_node,
+        run_plan_cinema_node,
+    )
+
+    if is_plan_cinema_node(node_key):
+        await run_plan_cinema_node(
+            session, project, node_key=str(node_key), slot_idx=slot_idx
+        )
+        return    prompt_step_code = EXCEL_GPT_STEP_CODE
     # Слот «main» в Node Studio → meta.prompt_slot_variants[node_key]["main"].
     # Без node_key все excel_gpt брали один prompt_overrides["excel_gpt"].
     prompt_slot_id = "main"

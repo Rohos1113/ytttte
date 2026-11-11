@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "group_id": "plan_cinema",
+  "title": "Кино по плану",
+  "description": "Ролик из project.general_plan без закадра: сцены по плану (код + GPT, гейт R-PLAN-COVER) → персонажи (R-CAST-DUP) → каркас сцен (Frame.attrs, voiceover_text=\"\") → диалоги (attrs[\"речь\"], R-DLG-FORM/SPEAKER) → фоны (Entity(background) f0N, у сцены attrs[\"фон\"], R-BG-REF) → шоты (кадры по фонам, R-DLG-SHOT) → QC (семантика + диалоги + фон) → стиль (код, лимит 4877) → отчёт. project_meta source_mode=plan, VO-гейты отключены (vo_mode=False). Вместе с script_frames_qc не ставится. Модель всех нод группы: gpt-6.1-sol-52pay, мышление medium.",
+  "category": "planning",
+  "default_after_type": "plan",
+  "nodes": [
+    {
+      "local_key": "pk_scenes",
+      "node_type": "excel_gpt",
+      "label": "Сцены по плану",
+      "description": "План, размеченный кодом на P1..Pn (plan_scenes.num_plan_points) → сцены: номер, id_плана, место, событие, примечание. Промт plan_to_scenes. Код проверяет покрытие гейтом R-PLAN-COVER (один повтор), артефакт plan_scenes.json.",
+      "preferred_id": "n_excel_gpt_pk_scenes",
+      "dx": 300.0,
+      "dy": 0.0,
+      "prompt_variant": "plan_to_scenes",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_cast",
+      "node_type": "excel_gpt",
+      "label": "Персонажи",
+      "description": "План + сцены → единый реестр людей c01..: имя с ролью, внешность, одежда, характер, правила вариаций, voice_prompt. Пишется в Entity(character). Промт plan_cast. Код проверяет дубли гейтом R-CAST-DUP.",
+      "preferred_id": "n_excel_gpt_pk_cast",
+      "dx": 600.0,
+      "dy": 0.0,
+      "prompt_variant": "plan_cast",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_skeleton",
+      "node_type": "excel_gpt",
+      "label": "Каркас",
+      "description": "Сцены из шага 1 + реестр → ячейки Frame сцены: attrs источник=\"pk\", id_плана, место, персонажи, предметы, событие, сцена (50–80 слов); voiceover_text=\"\". Промт scene_skeleton_plan.",
+      "preferred_id": "n_excel_gpt_pk_skeleton",
+      "dx": 900.0,
+      "dy": 0.0,
+      "prompt_variant": "scene_skeleton_plan",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_dialogues",
+      "node_type": "excel_gpt",
+      "label": "Диалоги",
+      "description": "Сцена + реестр → речь сцены attrs[\"речь\"]: тип нет/монолог/диалог, реплики {кто, текст, эмоция}; реплики только из персонажей сцены и реестра. Промт plan_dialogues. Гейты R-DLG-FORM, R-DLG-SPEAKER.",
+      "preferred_id": "n_excel_gpt_pk_dialogues",
+      "dx": 1200.0,
+      "dy": 0.0,
+      "prompt_variant": "plan_dialogues",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_backgrounds",
+      "node_type": "excel_gpt",
+      "label": "Фоны",
+      "description": "Нормализованные места всех сцен → Entity(type=background, code=f0N): место, описание, свет, время, промт; у каждой сцены attrs[\"фон\"] = f0N. Один фон на локацию. Промт plan_backgrounds. Гейт R-BG-REF.",
+      "preferred_id": "n_excel_gpt_pk_backgrounds",
+      "dx": 1500.0,
+      "dy": 0.0,
+      "prompt_variant": "plan_backgrounds",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_shots",
+      "node_type": "excel_gpt",
+      "label": "Шоты",
+      "description": "Сцена + речь + место/фон → apply-ops {\"frame_uuid\": \"<uuid сцены>\", \"fields\": {\"кадры\": [...]}}, 1–6 кадров; реплики раскладываются по кадрам (говорит/реплика), поля «закадр» нет. Промт scenes_to_frames_plan_ru. Код проверяет диалоги через shots_dialogue_problems.",
+      "preferred_id": "n_excel_gpt_pk_shots",
+      "dx": 1800.0,
+      "dy": 0.0,
+      "prompt_variant": "scenes_to_frames_plan_ru",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_qc",
+      "node_type": "excel_gpt",
+      "label": "QC",
+      "description": "Сцена + речь + кадры + реестры + механические нарушения (vo_mode=False) → {\"qc\":{\"verdict\",\"violations\",\"fixes\",\"issues\"}}. Коды R-SEM-*, R-DLG-*, R-BG-REF; VO-правила не применяются. Промт shots_qc_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_qc",
+      "dx": 2100.0,
+      "dy": 0.0,
+      "prompt_variant": "shots_qc_plan_ru",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_style",
+      "node_type": "excel_gpt",
+      "label": "Стиль",
+      "description": "Без GPT: выбранный styles/style_*.md дописывается после сцены к промту главного кадра (K1) и в image_prompt. Лимит 4877: режется сцена по предложению, стиль не режется никогда. Спецификация — templates/node_groups/plan_cinema/style_plan.md.",
+      "preferred_id": "n_excel_gpt_pk_style",
+      "dx": 2400.0,
+      "dy": 0.0,
+      "prompt_variant": "style_noir_watercolour_16_09",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_report",
+      "node_type": "excel_gpt",
+      "label": "Отчёт",
+      "description": "После цепочки: HTML-отчёт сцен, кадров, речи и фонов. Без GPT, промта не берёт.",
+      "preferred_id": "n_excel_gpt_pk_report",
+      "dx": 2700.0,
+      "dy": 0.0,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    }
+  ],
+  "internal_edges": [
+    [
+      "pk_scenes",
+      "pk_cast",
+      "after"
+    ],
+    [
+      "pk_cast",
+      "pk_skeleton",
+      "after"
+    ],
+    [
+      "pk_skeleton",
+      "pk_dialogues",
+      "after"
+    ],
+    [
+      "pk_dialogues",
+      "pk_backgrounds",
+      "after"
+    ],
+    [
+      "pk_backgrounds",
+      "pk_shots",
+      "after"
+    ],
+    [
+      "pk_shots",
+      "pk_qc",
+      "after"
+    ],
+    [
+      "pk_qc",
+      "pk_style",
+      "after"
+    ],
+    [
+      "pk_style",
+      "pk_report",
+      "after"
+    ]
+  ],
+  "entry_keys": [
+    "pk_scenes"
+  ],
+  "exit_key": "pk_report",
+  "project_meta": {
+    "source_mode": "plan"
+  },
+  "replaces_types": [],
+  "exit_edge_kind": "after",
+  "updated_at": "2026-11-08T22:20:00+03:00"
+}
