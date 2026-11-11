@@ -1434,6 +1434,21 @@ _STYLE_COUNTS: dict[str, dict[str, int]] = {}
 
 #: Предел тела промта кадра по валидатору: ``shot_rules_v2.PROMPT_BODY_MAX``.
 _CADR_BODY_MAX = 4000
+#: STYLE-блок кадра: предел 700 символов (R-STYLE-LEN), запас сцены — 200.
+#: В keys `frame_style.max_style_chars_v2` нет, поэтому считаем локально.
+_STYLE_BLOCK_LIMIT_V2 = 700
+_MIN_SCENE_BUDGET = 200
+#: Исходник `промт_старт` без STYLE-блока (в keys такой константы нет).
+_START_RAW_KEY = "промт_старт_без_стиля"
+
+
+def _max_style_chars_v2(limit: int | None = None) -> int:
+    """Предел STYLE-блока v2: 700 символов и не больше остатка бюджета."""
+    from app.services import frame_style
+
+    lim = frame_style.body_limit() if limit is None else int(limit)
+    return min(_STYLE_BLOCK_LIMIT_V2, max(0, lim - _MIN_SCENE_BUDGET))
+
 
 #: Сколько раз спрашивать модель по сцене, если кадры не прошли валидатор.
 _SHOTS_ATTEMPTS = 3
@@ -1488,13 +1503,12 @@ def _apply_style_to_kadry(
         style_text=style_text,
         limit=limit,
         set_ready_status=False,
-        apply_to_children=False,
     )
     raw = report.get("counts") or {}
     kadry = _frames_of(frame)
     limit = frame_style.body_limit() if limit is None else int(limit)
     style_clean = str(style_text or "").strip()
-    master = frame_style.master_index(kadry, getattr(frame, "number", None))
+    master = frame_style.master_index(kadry)
     children = 0
     trimmed_children = 0
     for index, entry in enumerate(kadry):
@@ -1502,7 +1516,7 @@ def _apply_style_to_kadry(
             continue
         styled_any = False
         for key, raw_key in (
-            (frame_style.START_PROMPT_KEY, frame_style.START_RAW_KEY),
+            (frame_style.START_PROMPT_KEY, _START_RAW_KEY),
             ("промт_конец", "промт_конец_без_стиля"),
         ):
             base = str(entry.get(raw_key) or "").strip() or str(
@@ -1647,7 +1661,7 @@ async def _run_style(session: Any, project: Any, *, node_key: str) -> NodeResult
     # STYLE-блок ≤ 700 (R-STYLE-LEN). Полный файл стиля (≈3500) не влезает,
     # поэтому берём сжатый блок и считаем от него бюджет сцены.
     style_text = _compact_style(
-        style_text, frame_style.max_style_chars_v2()
+        style_text, _max_style_chars_v2()
     )
     body_limit = _CADR_BODY_MAX + len(style_text)
     scenes = await apply.load_scenes(session, project)

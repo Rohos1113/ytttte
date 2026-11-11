@@ -290,6 +290,42 @@ def test_style_from_slot_rejects_master_prompt(tmp_path, monkeypatch):
     assert nodes._style_text_from_slot("n_excel_gpt_pk_style", "default", master) == ""
 
 
+def test_apply_style_to_kadry_styles_master_and_children(monkeypatch):
+    """Стиль ложится на K1 и детей через штатный keys-frame_style."""
+    import sqlalchemy.orm.attributes as sa_attrs
+
+    monkeypatch.setattr(sa_attrs, "flag_modified", lambda *a, **k: None)
+    from app.services import frame_style
+
+    scene = _FakeFrame(
+        1,
+        1,
+        {
+            "кадры": [
+                {
+                    "id": "1.1",
+                    "роль": "K1",
+                    "промт_картинки": "Сцена: ночной город, человек идёт.",
+                },
+                {
+                    "id": "1.2",
+                    "parent_id": "1.1",
+                    "промт_старт": "Сцена: ночной город, человек идёт.",
+                },
+            ]
+        },
+    )
+    counts = nodes._apply_style_to_kadry(
+        frame_style, scene, "стиль: тёмный нуар, контражур, дождь", "style_test", 4200
+    )
+    assert counts["master"] == 1
+    assert counts["children"] == 1
+    kadry = scene.attrs["кадры"]
+    assert "нуар" in (kadry[0].get("промт_картинки") or "")
+    assert "нуар" in (kadry[1].get("промт_старт") or "")
+    assert kadry[1].get("стиль") == "style_test"
+    assert kadry[1].get("промт_старт_без_стиля")
+
 # ── Архив прежнего разбиения не попадает в генерацию картинок ──────────────
 
 
