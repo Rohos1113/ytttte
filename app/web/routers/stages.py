@@ -24,7 +24,7 @@ from app.services.pipeline_stages import (
     stage_states,
 )
 from app.services.project_steps import start_step
-from app.services.prompt_library import STEP_FOLDERS, STEP_HUMAN_NAMES
+from app.services.prompt_library import PROMPT_BUTTON_LABELS, STEP_FOLDERS, STEP_HUMAN_NAMES
 from app.services.run_sync import sync_run_for_project
 from app.web.deps import get_session
 from app.web.project_dto import project_to_detail
@@ -107,7 +107,12 @@ async def list_stages(project_id: int, session: AsyncSession = Depends(get_sessi
                 # («img_pr») пользователю ничего не говорит, а собирать
                 # словарь на фронте значит держать вторую копию карты.
                 "prompts": [
-                    {"step": code, "label": STEP_HUMAN_NAMES.get(code, code)}
+                    {
+                        "step": code,
+                        "label": PROMPT_BUTTON_LABELS.get(
+                            code, STEP_HUMAN_NAMES.get(code, code)
+                        ),
+                    }
                     for code in st.stage.prompt_steps
                     if code in STEP_FOLDERS
                 ],

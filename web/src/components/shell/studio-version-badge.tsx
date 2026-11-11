@@ -63,26 +63,50 @@ export function StudioVersionBadge() {
     server != null && (server.pipeline_ok === false || server.backend_ok === false);
   const llmLabel = server?.text_llm_label?.trim() || "";
 
+  // Сборка, ЗАГРУЖЕННАЯ в этой вкладке. Бейдж выше показывает версию сервера,
+  // поэтому открытая со старым бандлом вкладка выглядела «новой» — сравниваем
+  // и подсвечиваем, что UI отстал.
+  const clientBuild = Number((CLIENT_STUDIO_VERSION.match(/(\d+)/) || [])[1] ?? 0);
+  const clientStale = server != null && clientBuild > 0 && server.build > clientBuild;
+  const reload = () => {
+    if (typeof window === "undefined") return;
+    window.location.reload();
+  };
+
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
+        onClick={clientStale ? reload : undefined}
         className={cn(
           "inline-flex items-center rounded border px-1.5 py-px font-mono text-[10px] leading-none tracking-normal normal-case",
-          uiStale || backendStale
+          clientStale || uiStale || backendStale
             ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
             : "border-border/60 bg-muted/40 text-muted-foreground",
+          clientStale && "cursor-pointer hover:bg-amber-500/20",
         )}
         title={
-          uiStale
-            ? `Старый UI в кэше (${CLIENT_STUDIO_VERSION}). Сервер: ${server?.label}. Ctrl+F5 или FIX-VERSION.cmd`
-            : server && server.pipeline_ok === false
-              ? `Python устарел: attach=${server.backend_attach}`
-              : `backend git=${backendGit || "?"} · UI ${server?.label ?? CLIENT_STUDIO_VERSION}`
+          clientStale
+            ? `Вкладка держит старый UI (${CLIENT_STUDIO_VERSION}), на сервере v${server?.build}. Нажми, чтобы обновить.`
+            : uiStale
+              ? `Старый UI в кэше (${CLIENT_STUDIO_VERSION}). Сервер: ${server?.label}. Ctrl+F5 или FIX-VERSION.cmd`
+              : server && server.pipeline_ok === false
+                ? `Python устарел: attach=${server.backend_attach}`
+                : `backend git=${backendGit || "?"} · UI ${server?.label ?? CLIENT_STUDIO_VERSION}`
         }
       >
         {displayLabel}
-        {uiStale ? " !" : null}
+        {uiStale || clientStale ? " !" : null}
       </span>
+      {clientStale ? (
+        <button
+          type="button"
+          onClick={reload}
+          className="fixed bottom-4 right-4 z-[400] inline-flex items-center gap-2 rounded-lg border border-amber-500/60 bg-amber-500/15 px-3 py-2 text-[12px] font-medium text-amber-200 shadow-lg backdrop-blur hover:bg-amber-500/25"
+          title={`В этой вкладке загружен UI ${CLIENT_STUDIO_VERSION}, сервер отдаёт v${server?.build}`}
+        >
+          Доступна новая версия UI — обновить
+        </button>
+      ) : null}
       {server?.vps_relay ? (
         <span
           className="inline-flex items-center rounded border border-blue-500/50 bg-blue-500/10 px-1.5 py-px font-mono text-[10px] leading-none text-blue-300"

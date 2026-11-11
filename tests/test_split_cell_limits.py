@@ -61,19 +61,12 @@ def test_split_not_succeeded_without_split_completed() -> None:
     assert _node_already_succeeded_for_project(p, nr) is True
 
 
-def test_no_auto_enforce_or_fail_closed_in_pipeline() -> None:
-    """Регресс #33: GPT → DB as-is; ни rewrite, ни reject по лимитам."""
+def test_split_pipeline_validates_configured_cell_limits() -> None:
+    """Параметры ноды должны попадать в контрактный repair, а fallback их учитывает."""
     runners = Path("app/services/xlsx_step_runners.py").read_text(encoding="utf-8")
-    frames = Path("app/orchestrator/steps/split_frames.py").read_text(encoding="utf-8")
     local = Path("app/services/voiceover_split_local.py").read_text(encoding="utf-8")
-    assert "enforce_split_cell_limits" not in runners
-    assert "enforce_split_cell_limits" not in frames
-    assert "assert_frames_spec_within_limits" not in runners
-    assert "assert_frames_spec_within_limits" not in local
-    assert "frames_spec_cell_stats" not in runners
-    assert "frames_spec_cell_stats" not in local
-    assert "split_cell_limits_from_project" not in runners
-    assert "local re-enforce" not in frames
-    assert "вне лимитов" not in local
-    assert "outside=" not in runners
-    assert "outside=" not in local
+    assert "split_cell_limits_from_project(project)" in runners
+    assert "короче минимальных" in runners
+    assert "превышают максимум" in runners
+    assert "target_len=target_len, min_chars=min_chars, max_chars=max_chars" in runners
+    assert "def split_voiceover_locally(" in local

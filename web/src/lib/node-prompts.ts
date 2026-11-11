@@ -81,8 +81,20 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   hero: [
-    { id: "main", title: "Промт персонажа", kind: "gpt", stepCode: "hero" },
-    { id: "style", title: "Стиль персонажа", kind: "gpt", stepCode: "hero_style" },
+    {
+      id: "main",
+      title: "Формат аватара",
+      kind: "gpt",
+      stepCode: "hero",
+      description: "Формат листа персонажа: turnaround / model sheet (16:9, белый фон, полный рост)",
+    },
+    {
+      id: "style",
+      title: "Стиль аватара",
+      kind: "gpt",
+      stepCode: "hero_style",
+      description: "Визуальный стиль: подмешивается к формату аватара при сборке промта",
+    },
   ],
   items: [
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },

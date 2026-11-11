@@ -43,6 +43,7 @@ from app.services.xlsx_step_runners import (
     clamp_parent_frames,
     img_pr_live_streams,
 )
+from app.services.voiceover_split_local import split_voiceover_locally
 from app.settings import settings
 from app.web.api import create_app
 from app.web.deps import get_session
@@ -190,6 +191,21 @@ def test_clamp_parent_frames_canonical_contract_keys() -> None:
 def test_clamp_parent_frames_edge_cases() -> None:
     assert clamp_parent_frames([]) == []
     assert clamp_parent_frames([{"закадр": "Один"}]) == [{"закадр": "Один"}]
+
+
+def test_split_voiceover_locally_respects_size_limits_and_preserves_text() -> None:
+    text = "Первое предложение достаточно длинное для кадра. Второе предложение также содержит подробное описание происходящего. Третье предложение завершает этот короткий пример."
+    blocks = split_voiceover_locally(text, target_len=55, min_chars=35, max_chars=70)
+    assert " ".join(blocks) == text
+    assert len(blocks) >= 2
+    assert all(35 <= len(block) <= 70 for block in blocks)
+
+
+def test_split_voiceover_locally_handles_sentence_longer_than_maximum() -> None:
+    text = "Это очень длинное предложение состоит из нескольких смысловых частей и должно быть поделено на куски не длиннее установленного максимума для кадра."
+    blocks = split_voiceover_locally(text, target_len=45, min_chars=20, max_chars=55)
+    assert " ".join(blocks) == text
+    assert all(len(block) <= 55 for block in blocks)
 
 
 def test_img_pr_live_streams_meta_override() -> None:

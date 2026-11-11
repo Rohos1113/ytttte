@@ -1251,10 +1251,11 @@ async def apply_ops(
             raise ApplyOpsError("для target=frame нужен frame_uuid")
         # Все кадры проекта — иначе near-miss не к чему привязать.
         frames = list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
-        by_uuid = {str(f.uuid or ""): f for f in frames}
-        # GPT часто пишет номер кадра ("78") вместо uuid — сначала remap по number.
+        active_frames = [fr for fr in frames if not db_v2.frame_is_archived(fr)]
+        by_uuid = {str(f.uuid or ""): f for f in active_frames}
+        # GPT часто пишет номер кадра ("78") вместо uuid — remap только по активным кадрам.
         by_number: dict[int, list[str]] = {}
-        for f in frames:
+        for f in active_frames:
             n = getattr(f, "number", None)
             if n is None:
                 continue

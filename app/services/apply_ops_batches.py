@@ -547,8 +547,12 @@ def _pending_frames(
     dense: bool,
     skip_if_field: str | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.db_v2 import frame_is_archived
+
     out: list[dict[str, Any]] = []
     for fr in frames:
+        if frame_is_archived(fr):
+            continue
         if not _has_uuid(fr):
             continue
         if not _has_voiceover(fr) and not skip_if_field:
@@ -567,8 +571,12 @@ def _kadry_pending_frames(
     force_full: bool = False,
 ) -> list[dict[str, Any]]:
     """Группа «Кадры»: шоты покрытия без своего закадра тоже идут в пачку."""
+    from app.services.db_v2 import frame_is_archived
+
     out: list[dict[str, Any]] = []
     for fr in frames:
+        if frame_is_archived(fr):
+            continue
         if not _has_uuid(fr):
             continue
         # Меню съёмки и промты нужны и молчаливому покрытию (K3/K4 без vo_shot).
@@ -3812,12 +3820,25 @@ async def _run_apply_ops_batched_main(
             apply_ops={"ops": [], "report": "already_filled"},
             applied_in_runner=True,
         )
+    # Ограничиваем каждый первый запрос; 1→2→4 остаётся страховкой на ошибку.
+    json_bytes = len(json.dumps({"frames": pending}, ensure_ascii=False).encode("utf-8"))
+    batch_size = frames_per_batch(
+        n_frames=len(pending),
+        json_bytes=json_bytes,
+        dense=dense,
+        skip_if_field=skip_if_field,
+        target_batches=_DENSE_TARGET_BATCHES,
+    )
+    packs = split_frames(pending, batch_size)
 
     logger.info(
-        "[#{}] apply_ops batched node={!r}: pending={} adaptive 1→2→4 dense={}",
+        "[#{}] apply_ops batched node={!r}: pending={} planned_packs={} pack_size={} json_bytes={} adaptive 1→2→4 on failure dense={}",
         project_id,
         node_key,
         len(pending),
+        len(packs),
+        batch_size,
+        json_bytes,
         dense,
     )
 
@@ -4016,7 +4037,8 @@ async def _run_apply_ops_batched_main(
         for part in split_in_half(missing):
             await _run_adaptive(part, nxt)
 
-    await _run_adaptive(pending, 1)
+    for pack in packs:
+        await _run_adaptive(pack, 1)
 
     ctx_path.write_text(
         json.dumps(db_ctx, ensure_ascii=False, indent=2),

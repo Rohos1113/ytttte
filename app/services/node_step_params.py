@@ -292,10 +292,17 @@ def build_split_db_hint(project: Project, vo_text: str | None = None) -> str:
         "Весь закадровый текст должен быть полностью сохранён в кадрах слово в слово без пропусков и изменений.",
     ]
 
+    if any(v is not None for v in (mn, mx, amn, amx)):
+        def_min, def_max, def_avg_min, def_avg_max = calculate_fallback_split_limits(project)
+        mn = mn if mn is not None else def_min
+        mx = mx if mx is not None else def_max
+        amn = amn if amn is not None else def_avg_min
+        amx = amx if amx is not None else def_avg_max
+
     has_custom_limits = any(v is not None for v in (mn, mx, amn, amx))
     if requested is not None:
         rules.append(f"В сценарии/настройках явно задано число кадров: строго сделай ровно {requested} кадров.")
-    elif has_custom_limits:
+    if has_custom_limits:
         limit_parts = []
         if mn is not None:
             limit_parts.append(f"минимум {mn} символов в кадре")
@@ -309,7 +316,9 @@ def build_split_db_hint(project: Project, vo_text: str | None = None) -> str:
             limit_parts.append(f"в среднем до {amx} символов на кадр")
         rules.append(
             f"СТРОГИЕ НАСТРОЙКИ РАЗБИВКИ ЯЧЕЕК: {', '.join(limit_parts)}. "
-            "Разбей весь закадровый текст строго в соответствии с этими лимитами."
+            "Для каждого кадра соблюдай минимум и максимум символов. Среднее значение длины всех кадров "
+            "должно находиться в указанном диапазоне. Не делай короткие кадры длинными только ради достижения среднего: "
+            "сохраняй смысловые границы и объединяй/дели текст естественно."
         )
     elif vo_len > 1500:
         approx_frames = max(10, round(vo_len / 70))

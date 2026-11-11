@@ -778,6 +778,17 @@ async def run_split_xlsx(
 
     requested = cc.requested_frame_count(project)
     max_allowed = resolve_max_split_frames(project, vo_text)
+    from app.services.node_step_params import split_cell_limits_from_project
+
+    min_chars, max_chars, avg_min, avg_max = split_cell_limits_from_project(project)
+    if any(value is None for value in (min_chars, max_chars, avg_min, avg_max)):
+        from app.services.node_step_params import calculate_fallback_split_limits
+
+        def_min, def_max, def_avg_min, def_avg_max = calculate_fallback_split_limits(project)
+        min_chars = min_chars if min_chars is not None else def_min
+        max_chars = max_chars if max_chars is not None else def_max
+        avg_min = avg_min if avg_min is not None else def_avg_min
+        avg_max = avg_max if avg_max is not None else def_avg_max
     concat_ok: dict[str, Any] = {}
 
     def _validate(payload: Any) -> list[str]:
@@ -785,7 +796,27 @@ async def run_split_xlsx(
         problems = cc.split_contract_problems(vo_text, frames)
         if problems:
             return problems
-        n = len(clamp_parent_frames(frames, max_frames=max_allowed))
+        lengths = [len(str(item.get("закадр") or item.get("voiceover_text") or "").strip()) for item in frames]
+        nonempty_lengths = [length for length in lengths if length]
+        if min_chars is not None:
+            short = [i + 1 for i, length in enumerate(lengths) if 0 < length < min_chars]
+            if short:
+                problems.append(f"кадры {short[:12]} короче минимальных {min_chars} символов: объедини соседние фразы")
+        if max_chars is not None:
+            long = [i + 1 for i, length in enumerate(lengths) if length > max_chars]
+            if long:
+                problems.append(f"кадры {long[:12]} превышают максимум {max_chars} символов: раздели по смысловым границам")
+        if nonempty_lengths and (avg_min is not None or avg_max is not None):
+            mean = sum(nonempty_lengths) / len(nonempty_lengths)
+            if avg_min is not None and mean < avg_min:
+                problems.append(f"средняя длина кадра {mean:.1f}, ниже минимума {avg_min}: объединяй фразы разумно")
+            if avg_max is not None and mean > avg_max:
+                problems.append(f"средняя длина кадра {mean:.1f}, выше максимума {avg_max}: раздели длинные фразы")
+        if problems:
+            return problems
+        if max_allowed < len(frames):
+            return [f"кадров {len(frames)}, допустимый предел {max_allowed}: объедини соседние кадры без изменения текста"]
+        n = len(frames)
         if requested is not None and n != requested:
             concat_ok["frames"] = frames
             return [f"кадров {n}, а в сценарии просили ровно {requested}: соедини или раздели соседние фразы"]
@@ -816,7 +847,16 @@ async def run_split_xlsx(
                 degraded=False,
                 max_frames=max_allowed,
             )
-        blocks = split_voiceover_locally(vo_text)
+        from app.services.node_step_params import calculate_fallback_split_limits, split_cell_limits_from_project
+
+        min_chars, max_chars, avg_min, avg_max = split_cell_limits_from_project(project)
+        default_min, default_max, default_avg_min, default_avg_max = calculate_fallback_split_limits(project)
+        min_chars = min_chars if min_chars is not None else default_min
+        max_chars = max_chars if max_chars is not None else default_max
+        avg_min = avg_min if avg_min is not None else default_avg_min
+        avg_max = avg_max if avg_max is not None else default_avg_max
+        target_len = round((avg_min + avg_max) / 2) if avg_min and avg_max else round((min_chars + max_chars) / 2)
+        blocks = split_voiceover_locally(vo_text, target_len=target_len, min_chars=min_chars, max_chars=max_chars)
         blocks = [b.strip() for b in blocks if b.strip()]
         if len(blocks) < 2:
             raise

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 MAX_FRAMES = 80
 MAX_QUEUE_OPS = 40
@@ -296,10 +296,17 @@ def publish_facts(project: Any) -> dict:
 
 async def build_facts(s, project: Any, project_id: int, selected_frame: int | None) -> dict:
     from app.models import Frame, WorkflowRun
+    from app.services.db_v2 import ARCHIVE_NUMBER_FROM
 
     status = str(getattr(project.status, "value", project.status))
-    count = await s.scalar(select(func.count(Frame.id)).where(Frame.project_id == project_id))
-    max_no = await s.scalar(select(func.max(Frame.number)).where(Frame.project_id == project_id))
+    archived_attr = Frame.attrs["archived"].as_boolean()
+    live_filter = (Frame.number < ARCHIVE_NUMBER_FROM) & archived_attr.is_not(True)
+    count = await s.scalar(
+        select(func.count(Frame.id)).where(Frame.project_id == project_id, live_filter)
+    )
+    max_no = await s.scalar(
+        select(func.max(Frame.number)).where(Frame.project_id == project_id, live_filter)
+    )
     run = await s.scalar(select(WorkflowRun).where(WorkflowRun.project_id == project_id))
     facts: dict = {
         "status": status,
@@ -310,7 +317,7 @@ async def build_facts(s, project: Any, project_id: int, selected_frame: int | No
     frames = (
         await s.execute(
             select(Frame.number, Frame.id, Frame.attrs, Frame.uuid, Frame.sort_key)
-            .where(Frame.project_id == project_id)
+            .where(Frame.project_id == project_id, live_filter)
             .order_by(Frame.sort_key.asc(), Frame.number.asc())
         )
     ).all()

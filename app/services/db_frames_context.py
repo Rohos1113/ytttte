@@ -739,7 +739,11 @@ def build_img_pr_db_context(
         parse_coverage_shot,
     )
 
-    universe = list(all_frames) if all_frames is not None else list(frames)
+    from app.services.db_v2 import frame_is_archived
+
+    frames = [fr for fr in frames if not frame_is_archived(fr)]
+    source_universe = all_frames if all_frames is not None else frames
+    universe = [fr for fr in source_universe if not frame_is_archived(fr)]
     frame_rows: list[dict[str, Any]] = []
     for fr in frames:
         uuid = getattr(fr, "uuid", None) or ""

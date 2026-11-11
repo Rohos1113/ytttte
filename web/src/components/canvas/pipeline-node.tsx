@@ -44,7 +44,6 @@ import { StoragePanel } from "./storage-panel";
 import { StyleExtractPanel } from "./style-extract-panel";
 import { HitlStylePanel } from "./hitl-style-panel";
 import { ShotsReportPanel } from "./shots-report-panel";
-import { HeroConfigPanel } from "./hero-config-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
 import { AssembleMontageTrigger } from "./assemble-montage-board";
 import { ShotMenuPanel, ShotMenuTrigger } from "./shot-menu-panel";

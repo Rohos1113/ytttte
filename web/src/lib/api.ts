@@ -2978,17 +2978,56 @@ export const api = {
   listProjectAssets: (projectId: number, kind = "all") =>
     http<ProjectAsset[]>(`/api/projects/${projectId}/assets?kind=${kind}`),
 
-  replaceHeroImage: async (projectId: number, file: File, replacePath?: string) => {
+  replaceHeroImage: async (
+    projectId: number,
+    file: File,
+    replacePath?: string,
+    code?: string,
+    itemIndex?: number,
+  ) => {
     const fd = new FormData();
     fd.append("file", file);
-    const q = replacePath ? `?replace_path=${encodeURIComponent(replacePath)}` : "";
-    const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q}`, {
+    const qs = new URLSearchParams();
+    if (replacePath) qs.set("replace_path", replacePath);
+    if (code) qs.set("code", code);
+    if (itemIndex) qs.set("item_index", String(itemIndex));
+    const q = qs.toString();
+    const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q ? `?${q}` : ""}`, {
       method: "POST",
       body: fd,
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ path: string; preview_url: string; id: string }>;
   },
+
+  regenerateItem: (projectId: number, index: number) =>
+    http<{ ok: boolean; index: number; removed_artifacts: number; removed_files: string[] }>(
+      `/api/projects/${projectId}/items/${index}/regenerate`,
+      { method: "POST" },
+    ),
+
+  regenerateHeroCharacter: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      hero_index: number;
+      excel_mode: boolean;
+      removed_artifacts: number;
+      removed_files: string[];
+    }>(`/api/projects/${projectId}/hero/characters/${encodeURIComponent(code)}/regenerate`, {
+      method: "POST",
+    }),
+
+  deleteHeroCharacter: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      removed_entities: number;
+      removed_artifacts: number;
+      removed_files: string[];
+    }>(`/api/projects/${projectId}/hero/characters/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    }),
 
   listMediaReview: (projectId: number, kind: "images" | "videos") =>
     http<
@@ -3018,6 +3057,20 @@ export const api = {
     const q = qs.toString();
     return http<PromptFileInfo[]>(
       `/api/prompt-files/${stepCode}${q ? `?${q}` : ""}`,
+    );
+  },
+  /** Какой файл шага реально возьмёт проект (с учётом слота ноды). */
+  resolvePromptFile: (
+    stepCode: string,
+    opts?: { projectId?: number; nodeKey?: string; slotId?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.projectId) qs.set("project_id", String(opts.projectId));
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    if (opts?.slotId) qs.set("slot_id", opts.slotId);
+    const q = qs.toString();
+    return http<{ name: string; source: string; source_label: string; modified: number | null }>(
+      `/api/prompt-files/${stepCode}/resolve${q ? `?${q}` : ""}`,
     );
   },
   getPromptFile: (

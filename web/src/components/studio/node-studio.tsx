@@ -22,7 +22,6 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Copy as CopyIcon, Play as PlayIcon, X as XIcon, Loader2 as SpinIcon, Maximize2 as OpenIcon } from "lucide-react";
-import { NodeModelPicker } from "@/components/canvas/node-model-picker";
 
 import { isTextNodeType } from "@/lib/node-model-catalog";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -52,11 +51,9 @@ import {
 } from "@/lib/excel-gpt-config";
 import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-panel";
 import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
-import { HeroConfigPanel } from "@/components/canvas/hero-config-panel";
 import { Nii67CardPanel } from "@/components/canvas/nii67-card-panel";
 import { projectUsesNii67Script } from "@/lib/nii67";
 /** Steps that never call a text LLM (pure FFmpeg / TTS / SFX / upload) or have no model (topic). */
-const NO_LLM_NODE_TYPES = new Set(["topic", "assemble", "audio", "publish", "sfx_gen"]);
 import { CheckNodePromptPanel } from "@/components/studio/check-node-prompt-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -83,12 +80,12 @@ import { FramePromptsPanel } from "@/components/studio/frame-prompts-panel";
 import { NodeResultViewBody } from "@/components/canvas/node-result-views";
 import { resolveNodeResult } from "@/lib/node-result-resolver";
 import type { FrameDTO } from "@/lib/types";
-import { NodeStepParamsPanel, StreamsPicker } from "@/components/studio/node-step-params-panel";
-import { NodePromptBlock } from "@/components/studio/node-prompt-block";
+import { NodeStepParamsPanel } from "@/components/studio/node-step-params-panel";
+import { NodeDescriptionEditor, NodePromptBlock } from "@/components/studio/node-prompt-block";
 import { NodeStyleVars } from "@/components/studio/node-style-vars";
-const STREAM_NODE_TYPES = new Set(["images", "videos", "hero"]);
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
+import { NodePromptTexts, promptTextSlotsFor } from "@/components/studio/node-prompt-texts";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import { GptTextPanel } from "@/components/studio/gpt-text-panel";
 import { ResultAudioCard } from "@/components/canvas/custom-audio-player";
@@ -342,6 +339,17 @@ export function NodeStudio({
     null;
 
   const activeStepCode = slotStepCode(activeSlot, stepCode);
+
+  // Ноды с несколькими мастер-промтами (Персонажи: формат аватара + стиль
+  // аватара) переключаются кнопками прямо в каталоге промтов.
+  const catalogStepTabs = useMemo(() => {
+    const tabs = pipelineSlots.filter(
+      (s) => s.kind === "gpt" && s.stepCode && !s.stepCode.startsWith("excel_gpt"),
+    );
+    if (tabs.length < 2) return [];
+    const current = activeSlot?.id ?? tabs[0].id;
+    return tabs.map((s) => ({ id: s.id, title: s.title, active: s.id === current }));
+  }, [pipelineSlots, activeSlot?.id]);
   const promptStepCode =
     isExcelGptNode(nodeType) && activeSlot?.kind === "gpt"
       ? EXCEL_GPT_STEP_CODE
@@ -508,8 +516,13 @@ export function NodeStudio({
     if (nodeType.includes("video") || nodeType === "videos") {
       return list.filter((a) => a.kind.includes("video"));
     }
-    if (nodeType === "hero" || nodeType === "items") {
-      return list.filter((a) => a.kind.includes("hero") || a.kind.includes("item"));
+    if (nodeType === "hero") {
+      return list.filter((a) => a.kind.includes("hero"));
+    }
+    if (nodeType === "items") {
+      // В предметах — только предметы. Раньше сюда подмешивались hero-артефакты,
+      // и в результатах ноды показывались персонажи.
+      return list.filter((a) => a.kind.includes("item"));
     }
     if (nodeType === "audio" || nodeType === "music") {
       return list.filter((a) => a.kind.includes("audio") || a.kind.includes("music"));
@@ -850,9 +863,7 @@ export function NodeStudio({
             <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
               <span className="truncate flex items-center gap-2">
                 <span>
-                  {hasPrompts
-                    ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
-                    : (excelConfig.label?.trim() || spec.label)}
+                  {excelConfig.label?.trim() || spec.label}
                 </span>
                 {nodeType === "publish" && (
                   <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-500/40">
@@ -943,24 +954,6 @@ export function NodeStudio({
                 ) : null}
               </div>
             ) : null}
-            {!NO_LLM_NODE_TYPES.has(nodeType) ? (
-            <div className="flex items-center gap-3 rounded-[10px] border border-white/[0.06] px-4 py-3">
-              <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Модель</span>
-              <div className="min-w-0 font-mono text-[12px] [&_*]:!font-mono [&_*]:!text-[12px]">
-                  <NodeModelPicker
-                    nodeKey={nodeKey}
-                    nodeType={nodeType}
-                    modelId={liveNodeData?.modelId}
-                    imageResolution={liveNodeData?.imageResolution || project.data?.image_resolution || undefined}
-                    imageQuality={liveNodeData?.imageQuality || project.data?.image_quality || undefined}
-                    aspectRatio={liveNodeData?.aspectRatio || project.data?.aspect_ratio || undefined}
-                    reasoningEffort={liveNodeData?.reasoningEffort}
-                  />
-                </div>
-              <span className="flex-1" />
-              {STREAM_NODE_TYPES.has(nodeType) && projectId ? <StreamsPicker projectId={projectId} /> : null}
-            </div>
-            ) : null}
             {hasSettings ? (
               <div className="flex flex-col gap-3 text-[14px] text-white/85">
                 {isExcelGptNode(nodeType) && projectId ? (
@@ -968,7 +961,6 @@ export function NodeStudio({
                 ) : null}
                 {showStepParams ? <NodeStepParamsPanel projectId={projectId!} nodeType={nodeType} /> : null}
                 {nodeType === "items" && projectId ? <ItemsConfigPanel projectId={projectId} /> : null}
-                {nodeType === "hero" && projectId ? <HeroConfigPanel projectId={projectId} /> : null}
                 {nodeType === "script" && projectId && projectUsesNii67Script(project.data ?? null) ? <Nii67CardPanel projectId={projectId} /> : null}
                 {nodeType === "sfx_plan" && projectId ? <SfxPlanSettingsPanel projectId={projectId} /> : null}
                 {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? <SfxGenSettingsPanel projectId={projectId} /> : null}
@@ -990,10 +982,14 @@ export function NodeStudio({
                 ) : null}
               </div>
             ) : null}
+            <NodeDescriptionEditor key={nodeKey} nodeKey={nodeKey} description={liveNodeData?.description || spec.description || ""} />
+            {promptTextSlotsFor(nodeType).length > 0 && projectId && nodeKey ? (
+              <NodePromptTexts projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
+            ) : null}
             {promptStepCode && projectId && nodeKey ? (
               <NodeStyleVars projectId={projectId} stepCode={promptStepCode} nodeKey={nodeKey} slotId={activeSlot?.id} activeVariant={activeVariant ? String(activeVariant) : undefined} />
             ) : null}
-            {showFilesPanel && promptStepCode ? (
+            {showFilesPanel && promptStepCode && promptTextSlotsFor(nodeType).length === 0 ? (
               <NodePromptBlock
                 stepCode={promptStepCode}
                 activeVariant={activeVariant ? String(activeVariant) : undefined}
@@ -1024,7 +1020,14 @@ export function NodeStudio({
           <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
-                  {inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0 || inlineResult.viewMode === "voiceover_wide" || inlineResult.viewMode === "topic_edit") ? (
+                  {(nodeType === "hero" || nodeType === "items") && projectId ? (
+                    <NodeResultViewBody
+                      projectId={projectId}
+                      nodeKey={nodeKey}
+                      nodeType={nodeType}
+                      snapshot={inlineResult ?? { hasResult: false, itemCount: 0, summary: "", items: [], replaceMode: "studio", viewMode: "frame_images" }}
+                    />
+                  ) : inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0 || inlineResult.viewMode === "voiceover_wide" || inlineResult.viewMode === "topic_edit") ? (
                     <NodeResultViewBody
                       projectId={projectId!}
                       nodeKey={nodeKey}
@@ -1125,7 +1128,14 @@ export function NodeStudio({
                 activeVariantSourceLabel={activeVariantSourceLabel}
                 onActivateVariant={(variant) => activateVariant.mutate(variant)}
                 activating={activateVariant.isPending}
-                catalogPanel={{ nodeKey, embedded: true, onOpenSettings: () => setTab("settings"), onClose: () => requestClose() }}
+                catalogPanel={{
+                  nodeKey,
+                  embedded: true,
+                  onOpenSettings: () => setTab("settings"),
+                  onClose: () => requestClose(),
+                  stepTabs: catalogStepTabs,
+                  onStepTab: (id) => setActiveSlotId(id),
+                }}
               />
             ) : (
               <p className="p-4 text-[13px] text-white/50">У этой ноды нет каталога промтов.</p>

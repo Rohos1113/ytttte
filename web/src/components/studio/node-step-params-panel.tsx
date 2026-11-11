@@ -881,14 +881,6 @@ export function NodeStepParamsPanel({
           saving={save.isPending}
         />
       ) : null}
-      {false && (step === "images" || step === "videos") ? (
-        <MediaStreamsFields
-          metaRecord={metaRecord}
-          onSave={persistMeta}
-          saving={save.isPending}
-          nodeType={step as "images" | "videos"}
-        />
-      ) : null}
     </div>
   );
 }

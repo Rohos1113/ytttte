@@ -452,7 +452,12 @@ function computeNodeResult(
     }
 
     case "items": {
-      const itemAssets = ctx.assets.filter((a) => a.kind.includes("item") || a.path?.includes("item"));
+      // Только предметы: kind item_* или файл в папке items/objects. Подстрочный
+      // `includes("item")` ловил лишнее (например, путь со словом в имени
+      // проекта), из-за чего в результатах предметов мелькали персонажи.
+      const isItemAsset = (a: ProjectAsset) =>
+        a.kind.includes("item") || /[/\\](items|objects)[/\\]/i.test(a.path ?? "");
+      const itemAssets = ctx.assets.filter(isItemAsset);
       const rawItems = dedupeResultItems([
         ...artifactItems(arts.filter((a) => a.kind.includes("item"))),
         ...assetItems(itemAssets),
