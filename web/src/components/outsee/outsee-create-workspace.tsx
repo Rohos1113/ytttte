@@ -3333,6 +3333,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         setModelOpen(false);
                       }}
                       aria-pressed={active}
+                      data-media-type={t.id}
                       className={cn(
                         "flex min-w-[76px] flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 transition-all duration-200",
                         active
@@ -4120,7 +4121,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 )}
 
                 <div className="flex flex-wrap items-end gap-2 border-t border-white/[0.08] px-3 py-2.5 lg:px-4">
-                  <div className="relative" ref={modelRef}>
+                  <div className="relative" ref={modelRef} data-model-anchor="true">
                     <ChipButton
                       active={modelOpen}
                       onClick={() => {
