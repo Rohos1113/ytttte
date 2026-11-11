@@ -1852,7 +1852,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         await run_plan_cinema_node(
             session, project, node_key=str(node_key), slot_idx=slot_idx
         )
-        return    prompt_step_code = EXCEL_GPT_STEP_CODE
+        return
+    prompt_step_code = EXCEL_GPT_STEP_CODE
     # Слот «main» в Node Studio → meta.prompt_slot_variants[node_key]["main"].
     # Без node_key все excel_gpt брали один prompt_overrides["excel_gpt"].
     prompt_slot_id = "main"
