@@ -122,19 +122,50 @@ async def get_credits() -> float | None:
 
 
 async def upload_file(content: bytes, filename: str, *, upload_path: str = "images/studio-create") -> str:
-    """Файл → публичный URL kie (tempfile.redpandaai.co, живёт ~3 суток)."""
+    """Файл → публичный URL kie (tempfile.redpandaai.co, живёт ~3 суток).
+
+    Kie обрывает соединение на крупных файлах и под нагрузкой (httpx.ReadError:
+    «сервер закрыл соединение, не дочитав ответ»). Транспортный обрыв лечится
+    повтором, поэтому три попытки с нарастающей паузой; после них — понятная
+    ошибка вместо голого ReadError.
+    """
     url = f"{settings.kie_upload_base_url.rstrip('/')}{_UPLOAD_PATH}"
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        r = await client.post(
-            url,
-            headers=_auth_headers(),
-            files={"file": (filename, content)},
-            data={"uploadPath": upload_path, "fileName": filename},
-        )
+    r: httpx.Response | None = None
+    last_exc: Exception | None = None
+    for attempt in (1, 2, 3):
         try:
-            payload = r.json()
-        except Exception:  # noqa: BLE001
-            payload = {"msg": (r.text or "")[:300], "code": r.status_code}
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                r = await client.post(
+                    url,
+                    headers=_auth_headers(),
+                    files={"file": (filename, content)},
+                    data={"uploadPath": upload_path, "fileName": filename},
+                )
+            last_exc = None
+            break
+        except httpx.TransportError as e:
+            last_exc = e
+            logger.warning(
+                "kie upload attempt {}/3 failed for {} ({} KiB): {}",
+                attempt,
+                filename,
+                max(1, len(content) // 1024),
+                type(e).__name__,
+            )
+            if attempt < 3:
+                await asyncio.sleep(1.5 * attempt)
+    if last_exc is not None or r is None:
+        raise KieHttpError(
+            "Kie оборвал загрузку файла "
+            f"({type(last_exc).__name__ if last_exc else 'нет ответа'}); "
+            f"файл {max(1, len(content) // 1024)} КБ не принят — попробуй ещё раз "
+            "или загрузи файл меньшего размера",
+            context={"provider_code": 502},
+        ) from last_exc
+    try:
+        payload = r.json()
+    except Exception:  # noqa: BLE001
+        payload = {"msg": (r.text or "")[:300], "code": r.status_code}
     data = _check(payload, http_status=r.status_code, where="upload")
     inner: dict[str, Any] = {}
     raw_inner = data.get("data")

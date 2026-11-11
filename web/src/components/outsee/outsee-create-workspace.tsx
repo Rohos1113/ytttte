@@ -86,7 +86,6 @@ import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
 import { AudioTagsBar } from "./audio-tags-bar";
 import {
   MentionMenu,
-  ModelPreviewRow,
   RefCategory,
   SeedanceDock,
   framesFromKieValues,
@@ -118,6 +117,34 @@ function isSeedanceModel(m: KieModelSpec | null): boolean {
 
 /** Поля Seedance, которые рисует SeedanceDock, — из общего списка чипов их убираем. */
 const SEEDANCE_DOCK_FIELDS = new Set(["aspect_ratio", "resolution", "duration", "generate_audio"]);
+
+/**
+ * Крупные PNG Kie рвёт на загрузке (ReadError). Перед отправкой ужимаем фото
+ * в браузере: максимум 2048 px по длинной стороне, JPEG вместо PNG.
+ */
+async function shrinkImageForUpload(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= 1.5 * 1024 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.9),
+    );
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
 
 function refKindOfField(f: KieField): RefKind {
   return f.kind === "videos" ? "video" : f.kind === "audios" ? "audio" : "image";
@@ -1221,6 +1248,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const seedanceIsKie = mediaType === "video" && kieActive && isSeedanceModel(kieModel);
 
   const kieFileFieldList = useMemo(() => (kieModel ? kieFileFields(kieModel) : []), [kieModel]);
+  /** Плиточный док в новом дизайне — для любой KIE-модели, у которой есть слоты файлов. */
+  const kieTilesActive = Boolean(kieActive && kieFileFieldList.length > 0);
   const omniRefFields = useMemo(
     () => kieFileFieldList.filter((f) => !KIE_FRAME_FIELDS.has(f.name)),
     [kieFileFieldList],
@@ -1246,6 +1275,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
    */
   const mentionRefs = useMemo<GenRef[]>(() => {
     if (seedanceIsKie) return seedanceRefs;
+    if (kieTilesActive) return [...omniRefs, ...frameRefs];
     const legacy: GenRef[] = [];
     if (firstFrameDataUrl) {
       legacy.push({
@@ -1284,6 +1314,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   }, [
     seedanceIsKie,
     seedanceRefs,
+    kieTilesActive,
+    omniRefs,
+    frameRefs,
     firstFrameDataUrl,
     firstFrameName,
     lastFrameDataUrl,
@@ -1311,6 +1344,23 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     const options = resField.options || [];
     const next = preset === "fast" ? "480p" : options.includes("720p") ? "720p" : options[0];
     if (next) handleKieValueChange("resolution", next);
+  };
+
+  /** Сброс параметров панели «Параметры» к дефолтам модели. */
+  const resetSeedanceParams = () => {
+    const defaults: [string, unknown][] = [];
+    for (const name of ["aspect_ratio", "resolution", "duration", "generate_audio"]) {
+      const f = kieModel?.fields.find((x) => x.name === name);
+      if (f?.default !== undefined) defaults.push([name, f.default]);
+    }
+    if (defaults.length === 0) return;
+    setKieValues((prev) => {
+      const next = { ...prev };
+      for (const [name, value] of defaults) next[name] = value;
+      return next;
+    });
+    const resDefault = String(kieModel?.fields.find((x) => x.name === "resolution")?.default ?? "");
+    setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
   };
 
   const switchSeedanceMode = (mode: "omni" | "frames") => {
@@ -1350,7 +1400,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     setRefBusyField(field.name);
     try {
       for (const f of batch) {
-        const uploaded = await api.kieUpload(f);
+        const prepared = await shrinkImageForUpload(f);
+        const uploaded = await api.kieUpload(prepared);
         urls.push(uploaded.url);
         names.push(f.name);
       }
@@ -3382,7 +3433,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   </div>
                 )}
                 {/* Seedance (KIE): плитки референсов по категориям (фото / видео / аудио) */}
-                {seedanceIsKie && (
+                {kieTilesActive && (
                   <div className="flex flex-wrap items-start gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
                     <input
                       ref={refFileInputRef}
@@ -3396,28 +3447,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         void uploadRefFiles(field, files);
                       }}
                     />
-                    {seedanceMode === "omni" ? (
-                      <>
-                        {omniRefFields.map((f) => (
-                          <RefCategory
-                            key={f.name}
-                            kind={refKindOfField(f)}
-                            items={omniRefs.filter((r) => r.field === f.name)}
-                            max={f.max_items ?? 0}
-                            busy={refBusyField === f.name}
-                            onAddClick={() => pickRefFiles(f)}
-                            onAddFiles={(files) => void uploadRefFiles(f, files)}
-                            onRemove={removeRef}
-                            onPreview={setRefPreview}
-                          />
-                        ))}
-                        {omniRefFields.length === 0 && (
-                          <span className="text-[10px] text-white/40">
-                            У этой модели нет слотов под референсы
-                          </span>
-                        )}
-                      </>
-                    ) : (
+                    {seedanceIsKie && seedanceMode === "frames" ? (
+                      /* Первый+Последний: только два слота, без номеров */
                       <>
                         {frameRefFields.map((f) => {
                           const isLast = f.name.startsWith("last");
@@ -3429,7 +3460,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               items={frameRefs.filter((r) => r.field === f.name)}
                               max={f.max_items ?? 1}
                               busy={refBusyField === f.name}
-                              labels={() => (isLast ? "Финиш" : "Старт")}
+                              showNumber={false}
+                              showCount={false}
                               onAddClick={() => pickRefFiles(f)}
                               onAddFiles={(files) => void uploadRefFiles(f, files)}
                               onRemove={removeRef}
@@ -3438,16 +3470,62 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           );
                         })}
                       </>
+                    ) : (
+                      <>
+                        {omniRefFields.map((f) => {
+                          const kind = refKindOfField(f);
+                          return (
+                            <RefCategory
+                              key={f.name}
+                              kind={kind}
+                              items={omniRefs.filter((r) => r.field === f.name)}
+                              max={f.max_items ?? 0}
+                              showCount={kind !== "audio"}
+                              busy={refBusyField === f.name}
+                              onAddClick={() => pickRefFiles(f)}
+                              onAddFiles={(files) => void uploadRefFiles(f, files)}
+                              onRemove={removeRef}
+                              onPreview={setRefPreview}
+                            />
+                          );
+                        })}
+                        {/* Кадры у не-Seedance моделей: отдельные подписанные слоты */}
+                        {!seedanceIsKie &&
+                          frameRefFields.map((f) => {
+                            const isLast = f.name.startsWith("last");
+                            return (
+                              <RefCategory
+                                key={f.name}
+                                kind="image"
+                                addLabel={isLast ? "Последний кадр" : "Первый кадр"}
+                                items={frameRefs.filter((r) => r.field === f.name)}
+                                max={f.max_items ?? 1}
+                                busy={refBusyField === f.name}
+                                showNumber={false}
+                                showCount={false}
+                                onAddClick={() => pickRefFiles(f)}
+                                onAddFiles={(files) => void uploadRefFiles(f, files)}
+                                onRemove={removeRef}
+                                onPreview={setRefPreview}
+                              />
+                            );
+                          })}
+                        {omniRefFields.length === 0 && frameRefFields.length === 0 && (
+                          <span className="text-[10px] text-white/40">
+                            У этой модели нет слотов под референсы
+                          </span>
+                        )}
+                      </>
                     )}
                     <span className="self-center text-[10px] text-white/35">
-                      {seedanceMode === "omni"
-                        ? "фото, видео и аудио · в промте — @имя референса"
-                        : "только старт и финиш · референсы скрыты"}
+                      {seedanceIsKie && seedanceMode === "frames"
+                        ? "только старт и финиш · референсы скрыты"
+                        : "фото, видео и аудио · в промте — @имя референса"}
                     </span>
                   </div>
                 )}
-                {/* Унифицированная зона вложений и референсов (Outsee + KIE) */}
-                {!seedanceIsKie && ((mediaType === "video" &&
+                {/* Унифицированная зона вложений и референсов (Outsee) */}
+                {!kieTilesActive && ((mediaType === "video" &&
                   (videoCapabilities.supportsFirst ||
                     videoCapabilities.supportsLast ||
                     videoCapabilities.supportsRefs)) ||
@@ -3592,7 +3670,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     )}
 
                     {/* Мульти-референсы (Фото или Видео с поддержкой reference images) */}
-                    {!seedanceIsKie && maxReferences > 0 && (
+                    {!kieTilesActive && maxReferences > 0 && (
                       <>
                         <input
                           ref={multiRefInputRef}
@@ -4073,6 +4151,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       fields={kieModel.fields}
                       values={kieValues}
                       onChange={handleKieValueChange}
+                      onReset={resetSeedanceParams}
                       mode={seedanceMode}
                       onMode={switchSeedanceMode}
                       preset={seedancePreset}
@@ -5060,6 +5139,33 @@ function AudioActionIcon({ type }: { type: AudioActionSpec["iconType"] }) {
   }
 }
 
+/** Бренды моделей для группировки в пикере: id, отображаемое имя, шаблон по slug/названию. */
+const BRAND_RULES: { id: string; name: string; match: RegExp }[] = [
+  { id: "seedance", name: "Seedance", match: /seedance|bytedance|doubao/i },
+  { id: "google", name: "Google", match: /veo|nano-?banana|imagen|gemini/i },
+  { id: "kling", name: "Kling", match: /kling/i },
+  { id: "minimax", name: "MiniMax", match: /hailuo|minimax|video-01/i },
+  { id: "wan", name: "Wan", match: /\bwan\b|alibaba|qwen/i },
+  { id: "openai", name: "OpenAI", match: /sora|gpt-image|dall/i },
+  { id: "runway", name: "Runway", match: /runway/i },
+  { id: "luma", name: "Luma", match: /luma|\bray/i },
+  { id: "bfl", name: "Black Forest Labs", match: /flux/i },
+  { id: "midjourney", name: "Midjourney", match: /midjourney/i },
+  { id: "ideogram", name: "Ideogram", match: /ideogram/i },
+  { id: "recraft", name: "Recraft", match: /recraft/i },
+  { id: "pika", name: "Pika", match: /pika/i },
+  { id: "heygen", name: "HeyGen", match: /heygen/i },
+  { id: "topaz", name: "Topaz", match: /topaz/i },
+];
+
+/** «1 модель / 2 модели / 5 моделей» — подпись счётчика в списке брендов. */
+function countModelsLabel(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "модель";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "модели";
+  return "моделей";
+}
 function ModelPickerPopover({
   mediaType,
   selectedSlug,
@@ -5210,80 +5316,90 @@ function ModelPickerPopover({
 
   const totalCount = unifiedItems.length;
 
-  // ---- правая панель предпросмотра: меняется на наведение другой модели ----
-  const previewItem =
-    unifiedItems.find((i) => i.slug === (hoverSlug || selectedSlug)) ?? unifiedItems[0] ?? null;
-  const previewKie =
-    previewItem && previewItem.isKie
-      ? (kieModels.find((m) => `kie:${m.id}` === previewItem.slug) ?? null)
-      : null;
-  const previewBase =
-    previewItem && !previewItem.isKie
-      ? (models.find((m) => m.slug === previewItem.slug) ?? null)
-      : null;
-  const previewRefCount = (kind: "images" | "videos" | "audios"): number =>
-    previewKie?.fields.find((f) => f.kind === kind && !KIE_FRAME_FIELDS.has(f.name))?.max_items ?? 0;
-  const previewKieField = (name: string) => previewKie?.fields.find((f) => f.name === name) ?? null;
-  const previewBaseDefaults = (previewBase?.defaults ?? {}) as Record<string, unknown>;
+  // ---- модели, сгруппированные по брендам (как в эталоне) ----
+  const brandOf = (item: (typeof unifiedItems)[number]): { id: string; name: string } => {
+    const hay = `${item.slug} ${item.label}`.toLowerCase();
+    const rule = BRAND_RULES.find((r) => r.match.test(hay));
+    return rule ? { id: rule.id, name: rule.name } : { id: "other", name: "Другие" };
+  };
 
-  const renderCard = (item: (typeof unifiedItems)[0]) => {
+  const brandGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; items: (typeof unifiedItems)[number][]; tops: number }
+    >();
+    for (const item of unifiedItems) {
+      const brand = brandOf(item);
+      const group = map.get(brand.id) ?? { ...brand, items: [], tops: 0 };
+      group.items.push(item);
+      if (item.isTop) group.tops += 1;
+      map.set(brand.id, group);
+    }
+    return [...map.values()].sort((a, b) => b.tops - a.tops || b.items.length - a.items.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unifiedItems]);
+
+  const selectedBrandId = useMemo(() => {
+    const sel = unifiedItems.find((i) => i.slug === selectedSlug);
+    return sel ? brandOf(sel).id : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unifiedItems, selectedSlug]);
+
+  const [hoverBrandId, setHoverBrandId] = useState<string | null>(null);
+  const [openBrandId, setOpenBrandId] = useState<string | null>(null);
+  const activeBrand =
+    brandGroups.find((b) => b.id === (hoverBrandId ?? openBrandId ?? selectedBrandId)) ?? brandGroups[0] ?? null;
+
+  const renderModelRow = (item: (typeof unifiedItems)[number]) => {
     const active = item.slug === selectedSlug;
-    const isTopCard = item.isTop;
+    const priceText =
+      item.priceUsd !== null && item.priceUsd !== undefined
+        ? `от $${item.priceUsd.toFixed(2)}`
+        : item.priceLabel
+          ? `от ${item.priceLabel}`
+          : null;
     return (
       <button
         key={item.slug}
         type="button"
         onClick={() => onSelect(item.slug)}
-        onMouseEnter={() => setHoverSlug(item.slug)}
-        onFocus={() => setHoverSlug(item.slug)}
         className={cn(
-          "group relative flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200",
+          "group flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition",
           active
-            ? isTopCard
-              ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-white shadow-[0_0_22px_rgba(45,212,191,0.25)] ring-1 ring-[#2dd4bf]/50"
-              : "border-[#5eead4] bg-[#5eead4]/10 text-white shadow-[0_0_20px_rgba(94,234,212,0.2)]"
-            : isTopCard
-              ? "border-[#2dd4bf]/25 bg-[#2dd4bf]/[0.03] hover:border-[#2dd4bf]/50 hover:bg-[#2dd4bf]/[0.08]"
-              : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]",
+            ? "border-[#2dd4bf] bg-[#2dd4bf]/12 shadow-[0_0_18px_rgba(45,212,191,0.18)]"
+            : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]",
         )}
       >
-        <div className="flex shrink-0 flex-col items-center">
-          <ModelCardIcon
-            icon={item.icon}
-            label={item.label}
-            letter={item.letter}
-            isTopCard={isTopCard}
-          />
-          {item.priceLabel && (
-            <span className="mt-1 inline-flex items-center gap-0.5 font-mono text-[10px] text-white/60">
-              <Coins className="h-2.5 w-2.5 text-[#2dd4bf]" strokeWidth={2.5} />
-              {item.priceLabel}
+        <ModelCardIcon
+          icon={item.icon}
+          label={item.label}
+          letter={item.letter}
+          isTopCard={item.isTop}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "truncate text-[12px] font-semibold",
+                active ? "text-[#2dd4bf]" : "text-white/90 group-hover:text-white",
+              )}
+            >
+              {item.label}
             </span>
-          )}
-          {item.priceUsd !== null && item.priceUsd !== undefined && (
-            <span className="mt-1 inline-flex items-center gap-0.5 font-mono text-[10px] text-white/60">
-              <Coins className="h-2.5 w-2.5 text-[#5eead4]" strokeWidth={2.5} />
-              {`$${item.priceUsd.toFixed(3)}`}
-            </span>
-          )}
-        </div>
-        <div className="min-w-0 flex-1 pr-2">
-          <p
-            className={cn(
-              "truncate text-[12px] font-semibold",
-              active
-                ? "text-[#2dd4bf]"
-                : isTopCard
-                  ? "text-white font-medium group-hover:text-[#2dd4bf]"
-                  : "text-white/90 group-hover:text-white",
+            {item.isTop && (
+              <span className="shrink-0 rounded bg-[#2dd4bf]/15 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-[#2dd4bf]">
+                топ
+              </span>
             )}
-          >
-            {item.label}
-          </p>
-          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-white/45 transition group-hover:text-white/70">
+          </span>
+          <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-white/45 group-hover:text-white/60">
             {item.desc}
-          </p>
-        </div>
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          {priceText && <span className="font-mono text-[10px] text-[#5eead4]">{priceText}</span>}
+          {active && <Check className="h-3.5 w-3.5 text-[#2dd4bf]" />}
+        </span>
       </button>
     );
   };
@@ -5357,7 +5473,7 @@ function ModelPickerPopover({
     <div
       className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
       style={{
-        width: mediaType === "video" ? 870 : mediaType === "audio" ? 480 : 770,
+        width: mediaType === "video" ? 760 : mediaType === "audio" ? 480 : 700,
       }}
       role="dialog"
       aria-label={title}
@@ -5369,7 +5485,7 @@ function ModelPickerPopover({
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#2dd4bf]">
-              {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : totalCount}
+              {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : `${totalCount} моделей`}
             </span>
           </div>
         </div>
@@ -5398,250 +5514,211 @@ function ModelPickerPopover({
         </div>
       </div>
 
-      {/* Список моделей + правая панель: наведение на другую модель меняет её */}
-      <div className="flex min-h-0 flex-1">
+      {isAudio ? (
+        /* Аудио: движки Suno / ElevenLabs, как было */
         <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {isAudio ? (
-          <>
-            {/* Engine 1: Suno */}
-            {(q ? filteredSunoActions.length > 0 : true) && (
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSunoOpen((prev) => !prev)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") setSunoOpen((prev) => !prev);
+          {(q ? filteredSunoActions.length > 0 : true) && (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setSunoOpen((prev) => !prev)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setSunoOpen((prev) => !prev);
+                }}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                  SUNO_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                    ? "border-orange-500/40 bg-gradient-to-r from-orange-500/[0.12] to-amber-500/[0.04]"
+                    : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30">
+                    <Music className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-bold text-white">Suno AI</span>
+                      <span className="rounded-md bg-orange-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-orange-300">
+                        Музыка & Звуки
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-white/50">Треки, каверы, вокал, стем-сплиттер, SFX</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                    {filteredSunoActions.length}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-white/50 transition-transform duration-200",
+                      (q ? true : sunoOpen) && "rotate-180",
+                    )}
+                  />
+                </div>
+              </div>
+
+              {(q ? true : sunoOpen) && (
+                <div className="space-y-1.5 pt-1">
+                  {filteredSunoActions.map((action) => renderAudioActionCard(action))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {(q ? filteredElevenLabsActions.length > 0 : true) && (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setElevenlabsOpen((prev) => !prev)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setElevenlabsOpen((prev) => !prev);
+                }}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                  ELEVENLABS_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                    ? "border-indigo-500/40 bg-gradient-to-r from-indigo-500/[0.12] to-purple-500/[0.04]"
+                    : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/30">
+                    <Mic className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-bold text-white">ElevenLabs</span>
+                      <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-indigo-300">
+                        Голос & Речь
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-white/50">Озвучка v4, 200 русских голосов, эмоции и теги</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                    {filteredElevenLabsActions.length}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-white/50 transition-transform duration-200",
+                      (q ? true : elevenlabsOpen) && "rotate-180",
+                    )}
+                  />
+                </div>
+              </div>
+
+              {(q ? true : elevenlabsOpen) && (
+                <div className="space-y-1.5 pt-1">
+                  {filteredElevenLabsActions.map((action) => renderAudioActionCard(action))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {filteredSunoActions.length === 0 && filteredElevenLabsActions.length === 0 && (
+            <div className="py-12 text-center text-[12px] text-white/40">
+              Действия по запросу «<span className="text-white/70">{search}</span>» не найдены
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Видео/Фото: слева бренды, справа модели выбранного бренда */
+        <div className="flex min-h-0 flex-1">
+          <div
+            className="w-[214px] shrink-0 overflow-y-auto border-r border-white/[0.08] p-2"
+            role="tablist"
+            aria-label="Бренды"
+          >
+            <p className="mb-1.5 px-1 text-[9px] font-bold uppercase tracking-[0.14em] text-white/30">
+              Бренд
+            </p>
+            {brandGroups.map((brand) => {
+              const isActive = activeBrand?.id === brand.id;
+              const hasSelected = brand.items.some((i) => i.slug === selectedSlug);
+              return (
+                <button
+                  key={brand.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  data-brand={brand.id}
+                  onMouseEnter={() => setHoverBrandId(brand.id)}
+                  onFocus={() => setHoverBrandId(brand.id)}
+                  onClick={() => {
+                    setOpenBrandId(brand.id);
+                    setHoverBrandId(brand.id);
                   }}
                   className={cn(
-                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
-                    SUNO_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
-                      ? "border-orange-500/40 bg-gradient-to-r from-orange-500/[0.12] to-amber-500/[0.04]"
-                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                    "mb-1 flex w-full items-center gap-2 rounded-xl border px-2 py-2 text-left transition",
+                    isActive
+                      ? "border-[#2dd4bf]/45 bg-[#2dd4bf]/10"
+                      : "border-transparent hover:border-white/10 hover:bg-white/[0.04]",
                   )}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30">
-                      <Music className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[13px] font-bold text-white">Suno AI</span>
-                        <span className="rounded-md bg-orange-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-orange-300">
-                          Музыка & Звуки
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-white/50">Треки, каверы, вокал, стем-сплиттер, SFX</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
-                      {filteredSunoActions.length}
-                    </span>
-                    <ChevronDown
+                  <span
+                    className={cn(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold ring-1",
+                      isActive
+                        ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-[#2dd4bf]/40"
+                        : "bg-white/[0.05] text-white/60 ring-white/10",
+                    )}
+                  >
+                    {brand.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
                       className={cn(
-                        "h-4 w-4 text-white/50 transition-transform duration-200",
-                        (q ? true : sunoOpen) && "rotate-180",
+                        "block truncate text-[12px] font-semibold",
+                        isActive ? "text-white" : "text-white/85",
                       )}
-                    />
-                  </div>
-                </div>
-
-                {(q ? true : sunoOpen) && (
-                  <div className="space-y-1.5 pt-1">
-                    {filteredSunoActions.map((action) => renderAudioActionCard(action))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Engine 2: ElevenLabs */}
-            {(q ? filteredElevenLabsActions.length > 0 : true) && (
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setElevenlabsOpen((prev) => !prev)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") setElevenlabsOpen((prev) => !prev);
-                  }}
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
-                    ELEVENLABS_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
-                      ? "border-indigo-500/40 bg-gradient-to-r from-indigo-500/[0.12] to-purple-500/[0.04]"
-                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                    >
+                      {brand.name}
+                    </span>
+                    <span className="block font-mono text-[9px] text-white/35">
+                      {brand.items.length} {countModelsLabel(brand.items.length)}
+                    </span>
+                  </span>
+                  {hasSelected && <Check className="h-3 w-3 shrink-0 text-[#2dd4bf]" />}
+                  {!hasSelected && brand.tops > 0 && (
+                    <span className="shrink-0 rounded bg-[#2dd4bf]/15 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-[#2dd4bf]">
+                      топ
+                    </span>
                   )}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/30">
-                      <Mic className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[13px] font-bold text-white">ElevenLabs</span>
-                        <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-indigo-300">
-                          Голос & Речь
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-white/50">Озвучка v4, 200 русских голосов, эмоции и теги</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
-                      {filteredElevenLabsActions.length}
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 text-white/50 transition-transform duration-200",
-                        (q ? true : elevenlabsOpen) && "rotate-180",
-                      )}
-                    />
-                  </div>
-                </div>
-
-                {(q ? true : elevenlabsOpen) && (
-                  <div className="space-y-1.5 pt-1">
-                    {filteredElevenLabsActions.map((action) => renderAudioActionCard(action))}
-                  </div>
-                )}
+                </button>
+              );
+            })}
+            {brandGroups.length === 0 && (
+              <div className="px-2 py-8 text-center text-[11px] leading-relaxed text-white/40">
+                По запросу «<span className="text-white/70">{search}</span>» брендов нет
               </div>
             )}
+          </div>
 
-            {filteredSunoActions.length === 0 && filteredElevenLabsActions.length === 0 && (
-              <div className="py-12 text-center text-[12px] text-white/40">
-                Действия по запросу «<span className="text-white/70">{search}</span>» не найдены
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {/* Section 1: TOP Models */}
-            {topItems.length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#2dd4bf]">
-                  <span className="flex items-center gap-1">
-                    <span>🔥</span>
-                    <span>ТОП МОДЕЛИ</span>
+          <div className="min-w-0 flex-1 overflow-y-auto p-3">
+            {activeBrand ? (
+              <>
+                <div className="mb-2 flex items-center justify-between px-1">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">
+                    {activeBrand.name}
                   </span>
-                  <span className="rounded-full bg-[#2dd4bf]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#2dd4bf]">
-                    {topItems.length}
+                  <span className="font-mono text-[10px] text-white/30">
+                    {activeBrand.items.length} {countModelsLabel(activeBrand.items.length)}
                   </span>
                 </div>
-                <div
-                  className="grid gap-2"
-                  style={{
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                  }}
-                >
-                  {topItems.map((item) => renderCard(item))}
-                </div>
-              </div>
-            )}
-
-            {/* Section 2: Other Models */}
-            {otherItems.length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
-                  <span>Другие и специальные модели</span>
-                  <span className="font-mono text-white/25">({otherItems.length})</span>
-                </div>
-                <div
-                  className="grid gap-2"
-                  style={{
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                  }}
-                >
-                  {otherItems.map((item) => renderCard(item))}
-                </div>
-              </div>
-            )}
-
-            {unifiedItems.length === 0 && (
+                <div className="space-y-1.5">{activeBrand.items.map((item) => renderModelRow(item))}</div>
+              </>
+            ) : (
               <div className="py-12 text-center text-[12px] text-white/40">
                 Модели по запросу «<span className="text-white/70">{search}</span>» не найдены
               </div>
             )}
-          </>
-        )}
+          </div>
         </div>
-
-        {/* Правая панель: подробности модели, на которую навели курсор */}
-        {!isAudio && (
-          <aside className="hidden w-[250px] shrink-0 flex-col border-l border-white/[0.08] bg-[#16161b]/60 p-3 md:flex">
-            {previewItem ? (
-              <div className="space-y-3">
-                <div className="flex items-start gap-2">
-                  <ModelCardIcon
-                    icon={previewItem.icon}
-                    label={previewItem.label}
-                    letter={previewItem.letter}
-                    isTopCard={previewItem.isTop}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-semibold leading-tight text-white/90">
-                      {previewItem.label}
-                    </p>
-                    {previewItem.priceLabel && (
-                      <p className="font-mono text-[10px] text-white/45">{previewItem.priceLabel}</p>
-                    )}
-                  </div>
-                </div>
-
-                <p className="text-[11px] leading-relaxed text-white/55">{previewItem.desc}</p>
-
-                <div className="space-y-1.5 border-t border-white/[0.08] pt-2">
-                  {previewKie ? (
-                    <>
-                      <ModelPreviewRow
-                        label="Референсы"
-                        value={`фото ${previewRefCount("images") || "—"} · видео ${previewRefCount("videos") || "—"} · аудио ${previewRefCount("audios") || "—"}`}
-                      />
-                      {previewKieField("resolution") && (
-                        <ModelPreviewRow
-                          label="Разрешение"
-                          value={(previewKieField("resolution")?.options || []).join(" · ") || "—"}
-                        />
-                      )}
-                      {previewKieField("duration") && (
-                        <ModelPreviewRow
-                          label="Длительность"
-                          value={`${previewKieField("duration")?.min ?? "?"}–${previewKieField("duration")?.max ?? "?"} сек`}
-                        />
-                      )}
-                      {previewKieField("aspect_ratio") && (
-                        <ModelPreviewRow
-                          label="Формат"
-                          value={(previewKieField("aspect_ratio")?.options || []).join(" · ")}
-                        />
-                      )}
-                      {previewKieField("generate_audio") && (
-                        <ModelPreviewRow label="Звук" value="вкл/выкл" />
-                      )}
-                    </>
-                  ) : previewBase ? (
-                    <>
-                      {previewBase.chips.length > 0 && (
-                        <ModelPreviewRow
-                          label="Умеет"
-                          value={previewBase.chips.map((c) => OUTSEE_CHIP_LABELS[c] || c).join(" · ")}
-                        />
-                      )}
-                      <ModelPreviewRow
-                        label="Старт"
-                        value={`${String(previewBaseDefaults.aspect ?? "—")} · ${String(previewBaseDefaults.resolution ?? "—")} · ${String(previewBaseDefaults.duration ?? "—")}с`}
-                      />
-                    </>
-                  ) : null}
-                </div>
-
-                <p className="border-t border-white/[0.08] pt-2 text-[10px] leading-snug text-white/30">
-                  Наведи на модель в списке — панель покажет её возможности. Клик выбирает.
-                </p>
-              </div>
-            ) : null}
-          </aside>
-        )}
-      </div>
+      )}
     </div>
   );
 }

@@ -79,7 +79,14 @@ async def post_upload(file: UploadFile = File(...)) -> dict[str, Any]:  # noqa: 
         raise HTTPException(status_code=400, detail="файл > 200 МБ")
     name = Path(file.filename or "file.bin").name
     name = re.sub(r"[^\w.\-]+", "_", name)[:80] or "file.bin"
-    url = await kie_http.upload_file(content, name)
+    try:
+        url = await kie_http.upload_file(content, name)
+    except kie_http.KieHttpError as e:
+        logger.warning("kie upload failed for {} ({} bytes): {}", name, len(content), e)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Не удалось загрузить файл в KIE: {e}",
+        ) from e
     return {"url": url, "filename": name, "bytes": len(content)}
 
 
