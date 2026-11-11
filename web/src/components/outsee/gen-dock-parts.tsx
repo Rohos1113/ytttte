@@ -166,7 +166,7 @@ export function RefTile({
 }) {
   const isMedia = refItem.kind !== "image";
   return (
-    <div className="group relative h-[68px] w-[68px] shrink-0 overflow-hidden rounded-lg ring-1 ring-white/15 transition hover:ring-[#2dd4bf]/50">
+    <div data-ref-tile={refItem.field} data-ref-kind={refItem.kind} data-ref-number={showNumber ? refItem.categoryIndex : ""} className="group relative h-[68px] w-[68px] shrink-0 overflow-hidden rounded-lg ring-1 ring-white/15 transition hover:ring-[#2dd4bf]/50">
       {refItem.kind === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={refItem.url} alt="" className="h-full w-full object-cover" draggable={false} />
@@ -255,6 +255,7 @@ export function AddTile({
   return (
     <button
       type="button"
+      data-ref-add={kind}
       onClick={onClick}
       disabled={disabled || busy}
       title={label ? `Добавить: ${label}` : `Добавить ${REF_KIND_LABEL[kind].toLowerCase()} (${count}/${max})`}

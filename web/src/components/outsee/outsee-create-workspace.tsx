@@ -1538,6 +1538,74 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     return 0;
   }, [mediaType, activeSlug, kieActive, kieModel, videoCapabilities.maxRefs]);
 
+  /**
+   * Outsee-модели (не KIE) тоже рисуем квадратными плитками в новом дизайне:
+   * кадры + мульти-референсы берём из старых состояний и мапим в GenRef.
+   */
+  const legacyTileRefs = useMemo<GenRef[]>(() => {
+    const out: GenRef[] = [];
+    if (firstFrameDataUrl) {
+      out.push({
+        id: "legacy:first",
+        field: "legacy_first",
+        url: firstFrameDataUrl,
+        name: firstFrameName || "Первый кадр",
+        kind: "image",
+        categoryIndex: 1,
+        categoryMax: 1,
+      });
+    }
+    if (lastFrameDataUrl) {
+      out.push({
+        id: "legacy:last",
+        field: "legacy_last",
+        url: lastFrameDataUrl,
+        name: lastFrameName || "Последний кадр",
+        kind: "image",
+        categoryIndex: 1,
+        categoryMax: 1,
+      });
+    }
+    referenceImages.forEach((r, i) => {
+      out.push({
+        id: `legacy:${r.id}`,
+        field: "legacy_images",
+        url: r.url,
+        name: r.name || `Референс ${i + 1}`,
+        kind: "image",
+        categoryIndex: i + 1,
+        categoryMax: Math.max(1, maxReferences),
+      });
+    });
+    return out;
+  }, [firstFrameDataUrl, firstFrameName, lastFrameDataUrl, lastFrameName, referenceImages, maxReferences]);
+
+  const legacyTilesActive =
+    !kieTilesActive &&
+    (maxReferences > 0 ||
+      (mediaType === "video" && (videoCapabilities.supportsFirst || videoCapabilities.supportsLast)));
+  const tilesActive = kieTilesActive || legacyTilesActive;
+
+  /** Удаление референса Outsee-модели: кадры и мульти-рефы живут в разных стейтах. */
+  const removeLegacyRef = (ref: GenRef) => {
+    if (ref.field === "legacy_first") {
+      setFirstFrameDataUrl(null);
+      setFirstFrameName(null);
+      return;
+    }
+    if (ref.field === "legacy_last") {
+      setLastFrameDataUrl(null);
+      setLastFrameName(null);
+      return;
+    }
+    const id = ref.id.replace(/^legacy:/, "");
+    setReferenceImages((prev) => {
+      const victim = prev.find((r) => r.id === id);
+      if (victim) revokeRefUrl(victim.url);
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
   const isVideoConflict = useMemo(() => {
     if (mediaType !== "video") return false;
     const hasFrames = Boolean(firstFrameDataUrl || lastFrameDataUrl);
@@ -3411,7 +3479,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 )}
               >
                 {/* KIE: вложения для аудио/видео (голос, донор движения, аудиофайл) */}
-                {kieActive &&
+                {!kieTilesActive &&
+                  kieActive &&
                   kieModel &&
                   kieFileFields(kieModel).filter((f) => f.kind !== "images").length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
@@ -3432,22 +3501,109 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </span>
                   </div>
                 )}
-                {/* Seedance (KIE): плитки референсов по категориям (фото / видео / аудио) */}
-                {kieTilesActive && (
+                {/* Плитки референсов в новом дизайне — для KIE и для Outsee-моделей */}
+                {tilesActive && (
                   <div className="flex flex-wrap items-start gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
-                    <input
-                      ref={refFileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        const field = pendingRefFieldRef.current;
-                        e.target.value = "";
-                        if (!field || files.length === 0) return;
-                        void uploadRefFiles(field, files);
-                      }}
-                    />
-                    {seedanceIsKie && seedanceMode === "frames" ? (
+                    {kieTilesActive && (
+                      <input
+                        ref={refFileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          const field = pendingRefFieldRef.current;
+                          e.target.value = "";
+                          if (!field || files.length === 0) return;
+                          void uploadRefFiles(field, files);
+                        }}
+                      />
+                    )}
+                    {legacyTilesActive ? (
+                      <>
+                        {/* Outsee: скрытые инпуты под плитки */}
+                        <input
+                          ref={firstFrameInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            void readFileAsDataUrl(f).then((dataUrl) => {
+                              setFirstFrameDataUrl(dataUrl);
+                              setFirstFrameName(f.name);
+                              toast.success("Стартовый кадр добавлен");
+                            });
+                            e.target.value = "";
+                          }}
+                        />
+                        <input
+                          ref={lastFrameInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            void readFileAsDataUrl(f).then((dataUrl) => {
+                              setLastFrameDataUrl(dataUrl);
+                              setLastFrameName(f.name);
+                              toast.success("Финальный кадр добавлен");
+                            });
+                            e.target.value = "";
+                          }}
+                        />
+                        <input
+                          ref={multiRefInputRef}
+                          type="file"
+                          multiple
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            if (files.length) addReferenceFiles(files);
+                            e.target.value = "";
+                          }}
+                        />
+                        {mediaType === "video" && videoCapabilities.supportsFirst && (
+                          <RefCategory
+                            kind="image"
+                            addLabel="Первый кадр"
+                            showNumber={false}
+                            showCount={false}
+                            max={1}
+                            items={legacyTileRefs.filter((r) => r.field === "legacy_first")}
+                            onAddClick={() => firstFrameInputRef.current?.click()}
+                            onRemove={removeLegacyRef}
+                            onPreview={setRefPreview}
+                          />
+                        )}
+                        {mediaType === "video" && videoCapabilities.supportsLast && (
+                          <RefCategory
+                            kind="image"
+                            addLabel="Последний кадр"
+                            showNumber={false}
+                            showCount={false}
+                            max={1}
+                            items={legacyTileRefs.filter((r) => r.field === "legacy_last")}
+                            onAddClick={() => lastFrameInputRef.current?.click()}
+                            onRemove={removeLegacyRef}
+                            onPreview={setRefPreview}
+                          />
+                        )}
+                        {maxReferences > 0 && (
+                          <RefCategory
+                            kind="image"
+                            max={maxReferences}
+                            items={legacyTileRefs.filter((r) => r.field === "legacy_images")}
+                            onAddClick={() => multiRefInputRef.current?.click()}
+                            onAddFiles={addReferenceFiles}
+                            onRemove={removeLegacyRef}
+                            onPreview={setRefPreview}
+                          />
+                        )}
+                      </>
+                    ) : seedanceIsKie && seedanceMode === "frames" ? (
                       /* Первый+Последний: только два слота, без номеров */
                       <>
                         {frameRefFields.map((f) => {
@@ -3517,15 +3673,17 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         )}
                       </>
                     )}
-                    <span className="self-center text-[10px] text-white/35">
-                      {seedanceIsKie && seedanceMode === "frames"
-                        ? "только старт и финиш · референсы скрыты"
-                        : "фото, видео и аудио · в промте — @имя референса"}
+                     <span className="self-center text-[10px] text-white/35">
+                      {legacyTilesActive
+                        ? "фото с диска или из истории · в промте — @имя референса"
+                        : seedanceIsKie && seedanceMode === "frames"
+                          ? "только старт и финиш · референсы скрыты"
+                          : "фото, видео и аудио · в промте — @имя референса"}
                     </span>
                   </div>
                 )}
-                {/* Унифицированная зона вложений и референсов (Outsee) */}
-                {!kieTilesActive && ((mediaType === "video" &&
+                {/* Старая зона вложений: остаётся выключенной, всё рисуют плитки выше */}
+                {!tilesActive && ((mediaType === "video" &&
                   (videoCapabilities.supportsFirst ||
                     videoCapabilities.supportsLast ||
                     videoCapabilities.supportsRefs)) ||
@@ -3670,7 +3828,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     )}
 
                     {/* Мульти-референсы (Фото или Видео с поддержкой reference images) */}
-                    {!kieTilesActive && maxReferences > 0 && (
+                    {maxReferences > 0 && (
                       <>
                         <input
                           ref={multiRefInputRef}
