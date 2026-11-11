@@ -5515,7 +5515,7 @@ function ModelPickerPopover({
       item.priceUsd !== null && item.priceUsd !== undefined
         ? `от $${item.priceUsd.toFixed(2)}`
         : item.priceLabel
-          ? `от ${item.priceLabel}`
+          ? (/^от\s/i.test(item.priceLabel) ? item.priceLabel : `от ${item.priceLabel}`)
           : null;
     return (
       <button
