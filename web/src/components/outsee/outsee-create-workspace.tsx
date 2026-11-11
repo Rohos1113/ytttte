@@ -5842,7 +5842,7 @@ function ModelPickerPopover({
                     </span>
                   </span>
                   {hasSelected && <Check className="h-3 w-3 shrink-0 text-[#2dd4bf]" />}
-                  {!hasSelected && brand.tops > 0 && (
+                  {!hasSelected && brand.tops > 0 && brandGroups[0]?.id === brand.id && (
                     <span className="shrink-0 rounded bg-[#2dd4bf]/15 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-[#2dd4bf]">
                       топ
                     </span>
