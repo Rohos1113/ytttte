@@ -1447,12 +1447,15 @@ def script_frames_qc_needs_upgrade(meta: dict[str, Any] | None) -> bool:
     # Площадка (fw_action) убрана из группы: старый канвас надо почистить.
     if "n_excel_gpt_fw_action" in ids:
         return True
-    if (
-        "n_excel_gpt_fw_script" in ids
-        and "n_excel_gpt_fw_shots" in ids
-        and ("n_excel_gpt_fw_script", "n_excel_gpt_fw_shots") not in pairs
-    ):
-        return True
+    # Старые канвасы могли держать между каркасом и шотами проверку
+    # (fw_check_script): это не повод гонять пересборку каждый раз.
+    if "n_excel_gpt_fw_script" in ids and "n_excel_gpt_fw_shots" in ids:
+        chain_ok = ("n_excel_gpt_fw_script", "n_excel_gpt_fw_shots") in pairs or (
+            "n_excel_gpt_fw_check_script" in ids
+            and ("n_excel_gpt_fw_check_script", "n_excel_gpt_fw_shots") in pairs
+        )
+        if not chain_ok:
+            return True
     if "n_excel_gpt_fw_shots" in ids and "n_excel_gpt_fw_qc" in ids:
         if ("n_excel_gpt_fw_shots", "n_excel_gpt_fw_qc") not in pairs:
             return True
