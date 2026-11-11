@@ -85,6 +85,18 @@ import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
 import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
 import { AudioTagsBar } from "./audio-tags-bar";
 import {
+  MentionMenu,
+  ModelPreviewRow,
+  RefCategory,
+  SeedanceDock,
+  framesFromKieValues,
+  refToken,
+  refsFromKieFields,
+  REF_KIND_LABEL,
+  type GenRef,
+  type RefKind,
+} from "./gen-dock-parts";
+import {
   estimateKie,
   kieChipFields,
   kieFileFields,
@@ -95,6 +107,21 @@ import {
 // (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
 // к process.env вместо baked-значения, и в браузере он был выключен.)
 const KIE_CREATE_ENABLED = process.env.NEXT_PUBLIC_KIE_CREATE !== "0";
+
+/** Поля KIE-каталога «первый / последний кадр» — это не референсы, у них свой слот. */
+const KIE_FRAME_FIELDS = new Set(["first_frame_url", "last_frame_url", "first_frame", "last_frame"]);
+
+/** Seedance (KIE): единственное семейство с режимом Omni и пресетами Fast/Quality. */
+function isSeedanceModel(m: KieModelSpec | null): boolean {
+  return Boolean(m && m.id.toLowerCase().startsWith("seedance"));
+}
+
+/** Поля Seedance, которые рисует SeedanceDock, — из общего списка чипов их убираем. */
+const SEEDANCE_DOCK_FIELDS = new Set(["aspect_ratio", "resolution", "duration", "generate_audio"]);
+
+function refKindOfField(f: KieField): RefKind {
+  return f.kind === "videos" ? "video" : f.kind === "audios" ? "audio" : "image";
+}
 
 type Props = {
   open: boolean;
@@ -497,7 +524,7 @@ function AudioStudioPlayer({
           >
             <div className="absolute inset-2.5 rounded-full border border-white/5" />
             <div className="absolute inset-5 rounded-full border border-white/5" />
-            <div className="absolute inset-0 m-auto h-6 w-6 md:h-7 md:w-7 rounded-full bg-gradient-to-br from-[#22d3ee] to-[#38bdf8] shadow-[0_0_12px_rgba(34,211,238,0.6)] flex items-center justify-center">
+            <div className="absolute inset-0 m-auto h-6 w-6 md:h-7 md:w-7 rounded-full bg-gradient-to-br from-[#2dd4bf] to-[#5eead4] shadow-[0_0_12px_rgba(45,212,191,0.6)] flex items-center justify-center">
               <div className="h-2 w-2 rounded-full bg-black" />
             </div>
           </div>
@@ -509,7 +536,7 @@ function AudioStudioPlayer({
             <h3 className="truncate text-base md:text-xl font-bold text-white tracking-tight" title={trackTitle}>
               {trackTitle}
             </h3>
-            <span className="shrink-0 rounded-md bg-[#22d3ee]/15 px-2 py-0.5 font-mono text-[10px] md:text-xs font-bold text-[#22d3ee] ring-1 ring-[#22d3ee]/30">
+            <span className="shrink-0 rounded-md bg-[#2dd4bf]/15 px-2 py-0.5 font-mono text-[10px] md:text-xs font-bold text-[#2dd4bf] ring-1 ring-[#2dd4bf]/30">
               {modelBadge}
             </span>
           </div>
@@ -536,12 +563,12 @@ function AudioStudioPlayer({
             className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
             title="Скопировать ссылку на аудио"
           >
-            {copied ? <Check className="h-4 w-4 text-[#22d3ee]" /> : <Copy className="h-4 w-4" />}
+            {copied ? <Check className="h-4 w-4 text-[#2dd4bf]" /> : <Copy className="h-4 w-4" />}
           </button>
           <button
             type="button"
             onClick={handleDownload}
-            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-[#22d3ee]"
+            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/10 hover:text-[#2dd4bf]"
             title="Скачать трек (MP3)"
           >
             <Download className="h-4 w-4" />
@@ -563,10 +590,10 @@ function AudioStudioPlayer({
       <div
         ref={progressBarRef}
         onClick={handleSeek}
-        className="group relative flex h-16 md:h-22 w-full cursor-pointer items-end justify-between gap-1 md:gap-1.5 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 transition hover:ring-[#22d3ee]/40 overflow-hidden"
+        className="group relative flex h-16 md:h-22 w-full cursor-pointer items-end justify-between gap-1 md:gap-1.5 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 transition hover:ring-[#2dd4bf]/40 overflow-hidden"
       >
         {isPlaying && (
-          <div className="absolute inset-0 bg-gradient-to-t from-[#22d3ee]/[0.08] to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#2dd4bf]/[0.08] to-transparent pointer-events-none" />
         )}
 
         {WAVE_BARS.map((heightPercent, idx) => {
@@ -584,7 +611,7 @@ function AudioStudioPlayer({
                 className={cn(
                   "w-1.5 md:w-2 rounded-full transition-all duration-150",
                   isPassed
-                    ? "bg-[#22d3ee] shadow-[0_0_10px_rgba(34,211,238,0.55)]"
+                    ? "bg-[#2dd4bf] shadow-[0_0_10px_rgba(45,212,191,0.55)]"
                     : "bg-white/15 group-hover:bg-white/25",
                   isPlaying && isPassed && "brightness-125",
                 )}
@@ -595,7 +622,7 @@ function AudioStudioPlayer({
 
         <div
           style={{ left: `${progressPercent}%` }}
-          className="pointer-events-none absolute top-0 bottom-0 w-1 bg-white shadow-[0_0_14px_#22d3ee] transition-all"
+          className="pointer-events-none absolute top-0 bottom-0 w-1 bg-white shadow-[0_0_14px_#2dd4bf] transition-all"
         />
       </div>
 
@@ -607,11 +634,11 @@ function AudioStudioPlayer({
         >
           <div
             style={{ width: `${progressPercent}%` }}
-            className="h-full rounded-full bg-gradient-to-r from-[#22d3ee] to-[#38bdf8] shadow-[0_0_14px_rgba(34,211,238,0.5)]"
+            className="h-full rounded-full bg-gradient-to-r from-[#2dd4bf] to-[#5eead4] shadow-[0_0_14px_rgba(45,212,191,0.5)]"
           />
           <div
             style={{ left: `calc(${progressPercent}% - 7px)` }}
-            className="absolute h-3.5 w-3.5 rounded-full bg-white ring-2 ring-[#22d3ee] shadow-[0_0_10px_#22d3ee] opacity-0 transition-opacity group-hover:opacity-100"
+            className="absolute h-3.5 w-3.5 rounded-full bg-white ring-2 ring-[#2dd4bf] shadow-[0_0_10px_#2dd4bf] opacity-0 transition-opacity group-hover:opacity-100"
           />
         </div>
 
@@ -630,7 +657,7 @@ function AudioStudioPlayer({
             className={cn(
               "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-mono transition ring-1",
               isLooping
-                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-[#2dd4bf]/40 shadow-[0_0_14px_rgba(45,212,191,0.25)]"
                 : "bg-white/[0.04] text-white/50 ring-white/10 hover:bg-white/[0.08] hover:text-white",
             )}
             title="Зациклить трек (Loop)"
@@ -646,7 +673,7 @@ function AudioStudioPlayer({
               className={cn(
                 "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 font-mono text-xs ring-1 transition",
                 speedOpen
-                  ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                  ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-[#2dd4bf]/40 shadow-[0_0_14px_rgba(45,212,191,0.25)]"
                   : "bg-white/[0.04] text-white/70 ring-white/10 hover:bg-white/[0.08] hover:text-white",
               )}
               title="Выбрать скорость воспроизведения"
@@ -674,12 +701,12 @@ function AudioStudioPlayer({
                       className={cn(
                         "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left font-mono text-xs transition",
                         isActive
-                          ? "bg-[#22d3ee]/20 text-[#22d3ee] font-bold"
+                          ? "bg-[#2dd4bf]/20 text-[#2dd4bf] font-bold"
                           : "text-white/75 hover:bg-white/[0.08] hover:text-white",
                       )}
                     >
                       <span>{rate}x {rate === 1 ? "(1.0)" : ""}</span>
-                      {isActive && <Check className="h-3.5 w-3.5 text-[#22d3ee]" />}
+                      {isActive && <Check className="h-3.5 w-3.5 text-[#2dd4bf]" />}
                     </button>
                   );
                 })}
@@ -702,7 +729,7 @@ function AudioStudioPlayer({
           <button
             type="button"
             onClick={togglePlay}
-            className="flex h-13 w-13 md:h-15 md:w-15 items-center justify-center rounded-2xl bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] text-black shadow-[0_0_30px_rgba(34,211,238,0.45)] transition hover:scale-105 hover:brightness-110 active:scale-95"
+            className="flex h-13 w-13 md:h-15 md:w-15 items-center justify-center rounded-2xl bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black shadow-[0_0_30px_rgba(45,212,191,0.45)] transition hover:scale-105 hover:brightness-110 active:scale-95"
             title={isPlaying ? "Пауза" : "Воспроизвести"}
           >
             {isPlaying ? (
@@ -743,7 +770,7 @@ function AudioStudioPlayer({
             step="0.05"
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="h-1.5 w-20 md:w-28 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+            className="h-1.5 w-20 md:w-28 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
             title={`Громкость: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
           />
         </div>
@@ -804,7 +831,7 @@ function CreateImageViewer({
       {/* 2. Деликатный индикатор загрузки оригинального качества — в углу, не блокируя просмотр */}
       {!loaded && !hasError && (
         <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs text-white/90 backdrop-blur-md pointer-events-none shadow-lg">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#22d3ee]" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2dd4bf]" />
           <span className="font-medium">Загрузка оригинала...</span>
         </div>
       )}
@@ -867,6 +894,23 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [firstFrameName, setFirstFrameName] = useState<string | null>(null);
   const [lastFrameName, setLastFrameName] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<RefImage[]>([]);
+  // ---- Новый док генерации (стиль outsee.io/create) ----
+  /** Фактические имена вложений KIE: field → имена в том же порядке, что и URL-ы. */
+  const [kieRefNames, setKieRefNames] = useState<Record<string, string[]>>({});
+  /** Seedance: omni (фото/видео/аудио) или первый+последний кадр. */
+  const [seedanceMode, setSeedanceMode] = useState<"omni" | "frames">("omni");
+  /** Seedance: Fast (480p) или Quality (720p и выше). */
+  const [seedancePreset, setSeedancePreset] = useState<"fast" | "quality">("quality");
+  /** Поле, в которое сейчас грузится файл-референс. */
+  const [refBusyField, setRefBusyField] = useState<string | null>(null);
+  /** Меню «@» в поле промта. */
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
+  /** Просмотр референса крупно (лайтбокс). */
+  const [refPreview, setRefPreview] = useState<GenRef | null>(null);
+  const refFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingRefFieldRef = useRef<KieField | null>(null);
   const [draftJobs, setDraftJobs] = useState<DraftJob[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -1172,6 +1216,218 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   }, [activeSlug, kieModels]);
   const kieActive = kieModel != null;
   const kieTextField = kieModel ? kieMainTextField(kieModel) : null;
+
+  // ---- Seedance (KIE): плитки референсов, режим Omni / Первый+Последний ----
+  const seedanceIsKie = mediaType === "video" && kieActive && isSeedanceModel(kieModel);
+
+  const kieFileFieldList = useMemo(() => (kieModel ? kieFileFields(kieModel) : []), [kieModel]);
+  const omniRefFields = useMemo(
+    () => kieFileFieldList.filter((f) => !KIE_FRAME_FIELDS.has(f.name)),
+    [kieFileFieldList],
+  );
+  const frameRefFields = useMemo(
+    () => kieFileFieldList.filter((f) => KIE_FRAME_FIELDS.has(f.name)),
+    [kieFileFieldList],
+  );
+
+  const omniRefs = useMemo(
+    () => refsFromKieFields(omniRefFields, kieValues, kieRefNames),
+    [omniRefFields, kieValues, kieRefNames],
+  );
+  const frameRefs = useMemo(
+    () => framesFromKieValues(frameRefFields, kieValues, kieRefNames),
+    [frameRefFields, kieValues, kieRefNames],
+  );
+  const seedanceRefs = seedanceMode === "frames" ? frameRefs : omniRefs;
+
+  /**
+   * Меню «@» работает не только у Seedance: у Outsee-моделей берём стартовый/финишный
+   * кадр и прикреплённые референсы — с фактическими именами файлов.
+   */
+  const mentionRefs = useMemo<GenRef[]>(() => {
+    if (seedanceIsKie) return seedanceRefs;
+    const legacy: GenRef[] = [];
+    if (firstFrameDataUrl) {
+      legacy.push({
+        id: "frame:first",
+        field: "first_frame_url",
+        url: firstFrameDataUrl,
+        name: firstFrameName || "Первый кадр",
+        kind: "image",
+        categoryIndex: 1,
+        categoryMax: 1,
+      });
+    }
+    if (lastFrameDataUrl) {
+      legacy.push({
+        id: "frame:last",
+        field: "last_frame_url",
+        url: lastFrameDataUrl,
+        name: lastFrameName || "Последний кадр",
+        kind: "image",
+        categoryIndex: 1,
+        categoryMax: 1,
+      });
+    }
+    referenceImages.forEach((r, i) => {
+      legacy.push({
+        id: `ref:${r.id}`,
+        field: "reference_images",
+        url: r.url,
+        name: r.name || `Референс ${i + 1}`,
+        kind: "image",
+        categoryIndex: i + 1,
+        categoryMax: referenceImages.length,
+      });
+    });
+    return legacy;
+  }, [
+    seedanceIsKie,
+    seedanceRefs,
+    firstFrameDataUrl,
+    firstFrameName,
+    lastFrameDataUrl,
+    lastFrameName,
+    referenceImages,
+  ]);
+
+  const setRefItems = (field: string, urls: string[], names: string[]) => {
+    setKieValues((prev) => ({ ...prev, [field]: urls }));
+    setKieRefNames((prev) => ({ ...prev, [field]: names }));
+  };
+
+  const handleKieValueChange = (name: string, value: unknown) => {
+    setKieValues((prev) => ({ ...prev, [name]: value }));
+    if (name === "resolution") {
+      // Пресет — зеркало разрешения: 480p = Fast, остальное = Quality.
+      setSeedancePreset(String(value) === "480p" ? "fast" : "quality");
+    }
+  };
+
+  const applySeedancePreset = (preset: "fast" | "quality") => {
+    setSeedancePreset(preset);
+    const resField = kieModel?.fields.find((f) => f.name === "resolution");
+    if (!resField) return;
+    const options = resField.options || [];
+    const next = preset === "fast" ? "480p" : options.includes("720p") ? "720p" : options[0];
+    if (next) handleKieValueChange("resolution", next);
+  };
+
+  const switchSeedanceMode = (mode: "omni" | "frames") => {
+    setSeedanceMode(mode);
+    // Поля взаимоисключающие (валидатор KIE не даёт смешивать кадры и референсы),
+    // поэтому неактивную группу чистим сразу, а не только скрываем.
+    if (mode === "frames") {
+      setRefItems("reference_image_urls", [], []);
+      setRefItems("reference_video_urls", [], []);
+      setRefItems("reference_audio_urls", [], []);
+    } else {
+      setRefItems("first_frame_url", [], []);
+      setRefItems("last_frame_url", [], []);
+    }
+  };
+
+  const removeRef = (ref: GenRef) => {
+    const [field, idxRaw] = ref.id.split(":");
+    const idx = Number(idxRaw);
+    const urls = Array.isArray(kieValues[field]) ? [...(kieValues[field] as string[])] : [];
+    const names = [...(kieRefNames[field] || [])];
+    urls.splice(idx, 1);
+    names.splice(idx, 1);
+    setRefItems(field, urls, names);
+  };
+
+  const uploadRefFiles = async (field: KieField, files: File[]) => {
+    const limit = field.max_items ?? 99;
+    const urls = Array.isArray(kieValues[field.name]) ? [...(kieValues[field.name] as string[])] : [];
+    const names = [...(kieRefNames[field.name] || [])];
+    const room = Math.max(0, limit - urls.length);
+    const batch = files.slice(0, room);
+    if (batch.length === 0) {
+      toast.error(`Лимит: ${field.label} — ${limit}`);
+      return;
+    }
+    setRefBusyField(field.name);
+    try {
+      for (const f of batch) {
+        const uploaded = await api.kieUpload(f);
+        urls.push(uploaded.url);
+        names.push(f.name);
+      }
+      setRefItems(field.name, urls, names);
+      toast.success(`${field.label}: добавлено ${batch.length}`);
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err));
+    } finally {
+      setRefBusyField(null);
+    }
+  };
+
+  const pickRefFiles = (field: KieField) => {
+    pendingRefFieldRef.current = field;
+    const input = refFileInputRef.current;
+    if (!input) return;
+    input.accept =
+      field.kind === "videos"
+        ? "video/mp4,video/quicktime,video/webm"
+        : field.kind === "audios"
+          ? "audio/mpeg,audio/wav,audio/mp4,audio/x-m4a"
+          : "image/png,image/jpeg,image/webp,image/gif";
+    input.click();
+  };
+
+  // ---- меню «@» в поле промта ----
+  const mentionCandidates = useMemo(() => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return mentionRefs;
+    return mentionRefs.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        refToken(r.name).toLowerCase().includes(q) ||
+        REF_KIND_LABEL[r.kind].toLowerCase().includes(q),
+    );
+  }, [mentionRefs, mentionQuery]);
+
+  const syncMention = (text: string, caret: number | null) => {
+    const pos = caret ?? text.length;
+    const before = text.slice(0, pos);
+    const match = /(^|\s)@([\wа-яёА-ЯЁ-]*)$/.exec(before);
+    if (!match || mentionRefs.length === 0) {
+      setMentionOpen(false);
+      setMentionQuery("");
+      return;
+    }
+    setMentionQuery(match[2] || "");
+    setMentionIndex(0);
+    setMentionOpen(true);
+  };
+
+  const insertMention = (ref: GenRef) => {
+    const textarea = promptTextareaRef.current;
+    const pos = textarea?.selectionStart ?? prompt.length;
+    const before = prompt.slice(0, pos);
+    const match = /(^|\s)@([\wа-яёА-ЯЁ-]*)$/.exec(before);
+    const token = `@${refToken(ref.name)}`;
+    let nextPrompt: string;
+    let caret: number;
+    if (match) {
+      const tokenStart = pos - (match[2]?.length ?? 0) - 1;
+      nextPrompt = `${prompt.slice(0, tokenStart)}${token} ${prompt.slice(pos)}`;
+      caret = tokenStart + token.length + 1;
+    } else {
+      const spacer = prompt.length > 0 && !prompt.endsWith(" ") ? " " : "";
+      nextPrompt = `${prompt}${spacer}${token} `;
+      caret = nextPrompt.length;
+    }
+    setPrompt(nextPrompt);
+    setMentionOpen(false);
+    setMentionQuery("");
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(caret, caret);
+    });
+  };
+
 
   const videoCapabilities = useMemo(() => {
     if (mediaType !== "video") {
@@ -2407,7 +2663,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         </div>
         <div className="flex items-center gap-2.5">
           {projectId != null && (
-            <span className="rounded-full border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
+            <span className="rounded-full border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#2dd4bf]">
               проект #{projectId}
             </span>
           )}
@@ -2419,8 +2675,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               className={cn(
                 "inline-flex items-center rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
                 assistantOpen
-                  ? "border-[#22d3ee]/50 bg-[#22d3ee]/15 text-[#22d3ee]"
-                  : "border-white/10 bg-white/[0.03] text-white/60 hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-white",
+                  ? "border-[#2dd4bf]/50 bg-[#2dd4bf]/15 text-[#2dd4bf]"
+                  : "border-white/10 bg-white/[0.03] text-white/60 hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/10 hover:text-white",
               )}
             >
               Помощник
@@ -2467,17 +2723,17 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       key={j.job_id}
                       type="button"
                       onClick={() => j.history_id && setSelectedId(j.history_id)}
-                      className="flex w-full items-center gap-2 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 py-2 text-left shadow-[0_0_15px_rgba(34,211,238,0.15)] transition"
+                      className="flex w-full items-center gap-2 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-2.5 py-2 text-left shadow-[0_0_15px_rgba(45,212,191,0.15)] transition"
                     >
                       <Loader2
-                        className="h-3.5 w-3.5 shrink-0 animate-spin text-[#22d3ee]"
+                        className="h-3.5 w-3.5 shrink-0 animate-spin text-[#2dd4bf]"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <div className="truncate font-mono text-[10px] font-semibold text-white/90">
                             {j.model || j.media}
                           </div>
-                          <span className="shrink-0 font-mono text-[9px] font-semibold text-[#22d3ee]">
+                          <span className="shrink-0 font-mono text-[9px] font-semibold text-[#2dd4bf]">
                             {getLiveElapsed(j)}
                           </span>
                         </div>
@@ -2538,7 +2794,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 className={cn(
                   "rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all duration-150",
                   feedKind === t.id
-                    ? "bg-[#22d3ee] text-black font-extrabold shadow-[0_0_15px_rgba(34,211,238,0.3)]"
+                    ? "bg-[#2dd4bf] text-black font-extrabold shadow-[0_0_15px_rgba(45,212,191,0.3)]"
                     : "bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white",
                 )}
               >
@@ -2601,7 +2857,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className={cn(
                         "group relative aspect-square cursor-pointer select-none overflow-hidden rounded-xl border bg-[#121216] transition-all duration-200 outline-none",
                         active
-                          ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/40 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
+                          ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40 shadow-[0_0_20px_rgba(45,212,191,0.25)]"
                           : "border-white/[0.08] hover:border-white/25 hover:bg-[#18181f]",
                       )}
                       title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""} · клик — просмотр, двойной клик — применить конфигурацию`}
@@ -2633,7 +2889,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         <div className="flex h-full flex-col items-center justify-center gap-1.5 px-2 text-center">
                           {pending ? (
                             <Loader2
-                              className="h-5 w-5 animate-spin text-[#22d3ee]"
+                              className="h-5 w-5 animate-spin text-[#2dd4bf]"
                             />
                           ) : failed ? (
                             <div className="flex flex-col items-center gap-1.5">
@@ -2670,7 +2926,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               <span className="text-[9px] font-semibold uppercase tracking-wider text-white/55">
                                 {pendingLabel}
                               </span>
-                              <span className="font-mono text-[9px] font-bold text-[#22d3ee]">
+                              <span className="font-mono text-[9px] font-bold text-[#2dd4bf]">
                                 {getLiveElapsed(item)}
                               </span>
                             </div>
@@ -2678,7 +2934,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         </div>
                       )}
                       {((item.reference_images && item.reference_images.length > 0) || item.first_frame_url) && !pending && (
-                        <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[8px] font-bold text-[#22d3ee] backdrop-blur">
+                        <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[8px] font-bold text-[#2dd4bf] backdrop-blur">
                           <Paperclip className="h-2.5 w-2.5" />
                           <span>{item.reference_images?.length || 1}</span>
                         </div>
@@ -2730,7 +2986,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                                   item.path,
                                 );
                               }}
-                              className="flex h-6 w-6 items-center justify-center rounded-md bg-black/75 text-white/80 backdrop-blur transition hover:bg-[#22d3ee] hover:text-black shadow-md"
+                              className="flex h-6 w-6 items-center justify-center rounded-md bg-black/75 text-white/80 backdrop-blur transition hover:bg-[#2dd4bf] hover:text-black shadow-md"
                               title="Скачать файл"
                             >
                               <Download className="h-3.5 w-3.5" />
@@ -2750,7 +3006,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         <section className="relative flex min-w-0 flex-1 flex-col">
           {/* Ambient glow backlight */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center -z-0">
-            <div className="h-80 w-80 rounded-full bg-[#22d3ee]/10 blur-[110px]" />
+            <div className="h-80 w-80 rounded-full bg-[#2dd4bf]/10 blur-[110px]" />
             <div className="h-60 w-60 rounded-full bg-purple-500/10 blur-[90px]" />
           </div>
 
@@ -2767,7 +3023,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 selected.status === "processing" ? (
                   <div>
                     Время генерации:{" "}
-                    <span className="font-mono font-semibold text-[#22d3ee]">
+                    <span className="font-mono font-semibold text-[#2dd4bf]">
                       {getLiveElapsed(selected)}
                     </span>
                   </div>
@@ -2820,7 +3076,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     <button
                       type="button"
                       onClick={() => setLightboxOpen(true)}
-                      className="absolute top-3 right-3 z-30 flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/70 px-3 py-1.5 text-[11px] font-medium text-white/90 opacity-0 backdrop-blur-md transition hover:scale-105 hover:border-[#22d3ee]/60 hover:bg-[#22d3ee]/20 hover:text-white group-hover:opacity-100 shadow-2xl"
+                      className="absolute top-3 right-3 z-30 flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/70 px-3 py-1.5 text-[11px] font-medium text-white/90 opacity-0 backdrop-blur-md transition hover:scale-105 hover:border-[#2dd4bf]/60 hover:bg-[#2dd4bf]/20 hover:text-white group-hover:opacity-100 shadow-2xl"
                       title="Инспектор промпта / Во весь экран"
                     >
                       <Maximize2 className="h-3.5 w-3.5" />
@@ -2845,7 +3101,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           href={u}
                           target="_blank"
                           rel="noreferrer"
-                          className="group/ref relative block h-8 w-8 overflow-hidden rounded-lg border border-white/20 transition hover:scale-110 hover:border-[#22d3ee]"
+                          className="group/ref relative block h-8 w-8 overflow-hidden rounded-lg border border-white/20 transition hover:scale-110 hover:border-[#2dd4bf]"
                           title="Открыть референс в новой вкладке"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2860,12 +3116,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               (selected.status === "queued" || selected.status === "processing") ? (
               <div className="my-auto flex w-full max-w-sm flex-col items-center gap-3.5 rounded-3xl border border-white/15 bg-[#121216]/95 px-6 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <Loader2
-                  className="h-9 w-9 animate-spin text-[#22d3ee]"
+                  className="h-9 w-9 animate-spin text-[#2dd4bf]"
                 />
                 <div className="text-sm font-bold text-white/90">
                   {selected.status === "queued" ? "В очереди ожидания" : "Идёт генерация…"}
                 </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-3 py-1 font-mono text-[12px] font-bold text-[#22d3ee]">
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-3 py-1 font-mono text-[12px] font-bold text-[#2dd4bf]">
                   <Clock className="h-3.5 w-3.5" />
                   <span>{getLiveElapsed(selected)}</span>
                 </div>
@@ -2909,7 +3165,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       type="button"
                       onClick={() => handleRetry(selected)}
                       disabled={createGenerate.isPending}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-4 py-2 text-[12px] font-bold text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#2dd4bf] to-[#14b8a6] px-4 py-2 text-[12px] font-bold text-black shadow-[0_0_20px_rgba(45,212,191,0.4)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
                       title="Повторить генерацию с этим промптом"
                     >
                       <RotateCw className={cn("h-4 w-4", createGenerate.isPending && "animate-spin")} />
@@ -2961,7 +3217,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className={cn(
                         "flex min-w-[76px] flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 transition-all duration-200",
                         active
-                          ? "border-[#22d3ee] bg-[#22d3ee]/15 text-[#22d3ee] shadow-[0_0_18px_rgba(34,211,238,0.25)]"
+                          ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_18px_rgba(45,212,191,0.25)]"
                           : "border-white/10 bg-[#16161b]/90 text-white/45 hover:border-white/20 hover:bg-[#1e1e24] hover:text-white",
                       )}
                     >
@@ -3125,8 +3381,73 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </span>
                   </div>
                 )}
+                {/* Seedance (KIE): плитки референсов по категориям (фото / видео / аудио) */}
+                {seedanceIsKie && (
+                  <div className="flex flex-wrap items-start gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
+                    <input
+                      ref={refFileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        const field = pendingRefFieldRef.current;
+                        e.target.value = "";
+                        if (!field || files.length === 0) return;
+                        void uploadRefFiles(field, files);
+                      }}
+                    />
+                    {seedanceMode === "omni" ? (
+                      <>
+                        {omniRefFields.map((f) => (
+                          <RefCategory
+                            key={f.name}
+                            kind={refKindOfField(f)}
+                            items={omniRefs.filter((r) => r.field === f.name)}
+                            max={f.max_items ?? 0}
+                            busy={refBusyField === f.name}
+                            onAddClick={() => pickRefFiles(f)}
+                            onAddFiles={(files) => void uploadRefFiles(f, files)}
+                            onRemove={removeRef}
+                            onPreview={setRefPreview}
+                          />
+                        ))}
+                        {omniRefFields.length === 0 && (
+                          <span className="text-[10px] text-white/40">
+                            У этой модели нет слотов под референсы
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {frameRefFields.map((f) => {
+                          const isLast = f.name.startsWith("last");
+                          return (
+                            <RefCategory
+                              key={f.name}
+                              kind="image"
+                              addLabel={isLast ? "Последний кадр" : "Первый кадр"}
+                              items={frameRefs.filter((r) => r.field === f.name)}
+                              max={f.max_items ?? 1}
+                              busy={refBusyField === f.name}
+                              labels={() => (isLast ? "Финиш" : "Старт")}
+                              onAddClick={() => pickRefFiles(f)}
+                              onAddFiles={(files) => void uploadRefFiles(f, files)}
+                              onRemove={removeRef}
+                              onPreview={setRefPreview}
+                            />
+                          );
+                        })}
+                      </>
+                    )}
+                    <span className="self-center text-[10px] text-white/35">
+                      {seedanceMode === "omni"
+                        ? "фото, видео и аудио · в промте — @имя референса"
+                        : "только старт и финиш · референсы скрыты"}
+                    </span>
+                  </div>
+                )}
                 {/* Унифицированная зона вложений и референсов (Outsee + KIE) */}
-                {((mediaType === "video" &&
+                {!seedanceIsKie && ((mediaType === "video" &&
                   (videoCapabilities.supportsFirst ||
                     videoCapabilities.supportsLast ||
                     videoCapabilities.supportsRefs)) ||
@@ -3159,7 +3480,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               className={cn(
                                 "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
                                 firstFrameDataUrl
-                                  ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                                  ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/10 text-[#2dd4bf]"
                                   : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
                               )}
                             >
@@ -3213,7 +3534,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               className={cn(
                                 "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
                                 lastFrameDataUrl
-                                  ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                                  ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/10 text-[#2dd4bf]"
                                   : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
                               )}
                             >
@@ -3249,7 +3570,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               <button
                                 type="button"
                                 onClick={() => void applyFrameFromHistory(selected, "first")}
-                                className="inline-flex h-9 items-center gap-1 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 text-[11px] font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20"
+                                className="inline-flex h-9 items-center gap-1 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-2.5 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
                                 title="Текущее фото → Стартовый кадр"
                               >
                                 → В старт
@@ -3271,7 +3592,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     )}
 
                     {/* Мульти-референсы (Фото или Видео с поддержкой reference images) */}
-                    {maxReferences > 0 && (
+                    {!seedanceIsKie && maxReferences > 0 && (
                       <>
                         <input
                           ref={multiRefInputRef}
@@ -3292,7 +3613,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
                             referenceImages.length > 0
-                              ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/10 text-[#2dd4bf]"
                               : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
                           )}
                         >
@@ -3337,7 +3658,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             <button
                               type="button"
                               onClick={() => void addReferenceFromHistory(selected)}
-                              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-3 text-[11px] font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20"
+                              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
                               title="Добавить текущий результат в референсы"
                             >
                               + В референсы ({referenceImages.length}/{maxReferences})
@@ -3349,6 +3670,41 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     <span className="text-[10px] text-white/35">
                       файл с диска или выбор из истории слева
                     </span>
+                  </div>
+                )}
+                {/* Просмотр референса крупно */}
+                {refPreview && (
+                  <div
+                    className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-6"
+                    onClick={() => setRefPreview(null)}
+                  >
+                    <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/15 bg-[#121216]">
+                      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
+                        <span className="truncate text-[12px] text-white/80">{refPreview.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setRefPreview(null)}
+                          className="text-white/60 hover:text-white"
+                          aria-label="Закрыть"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="flex max-h-[75vh] items-center justify-center overflow-auto bg-black/40 p-3">
+                        {refPreview.kind === "image" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={refPreview.url}
+                            alt=""
+                            className="max-h-[70vh] w-auto object-contain"
+                          />
+                        ) : refPreview.kind === "video" ? (
+                          <video src={refPreview.url} controls className="max-h-[70vh] w-auto" />
+                        ) : (
+                          <audio src={refPreview.url} controls className="w-full" />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
                 {/* Предупреждение о взаимоисключающих режимах кадров и референсов в видео */}
@@ -3395,23 +3751,23 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       <button
                         type="button"
                         onClick={handleRandomPrompt}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-white/70 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-white"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-white/70 transition hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/10 hover:text-white"
                         title="Подставить готовый красивый пример промпта"
                       >
-                        <Dices className="h-3 w-3 text-[#22d3ee]" />
+                        <Dices className="h-3 w-3 text-[#2dd4bf]" />
                         <span>Случайный</span>
                       </button>
                       <button
                         type="button"
                         disabled={isEnhancingPrompt}
                         onClick={handleEnhancePrompt}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2 py-0.5 text-[11px] font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20 disabled:opacity-50"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2 py-0.5 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20 disabled:opacity-50"
                         title="Улучшить и детализировать текущий промпт с помощью ИИ"
                       >
                         {isEnhancingPrompt ? (
-                          <Loader2 className="h-3 w-3 animate-spin text-[#22d3ee]" />
+                          <Loader2 className="h-3 w-3 animate-spin text-[#2dd4bf]" />
                         ) : (
-                          <FileText className="h-3 w-3 text-[#22d3ee]" />
+                          <FileText className="h-3 w-3 text-[#2dd4bf]" />
                         )}
                         <span>{isEnhancingPrompt ? "Улучшаем…" : "Улучшить"}</span>
                       </button>
@@ -3440,7 +3796,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       value={negativePrompt}
                       onChange={(e) => setNegativePrompt(e.target.value)}
                       placeholder="Отрицательный промпт: чего НЕ должно быть на картинке (напр. размытие, лишние пальцы, текст, мусор)..."
-                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none selection:bg-[#22d3ee]/40 selection:text-white"
+                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none selection:bg-[#2dd4bf]/40 selection:text-white"
                     />
                   </div>
                 )}
@@ -3451,18 +3807,61 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </div>
                   )}
                 {(!kieActive || kieTextField) && (
-                  <div className="px-3 pt-3 lg:px-4">
+                  <div className="relative px-3 pt-3 lg:px-4">
+                    <MentionMenu
+                      open={mentionOpen}
+                      items={mentionCandidates}
+                      activeIndex={mentionIndex}
+                      onHover={setMentionIndex}
+                      onPick={insertMention}
+                      emptyHint={
+                        seedanceRefs.length === 0 && mentionRefs.length === 0
+                          ? "Референсов пока нет. Прикрепи фото, видео или аудио плитками выше — их имена появятся здесь."
+                          : "Ничего не нашлось по этому запросу."
+                      }
+                    />
                     <textarea
                       ref={promptTextareaRef}
                       value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
+                      onChange={(e) => {
+                        setPrompt(e.target.value);
+                        syncMention(e.target.value, e.target.selectionStart);
+                      }}
+                      onKeyDown={(e) => {
+                        if (!mentionOpen) return;
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setMentionIndex((i) =>
+                            mentionCandidates.length ? (i + 1) % mentionCandidates.length : 0,
+                          );
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setMentionIndex((i) =>
+                            mentionCandidates.length
+                              ? (i - 1 + mentionCandidates.length) % mentionCandidates.length
+                              : 0,
+                          );
+                        } else if (e.key === "Enter" || e.key === "Tab") {
+                          const item = mentionCandidates[mentionIndex];
+                          if (item) {
+                            e.preventDefault();
+                            insertMention(item);
+                          }
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setMentionOpen(false);
+                        }
+                      }}
+                      onBlur={() => window.setTimeout(() => setMentionOpen(false), 150)}
                       placeholder={
                         mediaType === "audio"
                           ? kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")
                             ? "Введите текст для озвучки (1–10 000 символов)... Используйте кнопки аудио-тегов выше для добавления эмоций, смеха, пауз и акцентов."
                             : "Текст / описание трека…"
                           : mediaType === "video"
-                            ? "Опишите видео…"
+                            ? mentionRefs.length > 0
+                              ? "Опишите видео… Введите @, чтобы вставить референс по имени"
+                              : "Опишите видео…"
                             : "Опишите изображение…"
                       }
                       rows={
@@ -3472,7 +3871,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           : 3
                       }
                       style={{ outline: "none" }}
-                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 selection:bg-[#22d3ee]/40 selection:text-white"
+                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 selection:bg-[#2dd4bf]/40 selection:text-white"
                     />
                   </div>
                 )}
@@ -3503,13 +3902,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className="h-[18px] w-[18px] shrink-0 rounded-md object-cover ring-1 ring-white/10"
                         />
                       ) : (
-                        <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md bg-[#38bdf8]/20 font-mono text-[10px] font-bold text-[#38bdf8] ring-1 ring-white/10">
+                        <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md bg-[#5eead4]/20 font-mono text-[10px] font-bold text-[#5eead4] ring-1 ring-white/10">
                           K
                         </span>
                       )}
                       <span className="font-medium">
                         {currentWired ? (
-                          <span className="mr-1 font-mono text-[#22d3ee]">+</span>
+                          <span className="mr-1 font-mono text-[#2dd4bf]">+</span>
                         ) : null}
                         {currentName}
                       </span>
@@ -3542,7 +3941,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "rounded-full px-2.5 py-1 text-[11px] font-medium transition",
                             orientation === o
-                              ? "bg-[#22d3ee]/20 text-[#22d3ee] font-semibold"
+                              ? "bg-[#2dd4bf]/20 text-[#2dd4bf] font-semibold"
                               : "text-white/45 hover:text-white",
                           )}
                         >
@@ -3562,7 +3961,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "rounded-full px-2.5 py-1 font-mono text-[11px] uppercase transition",
                             motionQuality === q
-                              ? "bg-[#22d3ee]/20 text-[#22d3ee] font-semibold"
+                              ? "bg-[#2dd4bf]/20 text-[#2dd4bf] font-semibold"
                               : "text-white/45 hover:text-white",
                           )}
                         >
@@ -3582,7 +3981,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
                             generateAudio
-                              ? "border-[#22d3ee]/40 bg-[#22d3ee]/15 text-[#22d3ee]"
+                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
                               : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
                           )}
                           title={generateAudio ? "Со звуком" : "Без звука"}
@@ -3606,7 +4005,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
                             !instrumental
-                              ? "border-[#22d3ee]/40 bg-[#22d3ee]/15 text-[#22d3ee]"
+                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
                               : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
                           )}
                           title="Вокал on = не instrumental"
@@ -3668,10 +4067,24 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     );
                   })}
 
+                  {/* Seedance (KIE): Формат · Разрешение · Время · Звук + Omni/Fast */}
+                  {seedanceIsKie && kieModel && (
+                    <SeedanceDock
+                      fields={kieModel.fields}
+                      values={kieValues}
+                      onChange={handleKieValueChange}
+                      mode={seedanceMode}
+                      onMode={switchSeedanceMode}
+                      preset={seedancePreset}
+                      onPreset={applySeedancePreset}
+                    />
+                  )}
+
                   {/* KIE: динамические настройки модели из каталога */}
                   {kieActive &&
                     kieModel &&
                     kieChipFields(kieModel)
+                      .filter((f) => !(seedanceIsKie && SEEDANCE_DOCK_FIELDS.has(f.name)))
                       .filter((f) => kieFieldVisible(f, kieValues))
                       .map((f) => (
                         <KieFieldChip
@@ -3682,9 +4095,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           setOpenChip={setOpenChip}
                           setModelOpen={setModelOpen}
                           onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
-                          onChange={(name, v) =>
-                            setKieValues((prev) => ({ ...prev, [name]: v }))
-                          }
+                          onChange={handleKieValueChange}
                         />
                       ))}
 
@@ -3702,7 +4113,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               className={cn(
                                 "rounded-lg px-2.5 py-1.5 font-mono text-[10px] uppercase transition",
                                 soraSize === sz
-                                  ? "bg-[#22d3ee]/20 text-[#22d3ee] font-semibold"
+                                  ? "bg-[#2dd4bf]/20 text-[#2dd4bf] font-semibold"
                                   : "text-white/40 hover:text-white",
                               )}
                             >
@@ -3746,7 +4157,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           : "1 токен = $0.10 (10¢). Цена за выбранные параметры."
                       }
                     >
-                      <Coins className="h-3 w-3 text-[#22d3ee]" strokeWidth={2.5} />
+                      <Coins className="h-3 w-3 text-[#2dd4bf]" strokeWidth={2.5} />
                       <span>{priceLabel}</span>
                     </div>
                     {(mediaType === "image" || mediaType === "video") && (
@@ -3763,7 +4174,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               className={cn(
                                 "rounded-lg px-2 py-1 font-mono text-[11px] font-bold transition",
                                 batchCount === cnt
-                                  ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-1 ring-[#22d3ee]/40"
+                                  ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-1 ring-[#2dd4bf]/40"
                                   : "text-white/45 hover:text-white",
                               )}
                             >
@@ -3792,7 +4203,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         createGenerate.mutate(undefined);
                       }}
                       className={cn(
-                        "inline-flex min-w-[145px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] px-4 py-2 text-[12px] font-extrabold uppercase tracking-wider text-black shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_25px_rgba(34,211,238,0.45)] disabled:opacity-40 disabled:pointer-events-none",
+                        "inline-flex min-w-[145px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] px-4 py-2 text-[12px] font-extrabold uppercase tracking-wider text-black shadow-[0_0_20px_rgba(45,212,191,0.3)] transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_25px_rgba(45,212,191,0.45)] disabled:opacity-40 disabled:pointer-events-none",
                       )}
                       title={
                         createGenerate.isPending
@@ -3844,7 +4255,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   {selected.label || (selected.kind === "audio" ? "Аудиотрек" : selected.kind === "video" ? "Видео" : "Изображение")}
                 </span>
                 {selected.model && (
-                  <span className="shrink-0 rounded-md border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
+                  <span className="shrink-0 rounded-md border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#2dd4bf]">
                     {selected.model}
                   </span>
                 )}
@@ -3868,7 +4279,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     }
                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white/90 transition hover:bg-white/[0.12] hover:text-white"
                   >
-                    <Download className="h-4 w-4 text-[#22d3ee]" />
+                    <Download className="h-4 w-4 text-[#2dd4bf]" />
                     <span>Скачать</span>
                   </button>
                   {selected.kind === "image" && (
@@ -3881,7 +4292,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           className={cn(
                             "rounded px-2 py-0.5 uppercase transition",
                             downloadFormat === fmt
-                              ? "bg-[#22d3ee]/25 font-bold text-[#22d3ee]"
+                              ? "bg-[#2dd4bf]/25 font-bold text-[#2dd4bf]"
                               : "text-white/50 hover:text-white",
                           )}
                         >
@@ -3944,7 +4355,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               {/* Prompt Inspector Panel */}
               <div className="flex w-full md:w-84 shrink-0 flex-col gap-3 rounded-2xl border border-white/15 bg-[#121216]/95 p-4 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] max-h-[84vh] overflow-y-auto ring-1 ring-white/10">
                 <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22d3ee]">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#2dd4bf]">
                     <FileText className="h-4 w-4" />
                     <span>Инспектор</span>
                   </div>
@@ -3989,7 +4400,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }
                     }}
                     disabled={!selected.prompt}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/15 px-3 text-[11px] font-bold text-[#22d3ee] transition hover:bg-[#22d3ee]/25 disabled:opacity-40"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/15 px-3 text-[11px] font-bold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25 disabled:opacity-40"
                   >
                     <CornerDownLeft className="h-3.5 w-3.5" />
                     <span>Вставить в чат</span>
@@ -4004,7 +4415,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       handleRetry(selected);
                     }}
                     disabled={createGenerate.isPending}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#2dd4bf] to-[#14b8a6] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(45,212,191,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
                     title="Повторить генерацию с теми же параметрами"
                   >
                     <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
@@ -4028,7 +4439,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           href={u}
                           target="_blank"
                           rel="noreferrer"
-                          className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#22d3ee]"
+                          className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#2dd4bf]"
                           title="Открыть референс в новой вкладке"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -4114,12 +4525,12 @@ function KieFieldChip({
       <button
         type="button"
         onClick={onOpenVoiceModal}
-        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#22d3ee]/20 hover:border-[#22d3ee]/60"
+        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/60"
         title="Открыть библиотеку русских голосов (200)"
       >
-        <Mic className="h-3.5 w-3.5 text-[#22d3ee]" />
+        <Mic className="h-3.5 w-3.5 text-[#2dd4bf]" />
         <span className="text-white/60">Голос:</span>
-        <span className="font-semibold text-[#22d3ee]">{displayName}</span>
+        <span className="font-semibold text-[#2dd4bf]">{displayName}</span>
       </button>
     );
   }
@@ -4135,7 +4546,7 @@ function KieFieldChip({
         title={field.desc || field.label}
       >
         <span className="text-[11px] text-white/55">{field.label}:</span>
-        <span className="font-mono text-[11px] font-semibold text-[#22d3ee]">{numVal.toFixed(2)}</span>
+        <span className="font-mono text-[11px] font-semibold text-[#2dd4bf]">{numVal.toFixed(2)}</span>
         <input
           type="range"
           min={0}
@@ -4143,7 +4554,7 @@ function KieFieldChip({
           step={0.01}
           value={numVal}
           onChange={(e) => onChange(field.name, parseFloat(e.target.value))}
-          className="h-1.5 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+          className="h-1.5 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
         />
       </div>
     );
@@ -4159,7 +4570,7 @@ function KieFieldChip({
         className={cn(
           "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
           on
-            ? "border-[#22d3ee]/40 bg-[#22d3ee]/15 text-[#22d3ee]"
+            ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
             : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
         )}
       >
@@ -4297,7 +4708,7 @@ function KieAttachButton({
       {items.map((u, i) => (
         <span
           key={`${u}-${i}`}
-          className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-3 text-[12px] font-medium text-[#22d3ee]"
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-[#2dd4bf]"
         >
           {field.kind === "images" ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -4361,7 +4772,7 @@ function KieAttachButton({
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-dashed border-white/25 bg-white/[0.03] px-3 text-[12px] font-medium text-white/70 transition hover:border-white/40 hover:text-white disabled:opacity-50"
           >
             {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin text-[#22d3ee]" />
+              <Loader2 className="h-4 w-4 animate-spin text-[#2dd4bf]" />
             ) : (
               <Paperclip className="h-4 w-4" />
             )}
@@ -4388,7 +4799,7 @@ function KieAttachButton({
                   }
                 }}
                 placeholder="https://…"
-                className="h-10 w-48 rounded-xl border border-white/10 bg-black/40 px-2.5 text-[11px] text-white/80 outline-none placeholder:text-white/25 focus:border-[#22d3ee]/50"
+                className="h-10 w-48 rounded-xl border border-white/10 bg-black/40 px-2.5 text-[11px] text-white/80 outline-none placeholder:text-white/25 focus:border-[#2dd4bf]/50"
               />
               <button
                 type="button"
@@ -4424,7 +4835,7 @@ function ChipButton({
       className={cn(
         "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition-all duration-200",
         active
-          ? "border-[#22d3ee] bg-[#22d3ee]/15 text-[#22d3ee] shadow-[0_0_15px_rgba(34,211,238,0.2)]"
+          ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.2)]"
           : "border-white/10 bg-[#16161b] text-white/80 hover:border-white/20 hover:bg-[#1f1f26] hover:text-white",
       )}
     >
@@ -4488,7 +4899,7 @@ function OptionDropdown({
                 className={cn(
                   "flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[12px] transition",
                   active
-                    ? "bg-[#22d3ee]/15 text-[#22d3ee] font-semibold"
+                    ? "bg-[#2dd4bf]/15 text-[#2dd4bf] font-semibold"
                     : "text-white/80 hover:bg-white/[0.08] hover:text-white",
                 )}
               >
@@ -4522,8 +4933,8 @@ function ModelCardIcon({
         className={cn(
           "inline-flex h-10 w-10 items-center justify-center rounded-lg font-mono text-[14px] font-bold ring-1 transition",
           isTopCard
-            ? "bg-[#22d3ee]/15 text-[#22d3ee] ring-[#22d3ee]/30 group-hover:ring-[#22d3ee]/60"
-            : "bg-[#38bdf8]/15 text-[#38bdf8] ring-white/10 group-hover:ring-[#38bdf8]/40",
+            ? "bg-[#2dd4bf]/15 text-[#2dd4bf] ring-[#2dd4bf]/30 group-hover:ring-[#2dd4bf]/60"
+            : "bg-[#5eead4]/15 text-[#5eead4] ring-white/10 group-hover:ring-[#5eead4]/40",
         )}
       >
         {letter || label.slice(0, 1)}
@@ -4536,7 +4947,7 @@ function ModelCardIcon({
       src={effectiveIcon}
       alt={label}
       onError={() => setError(true)}
-      className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10 transition group-hover:ring-[#22d3ee]/40"
+      className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10 transition group-hover:ring-[#2dd4bf]/40"
     />
   );
 }
@@ -4621,7 +5032,7 @@ const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
 function AudioActionIcon({ type }: { type: AudioActionSpec["iconType"] }) {
   switch (type) {
     case "music":
-      return <Music className="h-4 w-4 text-[#22d3ee]" />;
+      return <Music className="h-4 w-4 text-[#2dd4bf]" />;
     case "cover":
       return <RotateCw className="h-4 w-4 text-amber-400" />;
     case "vocal":
@@ -4637,7 +5048,7 @@ function AudioActionIcon({ type }: { type: AudioActionSpec["iconType"] }) {
     case "lyrics":
       return <FileText className="h-4 w-4 text-pink-400" />;
     case "speech":
-      return <Mic className="h-4 w-4 text-[#22d3ee]" />;
+      return <Mic className="h-4 w-4 text-[#2dd4bf]" />;
     case "turbo":
       return <Sparkles className="h-4 w-4 text-amber-400" />;
     case "dialogue":
@@ -4663,6 +5074,8 @@ function ModelPickerPopover({
   onSelect: (slug: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  /** Модель, на которую наведён курсор: правая панель показывает именно её. */
+  const [hoverSlug, setHoverSlug] = useState<string | null>(null);
   const isAudio = mediaType === "audio";
   const [sunoOpen, setSunoOpen] = useState(() => {
     const isEl = selectedSlug.toLowerCase().includes("elevenlabs") && !selectedSlug.toLowerCase().includes("elevenlabs-sfx");
@@ -4797,6 +5210,22 @@ function ModelPickerPopover({
 
   const totalCount = unifiedItems.length;
 
+  // ---- правая панель предпросмотра: меняется на наведение другой модели ----
+  const previewItem =
+    unifiedItems.find((i) => i.slug === (hoverSlug || selectedSlug)) ?? unifiedItems[0] ?? null;
+  const previewKie =
+    previewItem && previewItem.isKie
+      ? (kieModels.find((m) => `kie:${m.id}` === previewItem.slug) ?? null)
+      : null;
+  const previewBase =
+    previewItem && !previewItem.isKie
+      ? (models.find((m) => m.slug === previewItem.slug) ?? null)
+      : null;
+  const previewRefCount = (kind: "images" | "videos" | "audios"): number =>
+    previewKie?.fields.find((f) => f.kind === kind && !KIE_FRAME_FIELDS.has(f.name))?.max_items ?? 0;
+  const previewKieField = (name: string) => previewKie?.fields.find((f) => f.name === name) ?? null;
+  const previewBaseDefaults = (previewBase?.defaults ?? {}) as Record<string, unknown>;
+
   const renderCard = (item: (typeof unifiedItems)[0]) => {
     const active = item.slug === selectedSlug;
     const isTopCard = item.isTop;
@@ -4805,14 +5234,16 @@ function ModelPickerPopover({
         key={item.slug}
         type="button"
         onClick={() => onSelect(item.slug)}
+        onMouseEnter={() => setHoverSlug(item.slug)}
+        onFocus={() => setHoverSlug(item.slug)}
         className={cn(
           "group relative flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200",
           active
             ? isTopCard
-              ? "border-[#22d3ee] bg-[#22d3ee]/15 text-white shadow-[0_0_22px_rgba(34,211,238,0.25)] ring-1 ring-[#22d3ee]/50"
-              : "border-[#38bdf8] bg-[#38bdf8]/10 text-white shadow-[0_0_20px_rgba(56,189,248,0.2)]"
+              ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-white shadow-[0_0_22px_rgba(45,212,191,0.25)] ring-1 ring-[#2dd4bf]/50"
+              : "border-[#5eead4] bg-[#5eead4]/10 text-white shadow-[0_0_20px_rgba(94,234,212,0.2)]"
             : isTopCard
-              ? "border-[#22d3ee]/25 bg-[#22d3ee]/[0.03] hover:border-[#22d3ee]/50 hover:bg-[#22d3ee]/[0.08]"
+              ? "border-[#2dd4bf]/25 bg-[#2dd4bf]/[0.03] hover:border-[#2dd4bf]/50 hover:bg-[#2dd4bf]/[0.08]"
               : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]",
         )}
       >
@@ -4825,13 +5256,13 @@ function ModelPickerPopover({
           />
           {item.priceLabel && (
             <span className="mt-1 inline-flex items-center gap-0.5 font-mono text-[10px] text-white/60">
-              <Coins className="h-2.5 w-2.5 text-[#22d3ee]" strokeWidth={2.5} />
+              <Coins className="h-2.5 w-2.5 text-[#2dd4bf]" strokeWidth={2.5} />
               {item.priceLabel}
             </span>
           )}
           {item.priceUsd !== null && item.priceUsd !== undefined && (
             <span className="mt-1 inline-flex items-center gap-0.5 font-mono text-[10px] text-white/60">
-              <Coins className="h-2.5 w-2.5 text-[#38bdf8]" strokeWidth={2.5} />
+              <Coins className="h-2.5 w-2.5 text-[#5eead4]" strokeWidth={2.5} />
               {`$${item.priceUsd.toFixed(3)}`}
             </span>
           )}
@@ -4841,9 +5272,9 @@ function ModelPickerPopover({
             className={cn(
               "truncate text-[12px] font-semibold",
               active
-                ? "text-[#22d3ee]"
+                ? "text-[#2dd4bf]"
                 : isTopCard
-                  ? "text-white font-medium group-hover:text-[#22d3ee]"
+                  ? "text-white font-medium group-hover:text-[#2dd4bf]"
                   : "text-white/90 group-hover:text-white",
             )}
           >
@@ -4871,7 +5302,7 @@ function ModelPickerPopover({
         className={cn(
           "group relative flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200",
           active
-            ? "border-[#22d3ee] bg-[#22d3ee]/15 text-white shadow-[0_0_18px_rgba(34,211,238,0.2)] ring-1 ring-[#22d3ee]/50"
+            ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-white shadow-[0_0_18px_rgba(45,212,191,0.2)] ring-1 ring-[#2dd4bf]/50"
             : "border-white/[0.08] bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.06]",
         )}
       >
@@ -4880,7 +5311,7 @@ function ModelPickerPopover({
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-lg ring-1 transition",
               active
-                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40"
+                ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-[#2dd4bf]/40"
                 : "bg-white/[0.05] text-white/75 ring-white/10 group-hover:text-white",
             )}
           >
@@ -4891,7 +5322,7 @@ function ModelPickerPopover({
           <p
             className={cn(
               "truncate text-[12px] font-semibold",
-              active ? "text-[#22d3ee]" : "text-white/90 group-hover:text-white",
+              active ? "text-[#2dd4bf]" : "text-white/90 group-hover:text-white",
             )}
           >
             {action.name}
@@ -4902,19 +5333,19 @@ function ModelPickerPopover({
           <div className="mt-1 flex items-center gap-2">
             {priceNote ? (
               <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
-                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                <Coins className="h-2.5 w-2.5 text-[#5eead4]" />
                 {priceNote}
               </span>
             ) : est?.usd ? (
               <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
-                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                <Coins className="h-2.5 w-2.5 text-[#5eead4]" />
                 {`$${est.usd.toFixed(3)}`}
               </span>
             ) : null}
           </div>
         </div>
         {active && (
-          <span className="absolute bottom-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#22d3ee]/20 text-[#22d3ee]">
+          <span className="absolute bottom-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#2dd4bf]/20 text-[#2dd4bf]">
             <Check className="h-3 w-3" />
           </span>
         )}
@@ -4926,7 +5357,7 @@ function ModelPickerPopover({
     <div
       className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
       style={{
-        width: mediaType === "video" ? 620 : mediaType === "audio" ? 480 : 520,
+        width: mediaType === "video" ? 870 : mediaType === "audio" ? 480 : 770,
       }}
       role="dialog"
       aria-label={title}
@@ -4937,7 +5368,7 @@ function ModelPickerPopover({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
+            <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#2dd4bf]">
               {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : totalCount}
             </span>
           </div>
@@ -4953,7 +5384,7 @@ function ModelPickerPopover({
                 ? "Поиск действия (трек, кавер, озвучка, диалог, SFX)..."
                 : "Быстрый поиск модели (Kling, Nano, Flux, Veo, Sora...)"
             }
-            className="h-8 w-full rounded-xl border border-white/10 bg-black/40 pl-8 pr-7 text-[11px] text-white/90 placeholder:text-white/30 transition focus:border-[#22d3ee]/60 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30"
+            className="h-8 w-full rounded-xl border border-white/10 bg-black/40 pl-8 pr-7 text-[11px] text-white/90 placeholder:text-white/30 transition focus:border-[#2dd4bf]/60 focus:outline-none focus:ring-1 focus:ring-[#2dd4bf]/30"
           />
           {search && (
             <button
@@ -4967,8 +5398,9 @@ function ModelPickerPopover({
         </div>
       </div>
 
-      {/* Unified single scrollable body */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      {/* Список моделей + правая панель: наведение на другую модель меняет её */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex-1 overflow-y-auto p-3 space-y-4">
         {isAudio ? (
           <>
             {/* Engine 1: Suno */}
@@ -5086,12 +5518,12 @@ function ModelPickerPopover({
             {/* Section 1: TOP Models */}
             {topItems.length > 0 && (
               <div>
-                <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#22d3ee]">
+                <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#2dd4bf]">
                   <span className="flex items-center gap-1">
                     <span>🔥</span>
                     <span>ТОП МОДЕЛИ</span>
                   </span>
-                  <span className="rounded-full bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee]">
+                  <span className="rounded-full bg-[#2dd4bf]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#2dd4bf]">
                     {topItems.length}
                   </span>
                 </div>
@@ -5130,6 +5562,84 @@ function ModelPickerPopover({
               </div>
             )}
           </>
+        )}
+        </div>
+
+        {/* Правая панель: подробности модели, на которую навели курсор */}
+        {!isAudio && (
+          <aside className="hidden w-[250px] shrink-0 flex-col border-l border-white/[0.08] bg-[#16161b]/60 p-3 md:flex">
+            {previewItem ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <ModelCardIcon
+                    icon={previewItem.icon}
+                    label={previewItem.label}
+                    letter={previewItem.letter}
+                    isTopCard={previewItem.isTop}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold leading-tight text-white/90">
+                      {previewItem.label}
+                    </p>
+                    {previewItem.priceLabel && (
+                      <p className="font-mono text-[10px] text-white/45">{previewItem.priceLabel}</p>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-[11px] leading-relaxed text-white/55">{previewItem.desc}</p>
+
+                <div className="space-y-1.5 border-t border-white/[0.08] pt-2">
+                  {previewKie ? (
+                    <>
+                      <ModelPreviewRow
+                        label="Референсы"
+                        value={`фото ${previewRefCount("images") || "—"} · видео ${previewRefCount("videos") || "—"} · аудио ${previewRefCount("audios") || "—"}`}
+                      />
+                      {previewKieField("resolution") && (
+                        <ModelPreviewRow
+                          label="Разрешение"
+                          value={(previewKieField("resolution")?.options || []).join(" · ") || "—"}
+                        />
+                      )}
+                      {previewKieField("duration") && (
+                        <ModelPreviewRow
+                          label="Длительность"
+                          value={`${previewKieField("duration")?.min ?? "?"}–${previewKieField("duration")?.max ?? "?"} сек`}
+                        />
+                      )}
+                      {previewKieField("aspect_ratio") && (
+                        <ModelPreviewRow
+                          label="Формат"
+                          value={(previewKieField("aspect_ratio")?.options || []).join(" · ")}
+                        />
+                      )}
+                      {previewKieField("generate_audio") && (
+                        <ModelPreviewRow label="Звук" value="вкл/выкл" />
+                      )}
+                    </>
+                  ) : previewBase ? (
+                    <>
+                      {previewBase.chips.length > 0 && (
+                        <ModelPreviewRow
+                          label="Умеет"
+                          value={previewBase.chips.map((c) => OUTSEE_CHIP_LABELS[c] || c).join(" · ")}
+                        />
+                      )}
+                      <ModelPreviewRow
+                        label="Старт"
+                        value={`${String(previewBaseDefaults.aspect ?? "—")} · ${String(previewBaseDefaults.resolution ?? "—")} · ${String(previewBaseDefaults.duration ?? "—")}с`}
+                      />
+                    </>
+                  ) : null}
+                </div>
+
+                <p className="border-t border-white/[0.08] pt-2 text-[10px] leading-snug text-white/30">
+                  Наведи на модель в списке — панель покажет её возможности. Клик выбирает.
+                </p>
+              </div>
+            ) : null}
+          </aside>
         )}
       </div>
     </div>
