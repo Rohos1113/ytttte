@@ -2,14 +2,14 @@
 
 /**
  * «Вдохновение» — кнопка над вертикальными «Фото / Видео / Аудио» и каталог стилей
- * в том же виде, что в окне помощника над промптом (категории + плитки с обложками).
- * Выбранный стиль пишется в те же ключи localStorage, что и панель помощника,
- * и дописывается к промпту фото при генерации.
+ * помощника в три уровня: категории картинками → стили в категории → карточка стиля
+ * с крупной картинкой, описанием и промптом. Выбранный стиль пишется в те же ключи
+ * localStorage, что и панель помощника, и дописывается к промпту фото при генерации.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, X } from "lucide-react";
+import { ArrowLeft, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { GenStyleArt as GenStyleArtView } from "@/components/outsee/gen-style-art";
@@ -26,6 +26,12 @@ import {
 import { cn } from "@/lib/utils";
 
 const PANEL_W = 760;
+const PANEL_H = "70vh";
+
+type View =
+  | { kind: "categories" }
+  | { kind: "styles"; catId: string }
+  | { kind: "style"; catId: string; styleId: string };
 
 /** Обложки, которые пользователь уже сгенерировал в помощнике (genAssistant.styleArt.<id>). */
 function readArtUrls(): Record<string, string> {
@@ -44,6 +50,11 @@ function readArtUrls(): Record<string, string> {
   return out;
 }
 
+function coverOf(style: GenStyleDef | undefined, artUrls: Record<string, string>): string | undefined {
+  if (!style) return undefined;
+  return artUrls[style.id] ?? style.cover;
+}
+
 function SwatchGlyph() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -55,64 +66,39 @@ function SwatchGlyph() {
   );
 }
 
-function StyleTile({
+/** Картинка стиля: обложка, если есть, иначе SVG-эскиз в тон стиля. */
+function StyleThumb({
   style,
   artUrl,
-  selected,
-  onPick,
+  className,
+  children,
 }: {
   style: GenStyleDef;
   artUrl?: string;
-  selected: boolean;
-  onPick: () => void;
+  className?: string;
+  children?: React.ReactNode;
 }) {
-  const [imgBroken, setImgBroken] = useState(false);
-  const cover = !imgBroken ? (artUrl ?? style.cover) : undefined;
-  const dot = GEN_STYLE_COLORS[style.color] ?? GEN_STYLE_COLORS.cyan;
+  const [broken, setBroken] = useState(false);
+  const cover = !broken ? (artUrl ?? style.cover) : undefined;
 
   return (
-    <button
-      type="button"
-      role="button"
-      data-testid={`inspiration-style-${style.id}`}
-      data-style-id={style.id}
-      onClick={onPick}
-      title={style.desc}
-      className={cn(
-        "group relative h-[116px] overflow-hidden rounded-xl border text-left transition-all duration-200",
-        selected
-          ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
-          : "border-white/10 hover:border-white/30",
-      )}
-    >
-      <div className="absolute inset-0 flex items-center justify-center bg-[#16161c]">
-        <div className="max-h-[80%] max-w-[80%] opacity-90">
+    <div className={cn("relative overflow-hidden bg-[#16161c]", className)}>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="max-h-[78%] max-w-[78%] opacity-90">
           <GenStyleArtView art={style.art} color={style.color} />
         </div>
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover"
-            onError={() => setImgBroken(true)}
-          />
-        ) : null}
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pt-8 pb-1.5">
-        <div className="line-clamp-1 text-[12px] font-bold text-white">{style.name}</div>
-        <div className="line-clamp-1 text-[10px] text-white/55">{style.desc}</div>
-      </div>
-      <span
-        className="absolute top-1.5 left-1.5 h-2 w-2 rounded-full border border-black/40"
-        style={{ backgroundColor: dot }}
-      />
-      {selected ? (
-        <span className="absolute top-1 right-1 flex items-center gap-0.5 rounded bg-[#2dd4bf] px-1 py-0.5 text-[9px] font-bold text-black">
-          <Check className="h-2.5 w-2.5" /> выбран
-        </span>
+      {cover ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cover}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => setBroken(true)}
+        />
       ) : null}
-    </button>
+      {children}
+    </div>
   );
 }
 
@@ -127,21 +113,18 @@ export function InspirationMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; bottom: number; width: number } | null>(null);
-  const [catFilter, setCatFilter] = useState<string>("all");
+  const [view, setView] = useState<View>({ kind: "categories" });
   const [artUrls, setArtUrls] = useState<Record<string, string>>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const active = value ? inspirationStyle(value) : null;
 
-  const displayed = useMemo(() => {
-    const rows = INSPIRATION_STYLES.map((style) => {
-      const cat = INSPIRATION_CATEGORIES.find((c) => c.styles.some((s) => s.id === style.id));
-      return { style, cat };
-    });
-    if (catFilter === "all") return rows;
-    return rows.filter((r) => r.cat?.id === catFilter);
-  }, [catFilter]);
+  const category = useMemo(
+    () => (view.kind === "categories" ? null : INSPIRATION_CATEGORIES.find((c) => c.id === view.catId) ?? null),
+    [view],
+  );
+  const detail = view.kind === "style" ? inspirationStyle(view.styleId) : null;
 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;
@@ -154,8 +137,16 @@ export function InspirationMenu({
   useEffect(() => {
     if (!open) return;
     setArtUrls(readArtUrls());
+    setView({ kind: "categories" });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Esc — на уровень назад, из корня закрывает
+      setView((prev) => {
+        if (prev.kind === "style") return { kind: "styles", catId: prev.catId };
+        if (prev.kind === "styles") return { kind: "categories" };
+        setOpen(false);
+        return prev;
+      });
     };
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;
@@ -195,6 +186,21 @@ export function InspirationMenu({
     setOpen(false);
   }, [onChange]);
 
+  const headerTitle =
+    view.kind === "categories" ? "Каталог стилей" : view.kind === "styles" ? category?.name ?? "Стили" : detail?.name ?? "Стиль";
+  const headerSub =
+    view.kind === "categories"
+      ? `${INSPIRATION_CATEGORIES.length} категорий · ${INSPIRATION_STYLES.length} стилей`
+      : view.kind === "styles"
+        ? `${category?.styles.length ?? 0} стилей в категории`
+        : detail?.desc ?? "";
+
+  const back = () => {
+    if (view.kind === "style") setView({ kind: "styles", catId: view.catId });
+    else if (view.kind === "styles") setView({ kind: "categories" });
+    else setOpen(false);
+  };
+
   return (
     <>
       <button
@@ -230,17 +236,30 @@ export function InspirationMenu({
               data-testid="inspiration-menu"
               role="dialog"
               aria-label="Каталог стилей"
-              style={{ left: pos.left, bottom: pos.bottom, width: pos.width }}
-              className="fixed z-[120] flex max-h-[70vh] flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#121216]/97 shadow-[0_24px_70px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+              style={{ left: pos.left, bottom: pos.bottom, width: pos.width, maxHeight: PANEL_H }}
+              className="fixed z-[120] flex flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#121216]/97 shadow-[0_24px_70px_rgba(0,0,0,0.65)] backdrop-blur-xl"
             >
               <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
-                <div>
-                  <div className="text-[14px] font-semibold text-white">Каталог стилей</div>
-                  <div className="text-[11px] text-white/45">
-                    {INSPIRATION_STYLES.length} стилей · тот же набор, что в помощнике над промптом
+                <div className="flex min-w-0 items-center gap-2">
+                  {view.kind !== "categories" ? (
+                    <button
+                      type="button"
+                      onClick={back}
+                      aria-label="Назад"
+                      data-testid="inspiration-back"
+                      className="rounded-lg border border-white/10 p-1.5 text-white/60 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                  <div className="min-w-0">
+                    <div data-testid="inspiration-title" className="truncate text-[14px] font-semibold text-white">
+                      {headerTitle}
+                    </div>
+                    <div className="truncate text-[11px] text-white/45">{headerSub}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {active ? (
                     <button
                       type="button"
@@ -261,51 +280,145 @@ export function InspirationMenu({
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 border-b border-white/8 px-4 py-2">
-                <button
-                  type="button"
-                  onClick={() => setCatFilter("all")}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-[11px] transition",
-                    catFilter === "all"
-                      ? "bg-[#22d3ee] font-semibold text-black"
-                      : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                  )}
-                >
-                  Все ({INSPIRATION_STYLES.length})
-                </button>
-                {INSPIRATION_CATEGORIES.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setCatFilter(c.id)}
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-[11px] transition",
-                      catFilter === c.id
-                        ? "bg-[#22d3ee] font-semibold text-black"
-                        : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                    )}
-                  >
-                    {c.name} ({c.styles.length})
-                  </button>
-                ))}
-              </div>
+              {/* 1. Категории картинками */}
+              {view.kind === "categories" ? (
+                <div className="grid flex-1 grid-cols-3 gap-3 overflow-y-auto p-3">
+                  {INSPIRATION_CATEGORIES.map((c) => {
+                    const coverStyle = c.styles.find((s) => artUrls[s.id] ?? s.cover) ?? c.styles[0];
+                    const dot = GEN_STYLE_COLORS[coverStyle.color] ?? GEN_STYLE_COLORS.cyan;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        data-testid={`inspiration-category-${c.id}`}
+                        onClick={() => setView({ kind: "styles", catId: c.id })}
+                        className="group relative h-[150px] overflow-hidden rounded-xl border border-white/10 text-left transition hover:border-[#2dd4bf]/60 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                      >
+                        <StyleThumb
+                          style={coverStyle}
+                          artUrl={artUrls[coverStyle.id]}
+                          className="absolute inset-0 h-full w-full transition-transform duration-500 group-hover:scale-105"
+                        />
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-transparent" />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: dot }} />
+                            <div className="text-[13px] font-bold text-white">{c.name}</div>
+                          </div>
+                          <div className="text-[10.5px] text-white/60">{c.styles.length} стилей</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
 
-              <div className="grid flex-1 grid-cols-4 gap-2 overflow-y-auto p-3">
-                {displayed.map(({ style, cat }) => (
-                  <StyleTile
-                    key={style.id}
-                    style={style}
-                    artUrl={artUrls[style.id]}
-                    selected={style.id === value}
-                    onPick={() => pick(style, cat?.id)}
-                  />
-                ))}
-              </div>
+              {/* 2. Стили выбранной категории */}
+              {view.kind === "styles" ? (
+                <div className="grid flex-1 grid-cols-4 gap-2 overflow-y-auto p-3">
+                  {(category?.styles ?? []).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      data-testid={`inspiration-style-${s.id}`}
+                      data-style-id={s.id}
+                      onClick={() => setView({ kind: "style", catId: view.catId, styleId: s.id })}
+                      title={s.desc}
+                      className={cn(
+                        "group relative h-[116px] overflow-hidden rounded-xl border text-left transition",
+                        s.id === value
+                          ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40"
+                          : "border-white/10 hover:border-white/30",
+                      )}
+                    >
+                      <StyleThumb style={s} artUrl={artUrls[s.id]} className="absolute inset-0 h-full w-full" />
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pt-8 pb-1.5">
+                        <div className="line-clamp-1 text-[12px] font-bold text-white">{s.name}</div>
+                        <div className="line-clamp-1 text-[10px] text-white/55">{s.desc}</div>
+                      </div>
+                      {s.id === value ? (
+                        <span className="absolute top-1 right-1 rounded bg-[#2dd4bf] px-1 py-0.5 text-[9px] font-bold text-black">
+                          выбран
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
-              <div className="border-t border-white/8 px-4 py-2 text-[11px] text-white/40">
-                Стиль допишется к промпту при генерации фото — как в старом доке. Esc закрывает.
-              </div>
+              {/* 3. Карточка стиля: крупная картинка, описание, промпт */}
+              {view.kind === "style" && detail ? (
+                <div className="flex flex-1 gap-3 overflow-hidden p-3">
+                  <div className="flex w-[45%] shrink-0 flex-col gap-2">
+                    <StyleThumb
+                      style={detail}
+                      artUrl={artUrls[detail.id]}
+                      className="h-[240px] w-full rounded-xl border border-white/10"
+                    />
+                    <button
+                      type="button"
+                      data-testid="inspiration-apply"
+                      onClick={() => pick(detail, view.catId)}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-bold transition",
+                        detail.id === value
+                          ? "bg-[#2dd4bf]/15 text-[#2dd4bf] ring-1 ring-[#2dd4bf]/50"
+                          : "bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black hover:brightness-110",
+                      )}
+                    >
+                      {detail.id === value ? (
+                        <>
+                          <Check className="h-3.5 w-3.5" /> Выбран
+                        </>
+                      ) : (
+                        "Выбрать стиль"
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+                    <div>
+                      <div data-testid="inspiration-style-name" className="text-[14px] font-bold text-white">
+                        {detail.name}
+                      </div>
+                      <div className="mt-0.5 text-[11.5px] leading-relaxed text-white/60">{detail.desc}</div>
+                      {detail.tags?.length ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {detail.tags.slice(0, 8).map((t) => (
+                            <span
+                              key={t}
+                              className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] text-white/50"
+                            >
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <div className="mb-1 text-[10px] font-semibold tracking-wide text-white/40 uppercase">
+                        Промпт
+                      </div>
+                      <div
+                        data-testid="inspiration-style-prompt"
+                        className="max-h-[150px] overflow-y-auto rounded-lg border border-white/8 bg-black/30 p-2 text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/70"
+                      >
+                        {detail.promptCore}
+                      </div>
+                    </div>
+                    {detail.negativePrompt ? (
+                      <div>
+                        <div className="mb-1 text-[10px] font-semibold tracking-wide text-white/40 uppercase">
+                          Чего избегать
+                        </div>
+                        <div className="max-h-[90px] overflow-y-auto rounded-lg border border-white/8 bg-black/20 p-2 text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/50">
+                          {detail.negativePrompt}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>,
             document.body,
           )
