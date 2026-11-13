@@ -7,8 +7,7 @@
  * localStorage, что и панель помощника, и дописывается к промпту фото при генерации.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,8 +24,9 @@ import {
 } from "@/lib/inspiration-styles";
 import { cn } from "@/lib/utils";
 
-const PANEL_W = 760;
-const PANEL_H = "70vh";
+/** Габариты как у окна выбора модели: ширина 700, высота min(480px, 72vh). */
+const PANEL_W = 700;
+const PANEL_H = "min(480px, 72vh)";
 
 type View =
   | { kind: "categories" }
@@ -112,7 +112,6 @@ export function InspirationMenu({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ left: number; bottom: number; width: number } | null>(null);
   const [view, setView] = useState<View>({ kind: "categories" });
   const [artUrls, setArtUrls] = useState<Record<string, string>>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -125,14 +124,6 @@ export function InspirationMenu({
     [view],
   );
   const detail = view.kind === "style" ? inspirationStyle(view.styleId) : null;
-
-  useLayoutEffect(() => {
-    if (!open || !buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    const width = Math.min(PANEL_W, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-    setPos({ left, bottom: window.innerHeight - rect.top + 10, width });
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -202,7 +193,7 @@ export function InspirationMenu({
   };
 
   return (
-    <>
+    <div className="relative">
       <button
         ref={buttonRef}
         type="button"
@@ -229,15 +220,15 @@ export function InspirationMenu({
         ) : null}
       </button>
 
-      {open && pos
-        ? createPortal(
-            <div
+      {open ? (
+        <div
               ref={panelRef}
               data-testid="inspiration-menu"
               role="dialog"
               aria-label="Каталог стилей"
-              style={{ left: pos.left, bottom: pos.bottom, width: pos.width, maxHeight: PANEL_H }}
-              className="fixed z-[120] flex flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#121216]/97 shadow-[0_24px_70px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+              style={{ width: PANEL_W, height: PANEL_H }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="absolute bottom-full left-0 z-50 mb-3 flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
             >
               <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
@@ -419,10 +410,8 @@ export function InspirationMenu({
                   </div>
                 </div>
               ) : null}
-            </div>,
-            document.body,
-          )
-        : null}
-    </>
+        </div>
+      ) : null}
+    </div>
   );
 }
