@@ -5633,6 +5633,10 @@ function ModelPickerPopover({
       className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
       style={{
         width: mediaType === "video" ? 760 : mediaType === "audio" ? 480 : 700,
+        // Окно фиксированной высоты: длинные списки моделей прокручиваются внутри,
+        // а не растягивают меню выбора. Без height высота была по контенту
+        // (только max-h-[76vh]), поэтому бренд с десятком моделей раздувал окно.
+        height: "min(480px, 72vh)",
       }}
       role="dialog"
       aria-label={title}
@@ -5675,7 +5679,7 @@ function ModelPickerPopover({
 
       {isAudio ? (
         /* Аудио: движки Suno / ElevenLabs, как было */
-        <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-4">
           {(q ? filteredSunoActions.length > 0 : true) && (
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
               <div
@@ -5857,7 +5861,7 @@ function ModelPickerPopover({
             )}
           </div>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-3">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
             {activeBrand ? (
               <>
                 <div className="mb-2 flex items-center justify-between px-1">
