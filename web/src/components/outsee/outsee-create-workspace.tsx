@@ -82,7 +82,7 @@ import {
 } from "@/lib/outsee-catalog";
 import { estimateCreatePrice } from "@/lib/create-pricing";
 import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
-import { inspirationStyle } from "@/lib/inspiration-styles";
+import { inspirationPromptSuffix, inspirationStyle } from "@/lib/inspiration-styles";
 import { InspirationMenu } from "./inspiration-menu";
 import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
 import { AudioTagsBar } from "./audio-tags-bar";
@@ -917,7 +917,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [negativePrompt, setNegativePrompt] = useState("");
   const [showNegativePrompt, setShowNegativePrompt] = useState(false);
   /** Стиль из «Вдохновения»: суффикс дописывается к промпту при генерации фото. */
-  const [stylePreset, setStylePreset] = useState("none");
+  const [stylePreset, setStylePreset] = useState("");
   const activeStyle = inspirationStyle(stylePreset);
   const [downloadFormat, setDownloadFormat] = useState<"png" | "jpg" | "webp">("png");
   const [batchCount, setBatchCount] = useState<1 | 2 | 4>(1);
@@ -2157,7 +2157,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     try {
       const res = await api.enhanceOutseeCreatePrompt({
         prompt: text,
-        style: stylePreset !== "none" ? stylePreset : undefined,
       });
       if (res?.enhanced_prompt) {
         setPrompt(res.enhanced_prompt);
@@ -2214,8 +2213,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         typeof arg === "object" && typeof arg?.negativePrompt === "string"
           ? arg.negativePrompt
           : negativePrompt;
-      // Стиль из «Вдохновения» — как в старом доке: дописываем суффикс к промпту фото.
-      const styleSuffix = retry ? "" : (activeStyle?.suffix ?? "");
+      // Стиль из «Вдохновения» — как в старом доке: дописываем ядро стиля к промпту фото.
+      const styleSuffix = retry ? "" : inspirationPromptSuffix(activeStyle);
       if (text && targetMediaType === "image" && styleSuffix) {
         text += styleSuffix;
       }
@@ -3256,12 +3255,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 : "justify-start pt-2",
             )}
           >
-            {/* Вдохновение: каталог стилей дока — иконка над фото */}
-            {mediaType === "image" && (
-              <div className="mb-2 flex w-full max-w-full shrink-0 justify-center">
-                <InspirationMenu value={stylePreset} onChange={setStylePreset} />
-              </div>
-            )}
             {selected?.preview_url &&
             selected.status !== "queued" &&
             selected.status !== "processing" &&
@@ -3418,6 +3411,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             <div className="flex items-end gap-2">
               {/* cs-typetoggle */}
               <div className="flex shrink-0 flex-col gap-2">
+                {/* Вдохновение — каталог стилей, тот же, что в помощнике над промптом */}
+                <InspirationMenu value={stylePreset} onChange={setStylePreset} />
                 {OUTSEE_TYPE_TABS.map((t) => {
                   const active = mediaType === t.id;
                   return (
@@ -4207,17 +4202,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       style={{ outline: "none" }}
                       className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 selection:bg-[#2dd4bf]/40 selection:text-white"
                     />
-                    {/* Выбранный стиль «Вдохновения»: видно, что именно допишется к промпту */}
-                    {mediaType === "image" && activeStyle && activeStyle.id !== "none" && (
+                    {/* Выбранный стиль «Вдохновения»: каталог из помощника */}
+                    {mediaType === "image" && activeStyle && (
                       <div className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-[#2dd4bf]/25 bg-[#2dd4bf]/5 px-2.5 py-1 text-[11px] text-[#2dd4bf]/90">
-                        <span className="shrink-0 text-[12px] leading-none">{activeStyle.icon}</span>
-                        <span className="shrink-0 font-semibold">Стиль «{activeStyle.label}»:</span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-white/55">
-                          {activeStyle.suffix}
+                        <span className="shrink-0 font-semibold">Стиль «{activeStyle.name}»</span>
+                        <span className="min-w-0 flex-1 truncate text-[10px] text-white/45">
+                          {activeStyle.desc}
                         </span>
                         <button
                           type="button"
-                          onClick={() => setStylePreset("none")}
+                          onClick={() => setStylePreset("")}
                           className="shrink-0 rounded p-0.5 text-white/40 transition hover:bg-white/10 hover:text-white"
                           title="Убрать стиль"
                         >

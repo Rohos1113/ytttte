@@ -1,80 +1,165 @@
 "use client";
 
 /**
- * «Вдохновение» — кнопка-иконка над фото в окне генерации.
- * Без подписи: понятно по иконке палитры. Открывает каталог стилей
- * (те самые пресеты дока: Фото, Кино, 3D, Аниме, Живопись, Киберпанк, Фэнтези).
- * Выбранный стиль дописывается к промпту при генерации изображения.
+ * «Вдохновение» — кнопка над вертикальными «Фото / Видео / Аудио» и каталог стилей
+ * в том же виде, что в окне помощника над промптом (категории + плитки с обложками).
+ * Выбранный стиль пишется в те же ключи localStorage, что и панель помощника,
+ * и дописывается к промпту фото при генерации.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
+import { toast } from "sonner";
+
+import { GenStyleArt as GenStyleArtView } from "@/components/outsee/gen-style-art";
+import { GEN_STYLE_COLORS } from "@/lib/gen-assistant-styles";
+import {
+  INSPIRATION_ART_PREFIX,
+  INSPIRATION_CATEGORIES,
+  INSPIRATION_LS_CATEGORY,
+  INSPIRATION_LS_STYLE,
+  INSPIRATION_STYLES,
+  inspirationStyle,
+  type GenStyleDef,
+} from "@/lib/inspiration-styles";
 import { cn } from "@/lib/utils";
-import { INSPIRATION_STYLES } from "@/lib/inspiration-styles";
 
-type Props = {
-  /** id выбранного стиля, "none" — без стиля. */
-  value: string;
-  onChange: (id: string) => void;
-  className?: string;
-};
+const PANEL_W = 760;
 
-/** Иконка «каталог стилей»: четыре цветных образца, как в палитре. */
-function PaletteGlyph({ active }: { active: boolean }) {
+/** Обложки, которые пользователь уже сгенерировал в помощнике (genAssistant.styleArt.<id>). */
+function readArtUrls(): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof window === "undefined") return out;
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(INSPIRATION_ART_PREFIX)) continue;
+      const value = window.localStorage.getItem(key);
+      if (value) out[key.slice(INSPIRATION_ART_PREFIX.length)] = value;
+    }
+  } catch {
+    /* приватный режим — просто без обложек */
+  }
+  return out;
+}
+
+function SwatchGlyph() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-[18px] w-[18px]">
-      <rect x="2" y="2" width="9" height="9" rx="2.6" fill="#fb923c" opacity={active ? 1 : 0.95} />
-      <rect x="13" y="2" width="9" height="9" rx="2.6" fill="#c084fc" opacity={active ? 1 : 0.95} />
-      <rect x="2" y="13" width="9" height="9" rx="2.6" fill="#2dd4bf" opacity={active ? 1 : 0.95} />
-      <rect x="13" y="13" width="9" height="9" rx="2.6" fill="#f472b6" opacity={active ? 1 : 0.95} />
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="8.5" height="8.5" rx="2.5" fill="#fb923c" />
+      <rect x="11" y="0.5" width="8.5" height="8.5" rx="2.5" fill="#c084fc" />
+      <rect x="0.5" y="11" width="8.5" height="8.5" rx="2.5" fill="#2dd4bf" />
+      <rect x="11" y="11" width="8.5" height="8.5" rx="2.5" fill="#f472b6" />
     </svg>
   );
 }
 
-export function InspirationMenu({ value, onChange, className }: Props) {
+function StyleTile({
+  style,
+  artUrl,
+  selected,
+  onPick,
+}: {
+  style: GenStyleDef;
+  artUrl?: string;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  const [imgBroken, setImgBroken] = useState(false);
+  const cover = !imgBroken ? (artUrl ?? style.cover) : undefined;
+  const dot = GEN_STYLE_COLORS[style.color] ?? GEN_STYLE_COLORS.cyan;
+
+  return (
+    <button
+      type="button"
+      role="button"
+      data-testid={`inspiration-style-${style.id}`}
+      data-style-id={style.id}
+      onClick={onPick}
+      title={style.desc}
+      className={cn(
+        "group relative h-[116px] overflow-hidden rounded-xl border text-left transition-all duration-200",
+        selected
+          ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40 shadow-[0_0_20px_rgba(45,212,191,0.3)]"
+          : "border-white/10 hover:border-white/30",
+      )}
+    >
+      <div className="absolute inset-0 flex items-center justify-center bg-[#16161c]">
+        <div className="max-h-[80%] max-w-[80%] opacity-90">
+          <GenStyleArtView art={style.art} color={style.color} />
+        </div>
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cover}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            onError={() => setImgBroken(true)}
+          />
+        ) : null}
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pt-8 pb-1.5">
+        <div className="line-clamp-1 text-[12px] font-bold text-white">{style.name}</div>
+        <div className="line-clamp-1 text-[10px] text-white/55">{style.desc}</div>
+      </div>
+      <span
+        className="absolute top-1.5 left-1.5 h-2 w-2 rounded-full border border-black/40"
+        style={{ backgroundColor: dot }}
+      />
+      {selected ? (
+        <span className="absolute top-1 right-1 flex items-center gap-0.5 rounded bg-[#2dd4bf] px-1 py-0.5 text-[9px] font-bold text-black">
+          <Check className="h-2.5 w-2.5" /> выбран
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+export function InspirationMenu({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [anchor, setAnchor] = useState({ left: 12, top: 80, width: 430, maxH: 460 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; bottom: number; width: number } | null>(null);
+  const [catFilter, setCatFilter] = useState<string>("all");
+  const [artUrls, setArtUrls] = useState<Record<string, string>>({});
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => setMounted(true), []);
+  const active = value ? inspirationStyle(value) : null;
 
-  const activeId = value || "none";
-  const activeStyle = INSPIRATION_STYLES.find((s) => s.id === activeId) ?? null;
-  const hasStyle = activeId !== "none";
+  const displayed = useMemo(() => {
+    const rows = INSPIRATION_STYLES.map((style) => {
+      const cat = INSPIRATION_CATEGORIES.find((c) => c.styles.some((s) => s.id === style.id));
+      return { style, cat };
+    });
+    if (catFilter === "all") return rows;
+    return rows.filter((r) => r.cat?.id === catFilter);
+  }, [catFilter]);
 
-  // Позиция меню под кнопкой (портал в body — поверх окна генерации).
-  useEffect(() => {
-    if (!open) return;
-    const place = () => {
-      const r = btnRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const width = Math.min(430, window.innerWidth - 24);
-      const left = Math.max(12, Math.min(window.innerWidth - width - 12, r.right - width));
-      const top = r.bottom + 8;
-      const maxH = Math.max(240, Math.min(window.innerHeight - top - 16, 470));
-      setAnchor({ left, top, width, maxH });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const width = Math.min(PANEL_W, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+    setPos({ left, bottom: window.innerHeight - rect.top + 10, width });
   }, [open]);
 
-  // Esc и клик мимо — закрыть.
   useEffect(() => {
     if (!open) return;
+    setArtUrls(readArtUrls());
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (panelRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
       setOpen(false);
     };
     window.addEventListener("keydown", onKey);
@@ -85,109 +170,146 @@ export function InspirationMenu({ value, onChange, className }: Props) {
     };
   }, [open]);
 
+  const pick = useCallback(
+    (style: GenStyleDef, catId?: string) => {
+      try {
+        window.localStorage.setItem(INSPIRATION_LS_STYLE, style.id);
+        if (catId) window.localStorage.setItem(INSPIRATION_LS_CATEGORY, catId);
+      } catch {
+        /* ignore */
+      }
+      onChange(style.id);
+      setOpen(false);
+      toast.success(`Стиль «${style.name}» выбран`);
+    },
+    [onChange],
+  );
+
+  const reset = useCallback(() => {
+    try {
+      window.localStorage.setItem(INSPIRATION_LS_STYLE, "");
+    } catch {
+      /* ignore */
+    }
+    onChange("");
+    setOpen(false);
+  }, [onChange]);
+
   return (
-    <div className={cn("relative", className)}>
+    <>
       <button
-        ref={btnRef}
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label="Вдохновение — каталог стилей"
         data-testid="inspiration-button"
+        aria-label="Вдохновение — каталог стилей"
+        aria-pressed={open}
         title={
-          hasStyle && activeStyle
-            ? `Вдохновение — каталог стилей. Выбран: ${activeStyle.label}`
+          active
+            ? `Вдохновение — каталог стилей. Выбран «${active.name}»`
             : "Вдохновение — каталог стилей"
         }
+        onClick={() => setOpen((o) => !o)}
         className={cn(
-          "relative inline-flex h-10 w-10 items-center justify-center rounded-xl border backdrop-blur transition",
-          open
-            ? "border-[#2dd4bf]/70 bg-[#2dd4bf]/20 shadow-[0_0_22px_rgba(45,212,191,0.35)]"
-            : "border-white/15 bg-white/[0.05] hover:border-[#2dd4bf]/50 hover:bg-[#2dd4bf]/12",
+          "relative flex h-[59px] min-w-[76px] items-center justify-center rounded-xl border px-3 py-2.5 transition-all duration-200",
+          open || active
+            ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_18px_rgba(45,212,191,0.25)]"
+            : "border-white/10 bg-[#16161b]/90 text-white/45 hover:border-white/20 hover:bg-[#1e1e24] hover:text-white",
+          className,
         )}
       >
-        <PaletteGlyph active={open || hasStyle} />
-        {hasStyle && (
+        <SwatchGlyph />
+        {active ? (
           <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#2dd4bf] shadow-[0_0_6px_#2dd4bf]" />
-        )}
+        ) : null}
       </button>
 
-      {open && mounted && typeof document !== "undefined"
+      {open && pos
         ? createPortal(
             <div
               ref={panelRef}
-              role="dialog"
-              aria-label="Вдохновение — каталог стилей"
               data-testid="inspiration-menu"
-              style={{ left: anchor.left, top: anchor.top, width: anchor.width, maxHeight: anchor.maxH }}
-              className="fixed z-[200] flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0f1015]/98 text-white shadow-[0_24px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+              role="dialog"
+              aria-label="Каталог стилей"
+              style={{ left: pos.left, bottom: pos.bottom, width: pos.width }}
+              className="fixed z-[120] flex max-h-[70vh] flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#121216]/97 shadow-[0_24px_70px_rgba(0,0,0,0.65)] backdrop-blur-xl"
             >
-              <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2">
-                <PaletteGlyph active />
-                <div className="leading-tight">
-                  <div className="text-[12px] font-bold">Вдохновение</div>
-                  <div className="text-[10px] text-white/45">
-                    стиль допишется к промпту при генерации
+              <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+                <div>
+                  <div className="text-[14px] font-semibold text-white">Каталог стилей</div>
+                  <div className="text-[11px] text-white/45">
+                    {INSPIRATION_STYLES.length} стилей · тот же набор, что в помощнике над промптом
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/60 transition hover:bg-white/[0.1] hover:text-white"
-                  title="Закрыть"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {active ? (
+                    <button
+                      type="button"
+                      onClick={reset}
+                      className="rounded-lg border border-white/12 px-2.5 py-1 text-[11px] text-white/60 transition hover:border-[#2dd4bf]/50 hover:text-white"
+                    >
+                      Без стиля
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    aria-label="Закрыть каталог"
+                    className="rounded-lg border border-white/10 p-1 text-white/50 transition hover:bg-white/10 hover:text-white"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                <div className="grid grid-cols-2 gap-1.5">
-                  {INSPIRATION_STYLES.map((s) => {
-                    const selected = s.id === activeId;
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          onChange(s.id);
-                          setOpen(false);
-                        }}
-                        data-testid={`inspiration-style-${s.id}`}
-                        title={s.suffix || "Стиль выключен"}
-                        className={cn(
-                          "flex items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition",
-                          selected
-                            ? "border-[#2dd4bf] bg-[#2dd4bf]/10 ring-1 ring-[#2dd4bf]/40"
-                            : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.07]",
-                        )}
-                      >
-                        <span className="mt-0.5 shrink-0 text-[16px] leading-none">{s.icon}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1">
-                            <span
-                              className={cn(
-                                "block text-[12px] font-semibold",
-                                selected ? "text-[#2dd4bf]" : "text-white/90",
-                              )}
-                            >
-                              {s.label}
-                            </span>
-                            {selected && <Check className="h-3 w-3 shrink-0 text-[#2dd4bf]" />}
-                          </span>
-                          <span className="mt-0.5 block text-[10px] text-white/45">{s.hint}</span>
-                          <span className="mt-0.5 block truncate font-mono text-[9px] text-white/25">
-                            {s.suffix || "без суффикса"}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="flex flex-wrap gap-1.5 border-b border-white/8 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => setCatFilter("all")}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-[11px] transition",
+                    catFilter === "all"
+                      ? "bg-[#22d3ee] font-semibold text-black"
+                      : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
+                  )}
+                >
+                  Все ({INSPIRATION_STYLES.length})
+                </button>
+                {INSPIRATION_CATEGORIES.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCatFilter(c.id)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[11px] transition",
+                      catFilter === c.id
+                        ? "bg-[#22d3ee] font-semibold text-black"
+                        : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
+                    )}
+                  >
+                    {c.name} ({c.styles.length})
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid flex-1 grid-cols-4 gap-2 overflow-y-auto p-3">
+                {displayed.map(({ style, cat }) => (
+                  <StyleTile
+                    key={style.id}
+                    style={style}
+                    artUrl={artUrls[style.id]}
+                    selected={style.id === value}
+                    onPick={() => pick(style, cat?.id)}
+                  />
+                ))}
+              </div>
+
+              <div className="border-t border-white/8 px-4 py-2 text-[11px] text-white/40">
+                Стиль допишется к промпту при генерации фото — как в старом доке. Esc закрывает.
               </div>
             </div>,
             document.body,
           )
         : null}
-    </div>
+    </>
   );
 }
