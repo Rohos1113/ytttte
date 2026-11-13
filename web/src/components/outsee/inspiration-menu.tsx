@@ -217,9 +217,9 @@ export function InspirationMenu({
           data-testid="inspiration-menu"
           role="dialog"
           aria-label="Каталог стилей"
-          style={{ width: PANEL_W, height: PANEL_H }}
+          style={{ width: detail ? PANEL_W : PANEL_W - 398, height: PANEL_H }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="absolute bottom-full left-0 z-50 mb-3 flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+          className="absolute bottom-full left-[-20px] z-50 mb-3 flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
         >
           {/* Шапка */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-[#16161b]/95 px-3 py-2.5">
@@ -354,9 +354,9 @@ export function InspirationMenu({
               })}
             </div>
 
-            {/* Справа открывается карточка выбранного стиля */}
-            <div data-testid="inspiration-detail" className="flex min-w-0 flex-1 flex-col overflow-hidden p-2.5">
-              {detail ? (
+            {/* Справа открывается карточка выбранного стиля; без выбора третьей колонки нет */}
+            {detail ? (
+              <div data-testid="inspiration-detail" className="flex min-w-0 flex-1 flex-col overflow-hidden p-2.5">
                 <>
                   <StyleThumb
                     style={detail}
@@ -407,13 +407,8 @@ export function InspirationMenu({
                     )}
                   </button>
                 </>
-              ) : (
-                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-[11px] leading-relaxed text-white/35">
-                  <SwatchGlyph />
-                  Нажми на стиль слева — покажу карточку с крупной картинкой, описанием и промптом.
-                </div>
-              )}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
