@@ -2,14 +2,15 @@
 
 /**
  * «Вдохновение» — кнопка над вертикальными «Фото / Видео / Аудио» и каталог стилей
- * помощника. Механика окна выбора модели: слева категории картинками, справа стили
- * выбранной категории; клик по стилю — карточка с крупной картинкой, описанием и промптом.
+ * помощника. Механика окна выбора модели: три колонки — слева категории картинками,
+ * в центре стили выбранной категории, справа открывается карточка стиля
+ * с крупной картинкой, описанием и промптом.
  * Выбранный стиль пишется в те же ключи localStorage, что и панель помощника,
  * и дописывается к промпту фото при генерации.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { GenStyleArt as GenStyleArtView } from "@/components/outsee/gen-style-art";
@@ -24,8 +25,8 @@ import {
 } from "@/lib/inspiration-styles";
 import { cn } from "@/lib/utils";
 
-/** Габариты как у окна выбора модели: ширина 700, высота min(480px, 72vh). */
-const PANEL_W = 700;
+/** Габариты окна: слева категории, в центре стили, справа карточка. */
+const PANEL_W = 860;
 const PANEL_H = "min(480px, 72vh)";
 
 /** Категория выбранного стиля — чтобы окно открывалось на нужном месте. */
@@ -254,11 +255,11 @@ export function InspirationMenu({
             </div>
           </div>
 
-          {/* Слева категории, справа — стили выбранной категории */}
+          {/* Слева категории · в центре стили · справа карточка стиля */}
           <div className="flex min-h-0 flex-1">
             <div
               data-testid="inspiration-categories"
-              className="w-[214px] shrink-0 overflow-y-auto border-r border-white/[0.08] p-2"
+              className="w-[196px] shrink-0 overflow-y-auto border-r border-white/[0.08] p-2"
               role="tablist"
               aria-label="Категории стилей"
             >
@@ -290,7 +291,7 @@ export function InspirationMenu({
                     <StyleThumb
                       style={coverStyle}
                       artUrl={artUrls[coverStyle.id]}
-                      className="h-[38px] w-[38px] shrink-0 rounded-lg"
+                      className="h-[36px] w-[36px] shrink-0 rounded-lg"
                     />
                     <span className="min-w-0 flex-1">
                       <span
@@ -311,114 +312,105 @@ export function InspirationMenu({
               })}
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              {detail ? (
-                /* Карточка стиля: крупная картинка, описание, промпт */
-                <div className="flex flex-1 gap-3 overflow-hidden p-2.5">
-                  <div className="flex w-[42%] shrink-0 flex-col gap-2">
-                    <button
-                      type="button"
-                      data-testid="inspiration-back"
-                      onClick={() => setDetailId(null)}
-                      className="inline-flex items-center gap-1 self-start rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/60 transition hover:bg-white/10 hover:text-white"
-                    >
-                      <ArrowLeft className="h-3 w-3" /> к стилям
-                    </button>
-                    <StyleThumb
-                      style={detail}
-                      artUrl={artUrls[detail.id]}
-                      className="h-[190px] w-full rounded-xl border border-white/10"
-                    />
-                    <button
-                      type="button"
-                      data-testid="inspiration-apply"
-                      onClick={() => pick(detail, category?.id)}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-bold transition",
-                        detail.id === value
-                          ? "bg-[#2dd4bf]/15 text-[#2dd4bf] ring-1 ring-[#2dd4bf]/50"
-                          : "bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black hover:brightness-110",
-                      )}
-                    >
-                      {detail.id === value ? (
-                        <>
-                          <Check className="h-3.5 w-3.5" /> Выбран
-                        </>
-                      ) : (
-                        "Выбрать стиль"
-                      )}
-                    </button>
-                  </div>
+            <div
+              data-testid="inspiration-styles"
+              className="w-[264px] shrink-0 overflow-y-auto border-r border-white/[0.08] p-2"
+            >
+              <p className="mb-1.5 px-1 text-[9px] font-bold tracking-[0.14em] text-white/30 uppercase">
+                Стили
+              </p>
+              {(category?.styles ?? []).map((s) => {
+                const isOpen = s.id === detailId;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    data-testid={`inspiration-style-${s.id}`}
+                    data-style-id={s.id}
+                    onClick={() => setDetailId(s.id)}
+                    title={s.desc}
+                    className={cn(
+                      "group relative mb-2 block w-full overflow-hidden rounded-xl border text-left transition",
+                      isOpen
+                        ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40"
+                        : s.id === value
+                          ? "border-[#2dd4bf]/50"
+                          : "border-white/10 hover:border-white/30",
+                    )}
+                  >
+                    {/* Одна карточка в ширину — картинка крупная */}
+                    <StyleThumb style={s} artUrl={artUrls[s.id]} className="h-[116px] w-full" />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pt-8 pb-1.5">
+                      <div className="line-clamp-1 text-[12px] font-bold text-white">{s.name}</div>
+                      <div className="line-clamp-1 text-[10px] text-white/55">{s.desc}</div>
+                    </div>
+                    {s.id === value ? (
+                      <span className="absolute top-1 right-1 flex items-center gap-0.5 rounded bg-[#2dd4bf] px-1 py-0.5 text-[9px] font-bold text-black">
+                        <Check className="h-2.5 w-2.5" /> выбран
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
 
-                  <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-                    <div>
-                      <div data-testid="inspiration-style-name" className="text-[13px] font-bold text-white">
-                        {detail.name}
-                      </div>
-                      <div className="mt-0.5 text-[11px] leading-relaxed text-white/60">{detail.desc}</div>
-                      {detail.tags?.length ? (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {detail.tags.slice(0, 8).map((t) => (
-                            <span key={t} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] text-white/50">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
+            {/* Справа открывается карточка выбранного стиля */}
+            <div data-testid="inspiration-detail" className="flex min-w-0 flex-1 flex-col overflow-hidden p-2.5">
+              {detail ? (
+                <>
+                  <StyleThumb
+                    style={detail}
+                    artUrl={artUrls[detail.id]}
+                    className="h-[190px] w-full shrink-0 rounded-xl border border-white/10"
+                  />
+                  <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+                    <div data-testid="inspiration-style-name" className="text-[13px] font-bold text-white">
+                      {detail.name}
                     </div>
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold tracking-wide text-white/40 uppercase">
-                        Промпт
-                      </div>
-                      <div
-                        data-testid="inspiration-style-prompt"
-                        className="max-h-[150px] overflow-y-auto rounded-lg border border-white/8 bg-black/30 p-2 text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/70"
-                      >
-                        {detail.promptCore}
-                      </div>
-                    </div>
-                    {detail.negativePrompt ? (
-                      <div>
-                        <div className="mb-1 text-[10px] font-semibold tracking-wide text-white/40 uppercase">
-                          Чего избегать
-                        </div>
-                        <div className="max-h-[80px] overflow-y-auto rounded-lg border border-white/8 bg-black/20 p-2 text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/50">
-                          {detail.negativePrompt}
-                        </div>
+                    <div className="mt-0.5 text-[11px] leading-relaxed text-white/60">{detail.desc}</div>
+                    {detail.tags?.length ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {detail.tags.slice(0, 6).map((t) => (
+                          <span key={t} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] text-white/50">
+                            {t}
+                          </span>
+                        ))}
                       </div>
                     ) : null}
-                  </div>
-                </div>
-              ) : (
-                /* Стили выбранной категории — справа от категорий */
-                <div data-testid="inspiration-styles" className="grid flex-1 grid-cols-2 gap-2 overflow-y-auto p-2.5">
-                  {(category?.styles ?? []).map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      data-testid={`inspiration-style-${s.id}`}
-                      data-style-id={s.id}
-                      onClick={() => setDetailId(s.id)}
-                      title={s.desc}
-                      className={cn(
-                        "group relative h-[112px] overflow-hidden rounded-xl border text-left transition",
-                        s.id === value
-                          ? "border-[#2dd4bf] ring-2 ring-[#2dd4bf]/40"
-                          : "border-white/10 hover:border-white/30",
-                      )}
+                    <div className="mt-2 mb-1 text-[10px] font-semibold tracking-wide text-white/40 uppercase">
+                      Промпт
+                    </div>
+                    <div
+                      data-testid="inspiration-style-prompt"
+                      className="max-h-[96px] overflow-y-auto rounded-lg border border-white/8 bg-black/30 p-2 text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/70"
                     >
-                      <StyleThumb style={s} artUrl={artUrls[s.id]} className="absolute inset-0 h-full w-full" />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pt-8 pb-1.5">
-                        <div className="line-clamp-1 text-[12px] font-bold text-white">{s.name}</div>
-                        <div className="line-clamp-1 text-[10px] text-white/55">{s.desc}</div>
-                      </div>
-                      {s.id === value ? (
-                        <span className="absolute top-1 right-1 rounded bg-[#2dd4bf] px-1 py-0.5 text-[9px] font-bold text-black">
-                          выбран
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                      {detail.promptCore}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="inspiration-apply"
+                    onClick={() => pick(detail, category?.id)}
+                    className={cn(
+                      "mt-2 flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-bold transition",
+                      detail.id === value
+                        ? "bg-[#2dd4bf]/15 text-[#2dd4bf] ring-1 ring-[#2dd4bf]/50"
+                        : "bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black hover:brightness-110",
+                    )}
+                  >
+                    {detail.id === value ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" /> Выбран
+                      </>
+                    ) : (
+                      "Выбрать стиль"
+                    )}
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-[11px] leading-relaxed text-white/35">
+                  <SwatchGlyph />
+                  Нажми на стиль слева — покажу карточку с крупной картинкой, описанием и промптом.
                 </div>
               )}
             </div>
