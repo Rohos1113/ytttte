@@ -18,19 +18,31 @@ import {
   Clock,
   Eye,
   Film,
+  Hash,
   ImageIcon,
   Layers,
   Loader2,
   Maximize2,
+  Mic,
   Music,
   Plus,
+  Power,
   RotateCcw,
+  SlidersHorizontal,
+  Type,
   Volume2,
   VolumeX,
   X,
-  Zap,
 } from "lucide-react";
 import type { KieField } from "@/lib/api";
+import {
+  durationNumbers,
+  formatSettingChip,
+  modelSettingValue,
+  settingIsOn,
+  type ModelSettingDescriptor,
+  type ModelSettingIcon,
+} from "@/lib/model-settings";
 import { cn } from "@/lib/utils";
 
 /** Изумрудный акцент студии; им помечены активные элементы окна генерации. */
@@ -611,32 +623,244 @@ const RESOLUTION_HINT: Record<string, string> = {
   "4K": "только Quality",
 };
 
+/** Иконка чипа по смыслу настройки. */
+function settingIcon(icon: ModelSettingIcon, value: unknown) {
+  switch (icon) {
+    case "aspect":
+      return <Maximize2 className="h-3 w-3" />;
+    case "resolution":
+      return <Layers className="h-3 w-3" />;
+    case "duration":
+      return <Clock className="h-3 w-3" />;
+    case "sound":
+      return settingIsOn(value) ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />;
+    case "voice":
+      return <Mic className="h-3 w-3" />;
+    case "number":
+      return <Hash className="h-3 w-3" />;
+    case "range":
+      return <SlidersHorizontal className="h-3 w-3" />;
+    case "toggle":
+      return <Power className="h-3 w-3" />;
+    case "select":
+      return <ChevronDown className="h-3 w-3" />;
+    case "text":
+    default:
+      return <Type className="h-3 w-3" />;
+  }
+}
+
+/** Общие классы кнопки-опции в панели «Параметры». */
+const OPTION_CLASS = (active: boolean) =>
+  cn(
+    "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-medium transition",
+    active
+      ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
+      : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
+  );
+
+/** Один контрол панели: select — сетка кнопок, toggle — тумблер, number — степпер, text — поле. */
+function SettingControl({
+  descriptor,
+  value,
+  onChange,
+  onOpenVoiceModal,
+  formatVoice,
+}: {
+  descriptor: ModelSettingDescriptor;
+  value: unknown;
+  onChange: (name: string, v: unknown) => void;
+  onOpenVoiceModal?: () => void;
+  formatVoice?: (value: unknown) => string;
+}) {
+  const d = descriptor;
+
+  if (d.kind === "select") {
+    const options = d.options ?? [];
+    const current = String(value ?? "");
+    const isAspect = d.name === "aspect" || d.name === "aspect_ratio";
+    const cols = isAspect || options.length > 6 ? "grid-cols-3" : "grid-cols-2";
+    return (
+      <div className={cn("grid gap-1.5", cols)}>
+        {options.map((o) => {
+          const active = o.id === current;
+          const hint = o.hint ?? (d.name === "resolution" ? RESOLUTION_HINT[o.id] : undefined);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              {...(isAspect ? { "data-ratio": o.id } : {})}
+              {...(d.name === "resolution" ? { "data-resolution": o.id } : {})}
+              data-setting-option={o.id}
+              onClick={() => onChange(d.name, o.id)}
+              className={OPTION_CLASS(active)}
+            >
+              {isAspect && /^\d+:\d+$/.test(o.id) && <RatioGlyph ratio={o.id} />}
+              <span>{o.label}</span>
+              {hint && <span className="text-[9px] font-normal text-white/35">{hint}</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (d.kind === "toggle") {
+    const on = settingIsOn(value);
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
+        <span className="text-[11px] leading-tight text-white/75">{d.hint || d.label}</span>
+        <ToggleSwitch on={on} label={d.label} onToggle={() => onChange(d.name, !on)} />
+      </div>
+    );
+  }
+
+  if (d.kind === "duration") {
+    const current = Number(value);
+    return (
+      <div className="grid grid-cols-6 gap-1.5">
+        {durationNumbers(d).map((n) => {
+          const active = Number.isFinite(current) && current === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              data-duration={n}
+              onClick={() => onChange(d.name, d.valueType === "string" ? String(n) : n)}
+              className={cn(
+                "h-8 rounded-lg border text-[11px] font-medium tabular-nums transition",
+                active
+                  ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
+                  : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
+              )}
+            >
+              {n}
+              {d.suffix ?? ""}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (d.kind === "number") {
+    const num = Number(value);
+    const step = d.step ?? 1;
+    const bump = (dir: 1 | -1) => {
+      const base = Number.isFinite(num) ? num : Number(d.min ?? 0);
+      let next = base + dir * step;
+      if (d.min !== undefined) next = Math.max(d.min, next);
+      if (d.max !== undefined) next = Math.min(d.max, next);
+      onChange(d.name, Number(next.toFixed(6)));
+    };
+    return (
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={`${d.label}: меньше`}
+          onClick={() => bump(-1)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-[14px] text-white/70 transition hover:border-white/20 hover:text-white"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          value={Number.isFinite(num) ? String(num) : ""}
+          min={d.min}
+          max={d.max}
+          step={step}
+          onChange={(e) => onChange(d.name, e.target.value === "" ? undefined : Number(e.target.value))}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 font-mono text-[12px] text-white/90 outline-none focus:border-[#2dd4bf]/50"
+        />
+        <button
+          type="button"
+          aria-label={`${d.label}: больше`}
+          onClick={() => bump(1)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-[14px] text-white/70 transition hover:border-white/20 hover:text-white"
+        >
+          +
+        </button>
+      </div>
+    );
+  }
+
+  if (d.kind === "range") {
+    const raw = Number(value);
+    const num = Number.isFinite(raw) ? raw : Number(d.min ?? 0);
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={d.min ?? 0}
+          max={d.max ?? 1}
+          step={d.step ?? 0.01}
+          value={num}
+          onChange={(e) => onChange(d.name, parseFloat(e.target.value))}
+          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
+        />
+        <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[#2dd4bf]">
+          {num.toFixed(2)}
+        </span>
+      </div>
+    );
+  }
+
+  if (d.kind === "voice") {
+    return (
+      <button
+        type="button"
+        onClick={onOpenVoiceModal}
+        className="inline-flex h-8 w-full items-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-2 text-[12px] font-medium text-[#2dd4bf] transition hover:border-[#2dd4bf]/60 hover:bg-[#2dd4bf]/20"
+      >
+        <Mic className="h-3.5 w-3.5" />
+        <span className="min-w-0 flex-1 truncate text-left">
+          {formatVoice ? formatVoice(value) : String(value ?? "")}
+        </span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+    );
+  }
+
+  return (
+    <input
+      value={String(value ?? "")}
+      onChange={(e) => onChange(d.name, e.target.value)}
+      placeholder={d.hint || "—"}
+      className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-[12px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2dd4bf]/50"
+    />
+  );
+}
+
 /**
- * Нижняя строка Seedance: четыре чипа (формат · разрешение · время · звук),
- * которые открывают ОДНУ панель «Параметры» с разделами, плюс переключатели
- * Omni/Первый+Последний и Fast/Quality.
+ * Одно окно настроек для ВСЕХ моделей Create (как у Seedance): чипы параметров
+ * открывают одну панель «Параметры» с секциями. Внутренности зависят только от
+ * списка дескрипторов (lib/model-settings.ts) — KIE и outsee строят его по-своему.
  *
- * Пресет Fast = 480p, Quality = 720p (бэкенд хранит это как resolution).
+ * Особенности Seedance (Omni/Первый+Последний, Fast/Quality) передаются в
+ * `extras` и остаются рядом с чипами.
  */
-export function SeedanceDock({
-  fields,
+export function ModelSettingsDock({
+  settings,
   values,
   onChange,
   onReset,
-  mode,
-  onMode,
-  preset,
-  onPreset,
+  onOpenVoiceModal,
+  formatVoice,
+  onPanelOpen,
+  extras,
 }: {
-  fields: KieField[];
+  settings: ModelSettingDescriptor[];
   values: Record<string, unknown>;
   onChange: (name: string, v: unknown) => void;
-  /** Сброс параметров к дефолтам модели. */
-  onReset: () => void;
-  mode: "omni" | "frames";
-  onMode: (m: "omni" | "frames") => void;
-  preset: "fast" | "quality";
-  onPreset: (p: "fast" | "quality") => void;
+  /** Сброс параметров к дефолтам модели; без него кнопки «Сбросить» нет. */
+  onReset?: () => void;
+  /** Голосовое поле — не панель, а модалка библиотеки голосов. */
+  onOpenVoiceModal?: () => void;
+  /** Как показать выбранный голос; по умолчанию — сырое значение. */
+  formatVoice?: (value: unknown) => string;
+  /** Перед открытием панели: закрыть пикер модели и чужие выпадашки. */
+  onPanelOpen?: () => void;
+  extras?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -657,195 +881,86 @@ export function SeedanceDock({
     };
   }, [open]);
 
-  const aspect = fields.find((f) => f.name === "aspect_ratio");
-  const res = fields.find((f) => f.name === "resolution");
-  const dur = fields.find((f) => f.name === "duration");
-  const audio = fields.find((f) => f.name === "generate_audio" && f.kind === "toggle");
+  const togglePanel = () => {
+    setOpen((v) => {
+      if (!v) onPanelOpen?.();
+      return !v;
+    });
+  };
 
-  const aspectValue = String(values.aspect_ratio ?? aspect?.default ?? "16:9");
-  const resValue = String(values.resolution ?? res?.default ?? "720p");
-  const durValue = Number(values.duration ?? dur?.default ?? 5);
-  const audioOn = values.generate_audio === true || String(values.generate_audio) === "true";
-
-  const ratioOptions = aspect?.options?.length
-    ? aspect.options
-    : ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"];
-
-  const durationOptions: number[] = [];
-  if (dur) {
-    const min = Math.max(1, Math.round(Number(dur.min ?? 4)));
-    const max = Math.min(60, Math.round(Number(dur.max ?? 15)));
-    for (let d = min; d <= max; d += 1) durationOptions.push(d);
+  const sections: { title: string; items: ModelSettingDescriptor[] }[] = [];
+  for (const d of settings) {
+    const last = sections[sections.length - 1];
+    if (last && last.title === d.section) last.items.push(d);
+    else sections.push({ title: d.section, items: [d] });
   }
 
-  const togglePanel = () => setOpen((v) => !v);
+  if (!settings.length && !extras) return null;
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
-        {aspect && (
-          <span data-chip="aspect">
-            <ParamChip
-              icon={<Maximize2 className="h-3 w-3" />}
-              value={aspectValue}
-              title="Соотношение сторон"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {res && (
-          <span data-chip="resolution">
-            <ParamChip
-              icon={<Layers className="h-3 w-3" />}
-              value={resValue}
-              title="Разрешение · Fast = 480p, Quality = 720p+"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {dur && durationOptions.length > 0 && (
-          <span data-chip="duration">
-            <ParamChip
-              icon={<Clock className="h-3 w-3" />}
-              value={`${durValue}s`}
-              title="Длительность"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {audio && (
-          <span data-chip="sound">
-            <ParamChip
-              icon={audioOn ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-              value={audioOn ? "Звук вкл" : "Звук выкл"}
-              title="Звук"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
+        {settings.map((d) => {
+          const value = modelSettingValue(d, values);
+          const isVoice = d.kind === "voice";
+          const text =
+            isVoice && formatVoice ? formatVoice(value) : formatSettingChip(d, values);
+          return (
+            <span key={d.name} data-chip={d.chip}>
+              <ParamChip
+                icon={settingIcon(d.icon, value)}
+                value={text}
+                title={d.hint || d.label}
+                active={open && !isVoice}
+                onClick={isVoice ? () => onOpenVoiceModal?.() : togglePanel}
+              />
+            </span>
+          );
+        })}
 
         {open && (
           <div
             data-params-panel="true"
-            className="absolute bottom-full left-0 z-[1000] mb-2 w-[322px] rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+            className="absolute bottom-full left-0 z-[1000] mb-2 max-h-[70vh] w-[322px] overflow-y-auto rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
           >
             <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
               Параметры
             </p>
 
-            {aspect && (
-              <PaneSection title="Соотношение сторон">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {ratioOptions.map((o) => {
-                    const active = o === aspectValue;
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        data-ratio={o}
-                        onClick={() => onChange("aspect_ratio", o)}
-                        className={cn(
-                          "flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        <RatioGlyph ratio={o} />
-                        {o}
-                      </button>
-                    );
-                  })}
+            {sections.map((section) => (
+              <PaneSection key={section.title} title={section.title}>
+                <div className="space-y-1.5">
+                  {section.items.map((d) => (
+                    <SettingControl
+                      key={d.name}
+                      descriptor={d}
+                      value={modelSettingValue(d, values)}
+                      onChange={onChange}
+                      onOpenVoiceModal={onOpenVoiceModal}
+                      formatVoice={formatVoice}
+                    />
+                  ))}
                 </div>
               </PaneSection>
-            )}
-
-            {res && (
-              <PaneSection title="Разрешение">
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(res.options || []).map((o) => {
-                    const active = o === resValue;
-                    const hint = RESOLUTION_HINT[o];
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        data-resolution={o}
-                        onClick={() => onChange("resolution", o)}
-                        className={cn(
-                          "flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/75 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        <span className="text-[12px] font-medium">{o}</span>
-                        {hint && <span className="text-[9px] text-white/35">{hint}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </PaneSection>
-            )}
-
-            {dur && durationOptions.length > 0 && (
-              <PaneSection title="Длительность">
-                <div className="grid grid-cols-6 gap-1.5">
-                  {durationOptions.map((d) => {
-                    const active = d === durValue;
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        data-duration={d}
-                        onClick={() => onChange("duration", d)}
-                        className={cn(
-                          "h-8 rounded-lg border text-[11px] font-medium tabular-nums transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        {d}s
-                      </button>
-                    );
-                  })}
-                </div>
-              </PaneSection>
-            )}
-
-            {audio && (
-              <PaneSection title="Звук">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
-                  <span className="text-[11px] leading-tight text-white/75">
-                    Сгенерировать аудио-дорожку
-                  </span>
-                  <ToggleSwitch
-                    on={audioOn}
-                    label="Сгенерировать аудио-дорожку"
-                    onToggle={() => onChange("generate_audio", !audioOn)}
-                  />
-                </div>
-              </PaneSection>
-            )}
+            ))}
 
             <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2">
-              <button
-                type="button"
-                data-action="reset-params"
-                onClick={() => {
-                  onReset();
-                  setOpen(false);
-                }}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Сбросить
-              </button>
+              {onReset ? (
+                <button
+                  type="button"
+                  data-action="reset-params"
+                  onClick={() => {
+                    onReset();
+                    setOpen(false);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Сбросить
+                </button>
+              ) : (
+                <span />
+              )}
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -858,35 +973,7 @@ export function SeedanceDock({
         )}
       </div>
 
-      <SegmentedPills<"omni" | "frames">
-        ariaLabel="Режим Seedance"
-        options={[
-          { id: "omni", label: "Omni", title: "Ссылки: фото, видео, аудио" },
-          { id: "frames", label: "Первый+Последний", title: "Только первый и последний кадр" },
-        ]}
-        value={mode}
-        onChange={onMode}
-      />
-
-      <SegmentedPills<"fast" | "quality">
-        ariaLabel="Пресет качества"
-        options={[
-          {
-            id: "fast",
-            label: "Fast",
-            icon: <Zap className="h-2.5 w-2.5" />,
-            title: "Fast: 480p — дешевле и быстрее",
-          },
-          {
-            id: "quality",
-            label: "Quality",
-            icon: <Zap className="h-2.5 w-2.5" />,
-            title: "Quality: 720p и выше — дороже",
-          },
-        ]}
-        value={preset}
-        onChange={onPreset}
-      />
+      {extras}
     </div>
   );
 }

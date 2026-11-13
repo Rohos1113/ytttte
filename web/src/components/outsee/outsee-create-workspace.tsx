@@ -49,6 +49,7 @@ import {
   VolumeX,
   X,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePipelineMode } from "@/hooks/use-pipeline-mode";
@@ -67,7 +68,6 @@ import {
   OUTSEE_TYPE_TABS,
   chipOptions,
   clampToOptions,
-  detailLabel,
   dockChipsForModel,
   getAudioModel,
   getImageModel,
@@ -86,8 +86,9 @@ import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
 import { AudioTagsBar } from "./audio-tags-bar";
 import {
   MentionMenu,
+  ModelSettingsDock,
   RefCategory,
-  SeedanceDock,
+  SegmentedPills,
   framesFromKieValues,
   refToken,
   refsFromKieFields,
@@ -97,10 +98,14 @@ import {
 } from "./gen-dock-parts";
 import {
   estimateKie,
-  kieChipFields,
   kieFileFields,
   kieMainTextField,
 } from "@/lib/kie-pricing";
+import {
+  kieSettingDescriptors,
+  outseeSettingDescriptors,
+  settingDefaultPairs,
+} from "@/lib/model-settings";
 
 // Kie-каталог включен по умолчанию; выключить: NEXT_PUBLIC_KIE_CREATE=0.
 // (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
@@ -114,9 +119,6 @@ const KIE_FRAME_FIELDS = new Set(["first_frame_url", "last_frame_url", "first_fr
 function isSeedanceModel(m: KieModelSpec | null): boolean {
   return Boolean(m && m.id.toLowerCase().startsWith("seedance"));
 }
-
-/** Поля Seedance, которые рисует SeedanceDock, — из общего списка чипов их убираем. */
-const SEEDANCE_DOCK_FIELDS = new Set(["aspect_ratio", "resolution", "duration", "generate_audio"]);
 
 /**
  * Крупные PNG Kie рвёт на загрузке (ReadError). Перед отправкой ужимаем фото
@@ -945,7 +947,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   // Помощник — инструмент v2-механики: в воркспейсе v1 его нет (R1).
   const [workspaceMode] = usePipelineMode();
   const [appliedPrompt, setAppliedPrompt] = useState<{ text: string; ts: number } | null>(null);
-  const [openChip, setOpenChip] = useState<string | null>(null);
+  /** Чипы/выпадашки, которые надо закрыть перед открытием панели настроек. */
+  const [, setOpenChip] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [kieValues, setKieValues] = useState<Record<string, unknown>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1247,6 +1250,57 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   // ---- Seedance (KIE): плитки референсов, режим Omni / Первый+Последний ----
   const seedanceIsKie = mediaType === "video" && kieActive && isSeedanceModel(kieModel);
 
+  /**
+   * Одно окно настроек для KIE-модели (Seedance и все остальные): дескрипторы
+   * полей строит чистая логика lib/model-settings.ts. Файлы, главный текст,
+   * формат и скрытые show_if поля в окно не попадают.
+   */
+  const kieSettings = useMemo(
+    () =>
+      kieModel
+        ? kieSettingDescriptors(kieModel.fields, {
+            values: kieValues,
+            mainTextField: kieTextField,
+          })
+        : [],
+    [kieModel, kieValues, kieTextField],
+  );
+
+  /**
+   * Одно окно настроек для outsee-пресетов: aspect / resolution / detail /
+   * duration / audio. Порядок и опции — из каталога (dockChipsForModel +
+   * chipOptions), значения живут в прежних state-полях.
+   */
+  const outseeSettings = useMemo(() => {
+    if (kieActive || mediaType === "audio") return [];
+    const chips = dockChipsForModel(activeSlug, mediaType);
+    return outseeSettingDescriptors({
+      chips,
+      options: {
+        aspect: chipOptions(activeSlug, "aspect").map((o) => ({ id: o, label: o })),
+        resolution: chipOptions(activeSlug, "resolution").map((o) => ({ id: o, label: o })),
+        detail: OUTSEE_DETAIL_LEVELS.map((d) => ({ id: d.id, label: d.label, hint: d.hint })),
+        duration: chipOptions(activeSlug, "duration").map((o) => ({ id: o, label: `${o}с` })),
+      },
+      defaults: {
+        aspect:
+          mediaType === "image"
+            ? imageModel.defaults.aspectRatio
+            : videoModel.defaults.aspectRatio,
+        resolution:
+          mediaType === "image"
+            ? imageModel.defaults.imageResolution
+            : videoModel.defaults.resolution,
+        detail: mediaType === "image" ? imageModel.defaults.detailLevel : undefined,
+        duration:
+          mediaType === "video" && videoModel.defaults.duration != null
+            ? String(videoModel.defaults.duration)
+            : undefined,
+        audio: mediaType === "video" ? videoModel.defaults.generateAudio : undefined,
+      },
+    });
+  }, [kieActive, mediaType, activeSlug, imageModel, videoModel]);
+
   const kieFileFieldList = useMemo(() => (kieModel ? kieFileFields(kieModel) : []), [kieModel]);
   /** Плиточный док в новом дизайне — для любой KIE-модели, у которой есть слоты файлов. */
   const kieTilesActive = Boolean(kieActive && kieFileFieldList.length > 0);
@@ -1346,21 +1400,47 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (next) handleKieValueChange("resolution", next);
   };
 
-  /** Сброс параметров панели «Параметры» к дефолтам модели. */
-  const resetSeedanceParams = () => {
-    const defaults: [string, unknown][] = [];
-    for (const name of ["aspect_ratio", "resolution", "duration", "generate_audio"]) {
-      const f = kieModel?.fields.find((x) => x.name === name);
-      if (f?.default !== undefined) defaults.push([name, f.default]);
-    }
-    if (defaults.length === 0) return;
+  /** Сброс окна «Параметры» KIE-модели к дефолтам полей. */
+  const resetKieSettings = () => {
+    const pairs = settingDefaultPairs(kieSettings);
+    if (!pairs.length) return;
     setKieValues((prev) => {
       const next = { ...prev };
-      for (const [name, value] of defaults) next[name] = value;
+      for (const [name, value] of pairs) next[name] = value;
       return next;
     });
-    const resDefault = String(kieModel?.fields.find((x) => x.name === "resolution")?.default ?? "");
-    setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
+    if (seedanceIsKie) {
+      // Пресет — зеркало разрешения: 480p = Fast, остальное = Quality.
+      const resDefault = String(kieModel?.fields.find((x) => x.name === "resolution")?.default ?? "");
+      setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
+    }
+  };
+
+  /** Значения окна outsee-настроек: читаются из прежних state-полей. */
+  const outseeSettingValues: Record<string, unknown> = {
+    aspect,
+    resolution: mediaType === "image" ? resolution : videoResolution,
+    detail,
+    duration,
+    audio: generateAudio,
+  };
+
+  /** Запись значений окна outsee-настроек — в прежние state-поля. */
+  const handleOutseeSettingChange = (name: string, value: unknown) => {
+    if (name === "aspect") setAspect(String(value));
+    else if (name === "resolution") {
+      if (mediaType === "image") setResolution(String(value));
+      else setVideoResolution(String(value));
+    } else if (name === "detail") setDetail(String(value));
+    else if (name === "duration") setDuration(String(value));
+    else if (name === "audio") setGenerateAudio(Boolean(value));
+  };
+
+  /** Сброс окна outsee-настроек к дефолтам модели. */
+  const resetOutseeSettings = () => {
+    for (const [name, value] of settingDefaultPairs(outseeSettings)) {
+      handleOutseeSettingChange(name, value);
+    }
   };
 
   const switchSeedanceMode = (mode: "omni" | "frames") => {
@@ -4208,134 +4288,98 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </div>
                   )}
 
-                  {!kieActive && dockChips.map((chip) => {
-                    if (chip === "audio") {
-                      return (
-                        <button
-                          key="audio"
-                          type="button"
-                          onClick={() => setGenerateAudio((v) => !v)}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
-                            generateAudio
-                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
-                              : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
-                          )}
-                          title={generateAudio ? "Со звуком" : "Без звука"}
-                        >
-                          {OUTSEE_CHIP_LABELS.audio}
-                          <span className="font-mono text-[10px] text-white/45">
-                            {generateAudio ? "on" : "off"}
-                          </span>
-                        </button>
-                      );
-                    }
-                    if (chip === "image-input") {
-                      return null;
-                    }
-                    if (chip === "instrumental") {
-                      return (
-                        <button
-                          key="instrumental"
-                          type="button"
-                          onClick={() => setInstrumental((v) => !v)}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
-                            !instrumental
-                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
-                              : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
-                          )}
-                          title="Вокал on = не instrumental"
-                        >
-                          {OUTSEE_CHIP_LABELS.instrumental}
-                          <span className="font-mono text-[10px] text-white/40">
-                            {instrumental ? "off" : "on"}
-                          </span>
-                        </button>
-                      );
-                    }
+                  {/* Аудио: вокал / инструментал — своя кнопка, вкладка audio как была */}
+                  {!kieActive && mediaType === "audio" && dockChips.includes("instrumental") && (
+                    <button
+                      type="button"
+                      onClick={() => setInstrumental((v) => !v)}
+                      className={cn(
+                        "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
+                        !instrumental
+                          ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
+                          : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
+                      )}
+                      title="Вокал on = не instrumental"
+                    >
+                      {OUTSEE_CHIP_LABELS.instrumental}
+                      <span className="font-mono text-[10px] text-white/40">
+                        {instrumental ? "off" : "on"}
+                      </span>
+                    </button>
+                  )}
 
-                    const opts = chipOptions(activeSlug, chip);
-                    if (!opts.length) return null;
-
-                    let display = aspect;
-                    let onSelect = setAspect;
-                    let selectedVal = aspect;
-                    if (chip === "resolution") {
-                      display = mediaType === "image" ? resolution : videoResolution;
-                      onSelect = mediaType === "image" ? setResolution : setVideoResolution;
-                      selectedVal = display;
-                    } else if (chip === "detail") {
-                      display = `Детализация: ${detailLabel(detail)}`;
-                      onSelect = setDetail;
-                      selectedVal = detail;
-                    } else if (chip === "duration") {
-                      display = `${duration}с`;
-                      onSelect = setDuration;
-                      selectedVal = duration;
-                    }
-
-                    const options =
-                      chip === "detail"
-                        ? OUTSEE_DETAIL_LEVELS.map((d) => ({
-                            id: d.id,
-                            label: d.label,
-                            hint: d.hint,
-                          }))
-                        : chip === "duration"
-                          ? opts.map((d) => ({ id: d, label: `${d}с` }))
-                          : opts.map((o) => ({ id: o, label: o }));
-
-                    return (
-                      <OptionDropdown
-                        key={chip}
-                        label={OUTSEE_CHIP_LABELS[chip] || chip}
-                        value={display}
-                        selectedValue={selectedVal}
-                        open={openChip === chip}
-                        onOpenChange={(v) => {
-                          setOpenChip(v ? chip : null);
-                          if (v) setModelOpen(false);
-                        }}
-                        options={options}
-                        onSelect={onSelect}
-                        mono={chip !== "detail"}
-                      />
-                    );
-                  })}
-
-                  {/* Seedance (KIE): Формат · Разрешение · Время · Звук + Omni/Fast */}
-                  {seedanceIsKie && kieModel && (
-                    <SeedanceDock
-                      fields={kieModel.fields}
-                      values={kieValues}
-                      onChange={handleKieValueChange}
-                      onReset={resetSeedanceParams}
-                      mode={seedanceMode}
-                      onMode={switchSeedanceMode}
-                      preset={seedancePreset}
-                      onPreset={applySeedancePreset}
+                  {/* Одно окно настроек outsee-пресетов: aspect · resolution · detail · duration · audio */}
+                  {!kieActive && (
+                    <ModelSettingsDock
+                      settings={outseeSettings}
+                      values={outseeSettingValues}
+                      onChange={handleOutseeSettingChange}
+                      onReset={resetOutseeSettings}
+                      onPanelOpen={() => {
+                        setModelOpen(false);
+                        setOpenChip(null);
+                      }}
                     />
                   )}
 
-                  {/* KIE: динамические настройки модели из каталога */}
-                  {kieActive &&
-                    kieModel &&
-                    kieChipFields(kieModel)
-                      .filter((f) => !(seedanceIsKie && SEEDANCE_DOCK_FIELDS.has(f.name)))
-                      .filter((f) => kieFieldVisible(f, kieValues))
-                      .map((f) => (
-                        <KieFieldChip
-                          key={f.name}
-                          field={f}
-                          values={kieValues}
-                          openChip={openChip}
-                          setOpenChip={setOpenChip}
-                          setModelOpen={setModelOpen}
-                          onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
-                          onChange={handleKieValueChange}
-                        />
-                      ))}
+                  {/* Одно окно настроек KIE-модели; у Seedance рядом фирменные Omni/Fast */}
+                  {kieActive && kieModel && (
+                    <ModelSettingsDock
+                      settings={kieSettings}
+                      values={kieValues}
+                      onChange={handleKieValueChange}
+                      onReset={resetKieSettings}
+                      onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
+                      onPanelOpen={() => {
+                        setModelOpen(false);
+                        setOpenChip(null);
+                      }}
+                      formatVoice={(value) => {
+                        const voice = getVoiceById(String(value || ""));
+                        return voice
+                          ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
+                          : String(value || "Выбрать голос");
+                      }}
+                      extras={
+                        seedanceIsKie ? (
+                          <>
+                            <SegmentedPills<"omni" | "frames">
+                              ariaLabel="Режим Seedance"
+                              options={[
+                                { id: "omni", label: "Omni", title: "Ссылки: фото, видео, аудио" },
+                                {
+                                  id: "frames",
+                                  label: "Первый+Последний",
+                                  title: "Только первый и последний кадр",
+                                },
+                              ]}
+                              value={seedanceMode}
+                              onChange={switchSeedanceMode}
+                            />
+                            <SegmentedPills<"fast" | "quality">
+                              ariaLabel="Пресет качества"
+                              options={[
+                                {
+                                  id: "fast",
+                                  label: "Fast",
+                                  icon: <Zap className="h-2.5 w-2.5" />,
+                                  title: "Fast: 480p — дешевле и быстрее",
+                                },
+                                {
+                                  id: "quality",
+                                  label: "Quality",
+                                  icon: <Zap className="h-2.5 w-2.5" />,
+                                  title: "Quality: 720p и выше — дороже",
+                                },
+                              ]}
+                              value={seedancePreset}
+                              onChange={applySeedancePreset}
+                            />
+                          </>
+                        ) : undefined
+                      }
+                    />
+                  )}
 
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {!kieActive && mediaType === "video" &&
@@ -4734,175 +4778,6 @@ function kieFieldVisible(f: KieField, values: Record<string, unknown>): boolean 
   });
 }
 
-/** KIE: одна настройка модели в виде чипа (select/toggle/number/text). */
-function KieFieldChip({
-  field,
-  values,
-  openChip,
-  setOpenChip,
-  setModelOpen,
-  onOpenVoiceModal,
-  onChange,
-}: {
-  field: KieField;
-  values: Record<string, unknown>;
-  openChip?: string | null;
-  setOpenChip?: (v: string | null) => void;
-  setModelOpen?: (v: boolean) => void;
-  onOpenVoiceModal?: () => void;
-  onChange: (name: string, v: unknown) => void;
-}) {
-  const v = values[field.name] ?? field.default;
-
-  if (field.name === "voice_id" || field.name === "voice") {
-    const voice = getVoiceById(String(v || ""));
-    const displayName = voice
-      ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
-      : String(v || "Выбрать голос");
-    return (
-      <button
-        type="button"
-        onClick={onOpenVoiceModal}
-        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/60"
-        title="Открыть библиотеку русских голосов (200)"
-      >
-        <Mic className="h-3.5 w-3.5 text-[#2dd4bf]" />
-        <span className="text-white/60">Голос:</span>
-        <span className="font-semibold text-[#2dd4bf]">{displayName}</span>
-      </button>
-    );
-  }
-
-  if (field.name === "stability" || field.name === "similarity") {
-    const numVal =
-      typeof v === "number"
-        ? v
-        : Number(v ?? field.default ?? (field.name === "stability" ? 0.5 : 0.75));
-    return (
-      <div
-        className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-[#16161b] px-3"
-        title={field.desc || field.label}
-      >
-        <span className="text-[11px] text-white/55">{field.label}:</span>
-        <span className="font-mono text-[11px] font-semibold text-[#2dd4bf]">{numVal.toFixed(2)}</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={numVal}
-          onChange={(e) => onChange(field.name, parseFloat(e.target.value))}
-          className="h-1.5 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
-        />
-      </div>
-    );
-  }
-
-  if (field.kind === "toggle") {
-    const on = v === true || String(v).toLowerCase() === "true";
-    return (
-      <button
-        type="button"
-        onClick={() => onChange(field.name, !on)}
-        title={field.desc || field.label}
-        className={cn(
-          "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
-          on
-            ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
-            : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
-        )}
-      >
-        {field.label}
-        <span className="font-mono text-[10px] text-white/45">{on ? "on" : "off"}</span>
-      </button>
-    );
-  }
-
-  if (field.kind === "select") {
-    const formatOption = (opt: string) => {
-      const fn = field.name.toLowerCase();
-      const o = opt.toLowerCase();
-      if (fn === "quality") {
-        if (o === "basic") return { label: "1K", hint: "Базовое" };
-        if (o === "high") return { label: "2K", hint: "Высокое" };
-        if (o === "std" || o === "standard") return { label: "Standard", hint: "720p" };
-        if (o === "pro") return { label: "Pro", hint: "1080p" };
-      }
-      if (fn === "vocalgender") {
-        if (o === "m") return { label: "Мужской вокал", hint: "Мужской тембр" };
-        if (o === "f") return { label: "Женский вокал", hint: "Женский тембр" };
-        return { label: "Вокал: Любой", hint: "Без предпочтений" };
-      }
-      if (fn === "output_format" || fn === "format") {
-        return { label: opt.toUpperCase() };
-      }
-      return { label: opt || "—" };
-    };
-
-    const options = (field.options || []).map((o) => {
-      const meta = formatOption(o);
-      return { id: o, label: meta.label, hint: meta.hint };
-    });
-    const currentVal = String(v ?? field.options?.[0] ?? "—");
-    const selectedOpt = options.find((o) => o.id === currentVal);
-    const displayVal = selectedOpt ? selectedOpt.label : currentVal;
-
-    return (
-      <OptionDropdown
-        label={field.label}
-        value={displayVal}
-        selectedValue={currentVal}
-        open={openChip === field.name}
-        onOpenChange={(isOpen) => {
-          if (setOpenChip) setOpenChip(isOpen ? field.name : null);
-          if (isOpen && setModelOpen) setModelOpen(false);
-        }}
-        options={options}
-        onSelect={(optId) => onChange(field.name, optId)}
-        mono
-      />
-    );
-  }
-
-  if (field.kind === "number") {
-    return (
-      <div
-        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5"
-        title={field.desc || field.label}
-      >
-        <span className="text-[11px] text-white/55">{field.label}</span>
-        <input
-          type="number"
-          value={v === undefined || v === null ? "" : String(v)}
-          min={field.min}
-          max={field.max}
-          step={field.step ?? 1}
-          onChange={(e) =>
-            onChange(field.name, e.target.value === "" ? undefined : Number(e.target.value))
-          }
-          className="w-16 bg-transparent font-mono text-[12px] text-white/90 outline-none"
-        />
-      </div>
-    );
-  }
-
-  // text
-  return (
-    <div
-      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5"
-      title={field.desc || field.label}
-    >
-      <span className="text-[11px] text-white/55">{field.label}</span>
-      <input
-        value={String(v ?? "")}
-        onChange={(e) => onChange(field.name, e.target.value)}
-        placeholder="—"
-        className="w-28 bg-transparent text-[12px] text-white/90 outline-none placeholder:text-white/25"
-      />
-    </div>
-  );
-}
-
 const KIE_FILE_ACCEPT: Record<string, string> = {
   images: "image/png,image/jpeg,image/webp,image/bmp,image/gif",
   videos: "video/mp4,video/quicktime,video/webm",
@@ -5082,75 +4957,6 @@ function ChipButton({
   );
 }
 
-function OptionDropdown({
-  label,
-  value,
-  selectedValue,
-  open,
-  onOpenChange,
-  options,
-  onSelect,
-  mono,
-}: {
-  label: string;
-  value: string;
-  selectedValue?: string;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  options: { id: string; label: string; hint?: string }[];
-  onSelect: (id: string) => void;
-  mono?: boolean;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onOpenChange(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open, onOpenChange]);
-
-  const currentVal = selectedValue ?? value;
-
-  return (
-    <div className="relative" ref={ref}>
-      <ChipButton active={open} onClick={() => onOpenChange(!open)} title={label}>
-        <span className={cn(mono && "font-mono tabular-nums")}>{value}</span>
-        <ChevronDown className="h-3 w-3 opacity-60" />
-      </ChipButton>
-      {open && (
-        <div
-          className="absolute bottom-full left-0 z-[1000] mb-2 max-h-60 overflow-y-auto rounded-xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl p-1.5 shadow-[0_15px_40px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
-          style={{ minWidth: 140 }}
-        >
-          {options.map((opt) => {
-            const active = opt.id === currentVal || opt.label === currentVal || opt.id === value || opt.label === value;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  onSelect(opt.id);
-                  onOpenChange(false);
-                }}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[12px] transition",
-                  active
-                    ? "bg-[#2dd4bf]/15 text-[#2dd4bf] font-semibold"
-                    : "text-white/80 hover:bg-white/[0.08] hover:text-white",
-                )}
-              >
-                <span className={cn(mono && "font-mono")}>{opt.label}</span>
-                {opt.hint && <span className="text-[10px] text-white/40">{opt.hint}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 function ModelCardIcon({
   icon,
   label,
