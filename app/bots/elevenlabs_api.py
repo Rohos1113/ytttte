@@ -61,10 +61,20 @@ def elevenlabs_api_key() -> str:
     return (settings.elevenlabs_api_key or "").strip()
 
 
+def aitunnel_api_key() -> str:
+    from app.settings import settings
+
+    return (settings.aitunnel_api_key or "").strip()
+
+
+def aitunnel_configured() -> bool:
+    return bool(aitunnel_api_key())
+
+
 def elevenlabs_api_configured() -> bool:
     from app.bots.wavespeed_http import wavespeed_configured
 
-    return bool(elevenlabs_api_key() or wavespeed_configured())
+    return bool(elevenlabs_api_key() or wavespeed_configured() or aitunnel_configured())
 
 
 def _log_error(kind: str, text: str, *, node: str = "tts") -> None:
@@ -161,13 +171,49 @@ async def _concat_mp3(parts: list[Path], out_path: Path) -> Path:
     return out_path
 
 
+async def _aitunnel_speech(
+    client: httpx.AsyncClient,
+    text: str,
+    voice_id: str,
+    out_path: Path,
+) -> Path:
+    """Генерация речи через AITunnel (OpenAI audio/speech эндпоинт с моделью eleven-v4)."""
+    from app.settings import settings
+
+    base_url = (settings.aitunnel_api_base_url or "https://api.aitunnel.ru/v1").rstrip("/")
+    url = f"{base_url}/audio/speech"
+    headers = {
+        "Authorization": f"Bearer {aitunnel_api_key()}",
+        "Content-Type": "application/json",
+    }
+    payload: dict[str, Any] = {
+        "model": (settings.aitunnel_tts_model or "eleven-v4").strip(),
+        "input": text,
+        "voice": voice_id,
+    }
+    resp = await client.post(url, headers=headers, json=payload)
+    if resp.status_code != 200:
+        detail = resp.text[:300]
+        msg = f"AITunnel ElevenLabs v4 HTTP {resp.status_code}: {detail}"
+        _log_error(kind=f"aitunnel_http_{resp.status_code}", text=msg)
+        raise ElevenLabsApiError(msg)
+    data = resp.content or b""
+    if len(data) < 500:
+        msg = f"AITunnel: подозрительно короткий ответ ({len(data)} байт)"
+        _log_error(kind="aitunnel_short_audio", text=msg)
+        raise ElevenLabsApiError(msg)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+    return out_path
+
+
 class ElevenLabsApi:
     """TTS через HTTP. Сигнатура `tts` совместима с `ElevenLabsBot`."""
 
     def __init__(self) -> None:
         if not elevenlabs_api_configured():
             raise ElevenLabsApiError(
-                "ELEVENLABS_API_KEY или WAVESPEED_API_KEY пуст — задай ключ API"
+                "ELEVENLABS_API_KEY, WAVESPEED_API_KEY или AITUNNEL_API_KEY пуст — задай ключ API"
             )
 
     def _headers(self) -> dict[str, str]:
@@ -209,6 +255,14 @@ class ElevenLabsApi:
         )
         from app.settings import settings
 
+        # 1. Если включён AITUNNEL_PREFER=1 и задан ключ — идём в AITunnel первым
+        if settings.aitunnel_prefer and aitunnel_configured():
+            try:
+                return await _aitunnel_speech(client, text, voice_id, out_path)
+            except Exception as e:
+                logger.warning("AITunnel предпочтительный вызов не удался ({}). Пробуем fallback...", e)
+
+        # 2. Основной production-провайдер: WaveSpeed (ElevenLabs v4)
         if wavespeed_configured():
             payload: dict[str, Any] = {"text": text, "voice_id": voice_id}
             if settings.elevenlabs_stability is not None:
@@ -221,8 +275,26 @@ class ElevenLabsApi:
             except WaveSpeedError as e:
                 msg = f"WaveSpeed ElevenLabs v4 ошибка: {e}"
                 _log_error(kind="wavespeed_error", text=msg)
-                raise ElevenLabsApiError(msg) from e
+                if aitunnel_configured():
+                    logger.warning("{}. Пробуем откат на AITunnel (тестовый провайдер)...", msg)
+                elif elevenlabs_api_key():
+                    logger.warning("{}. Пробуем откат на прямой ElevenLabs API...", msg)
+                else:
+                    raise ElevenLabsApiError(msg) from e
 
+        # 3. Тестовый / fallback провайдер: AITunnel
+        if aitunnel_configured():
+            try:
+                return await _aitunnel_speech(client, text, voice_id, out_path)
+            except Exception as e:
+                if elevenlabs_api_key():
+                    logger.warning("AITunnel ElevenLabs v4 ошибка ({}). Пробуем откат на прямой ElevenLabs API...", e)
+                else:
+                    if isinstance(e, ElevenLabsApiError):
+                        raise
+                    raise ElevenLabsApiError(f"AITunnel ElevenLabs v4 ошибка: {e}") from e
+
+        # 4. Прямой ElevenLabs API
         url = f"{_API_BASE}/text-to-speech/{voice_id}"
         resp = await client.post(
             url,
@@ -265,19 +337,33 @@ class ElevenLabsApi:
             raise ElevenLabsApiError("11Labs API: пустой текст озвучки")
 
         is_ws = wavespeed_configured()
+        is_ai = aitunnel_configured()
+        if settings.aitunnel_prefer and is_ai:
+            provider_title = "AITunnel (11Labs v4)"
+            ledger_provider = "aitunnel"
+        elif is_ws:
+            provider_title = "WaveSpeed (11Labs v4)"
+            ledger_provider = "wavespeed"
+        elif is_ai:
+            provider_title = "AITunnel (11Labs v4)"
+            ledger_provider = "aitunnel"
+        else:
+            provider_title = "11Labs API"
+            ledger_provider = "elevenlabs"
+
         logger.info(
             "[#{}] {} TTS: voice_id={} текст {} симв, кусков {}",
             project_id,
-            "WaveSpeed (11Labs v4)" if is_ws else "11Labs API",
+            provider_title,
             vid,
             len(text or ""),
             len(chunks),
         )
 
         async with media_call(
-            "wavespeed" if is_ws else "elevenlabs",
+            ledger_provider,
             "tts",
-            model="elevenlabs/eleven-v4" if is_ws else (settings.elevenlabs_tts_model or "tts"),
+            model="elevenlabs/eleven-v4" if (is_ws or is_ai) else (settings.elevenlabs_tts_model or "tts"),
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,
@@ -296,6 +382,5 @@ class ElevenLabsApi:
                         part.unlink(missing_ok=True)
 
         size = out_path.stat().st_size if out_path.is_file() else 0
-        provider_name = "WaveSpeed (11Labs v4)" if is_ws else "11Labs API"
-        logger.info("[#{}] {}: mp3 сохранён → {} ({} байт)", project_id, provider_name, out_path, size)
+        logger.info("[#{}] {}: mp3 сохранён → {} ({} байт)", project_id, provider_title, out_path, size)
         return out_path

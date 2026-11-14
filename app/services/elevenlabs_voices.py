@@ -97,11 +97,12 @@ _voices_probe_cache: dict = {"at": 0.0, "live": None}
 async def probe_live_voice_ids(*, max_age_s: float = _VOICES_PROBE_TTL_S) -> set[str] | None:
     """Живые id голосов (кэш 1ч).
 
-    Если настроен WaveSpeed, возвращает все известные голоса без внешних вызовов.
+    Если настроен WaveSpeed или AITunnel, возвращает все известные голоса без внешних вызовов.
     """
+    from app.bots.elevenlabs_api import aitunnel_configured
     from app.bots.wavespeed_http import wavespeed_configured
 
-    if wavespeed_configured():
+    if wavespeed_configured() or aitunnel_configured():
         from app.services.ru_voices import get_ru_voices
 
         known = {v["id"] for v in ELEVENLABS_VOICES}

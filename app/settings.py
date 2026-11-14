@@ -401,6 +401,11 @@ class Settings(BaseSettings):
     # WaveSpeed AI (ElevenLabs v4 TTS)
     wavespeed_api_key: str = Field("", alias="WAVESPEED_API_KEY")
     wavespeed_api_base_url: str = Field("https://api.wavespeed.ai", alias="WAVESPEED_API_BASE_URL")
+    # AITunnel (ElevenLabs v4 TTS - fallback / test provider)
+    aitunnel_api_key: str = Field("", alias="AITUNNEL_API_KEY")
+    aitunnel_api_base_url: str = Field("https://api.aitunnel.ru/v1", alias="AITUNNEL_API_BASE_URL")
+    aitunnel_tts_model: str = Field("eleven-v4", alias="AITUNNEL_TTS_MODEL")
+    aitunnel_prefer: bool = Field(False, alias="AITUNNEL_PREFER")
     # Музыка (Suno через Outsee) идёт ТОЛЬКО через браузер — на сервере, где
     # Chrome нет, шаг упирался в CDP так же, как герои до правки. Сборка
     # подмешивает музыку только если файл есть, так что без неё ролик
