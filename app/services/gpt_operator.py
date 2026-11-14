@@ -1714,6 +1714,103 @@ def save_operator_result(
     return entry
 
 
+def read_operator_reply(
+    project: Project, node_key: str, *, limit: int = 2_000_000
+) -> dict[str, Any]:
+    """Полный текст ответа GPT с диска.
+
+    В meta (``gpt_operator_results``/``excel_gpt_nodes``) лежит только превью до
+    2000 символов, поэтому UI показывал обрезанный JSON. Здесь читаем сам файл
+    (gpt_reply.txt / check_report.txt), путь берём из meta.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    entry = meta.get("gpt_operator_results")
+    entry = entry.get(node_key) if isinstance(entry, dict) else {}
+    entry = entry if isinstance(entry, dict) else {}
+    cfg = meta.get("excel_gpt_nodes")
+    cfg = cfg.get(node_key) if isinstance(cfg, dict) else {}
+    cfg = cfg if isinstance(cfg, dict) else {}
+
+    raw_paths: list[str] = []
+    if cfg.get("lastReplyPath"):
+        raw_paths.append(str(cfg["lastReplyPath"]))
+    raw_paths.extend(str(p) for p in (entry.get("outputPaths") or []) if str(p).strip())
+
+    try:
+        data_dir = getattr(project, "data_dir", None)
+    except Exception:  # noqa: BLE001
+        data_dir = None
+    root = Path(data_dir) if data_dir else None
+
+    def _under_root(candidate: Path) -> Path | None:
+        """Путь только внутри папки проекта.
+
+        Путь к ответу лежит в meta, а meta правит клиент (PATCH проекта), так что
+        абсолютный путь из неё — это чтение произвольного файла на сервере.
+        """
+        if root is None:
+            return candidate
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(root.resolve())
+        except (OSError, ValueError):
+            return None
+        return resolved
+
+    candidates: list[Path] = []
+    for raw in raw_paths:
+        p = Path(raw)
+        if not p.is_absolute() and root is not None:
+            p = root / p
+        if p.suffix.lower() not in {".txt", ".json", ".md", ".csv"}:
+            continue
+        inside = _under_root(p)
+        if inside is not None:
+            candidates.append(inside)
+
+    # meta часто перезаписывается (canvas PATCH, clear step, смена раскладки) и путь
+    # к ответу теряется. Тогда берём файл по конвенции папки ноды:
+    # <project>/excel_gpt_uploads/<node_key>/gpt_reply.txt
+    if root is not None:
+        safe_node = "".join(ch for ch in node_key if ch.isalnum() or ch in "_-")
+        if safe_node:
+            folder = root / "excel_gpt_uploads" / safe_node
+            for name in (
+                "gpt_reply.txt",
+                "gpt_reply_raw.txt",
+                "gpt_reply_pre_retry.txt",
+                "check_report.txt",
+            ):
+                inside = _under_root(folder / name)
+                if inside is not None:
+                    candidates.append(inside)
+
+    def _rank(p: Path) -> int:
+        if p.name == "gpt_reply.txt":
+            return 0
+        if p.name == "check_report.txt":
+            return 1
+        return 2
+
+    candidates.sort(key=_rank)
+    chosen = next((p for p in candidates if p.is_file()), None)
+    if chosen is None:
+        return {"text": "", "chars": 0, "truncated": False, "path": None}
+    try:
+        text = chosen.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {"text": "", "chars": 0, "truncated": False, "path": chosen.name}
+    truncated = len(text) > limit
+    if truncated:
+        text = text[:limit]
+    return {
+        "text": text,
+        "chars": len(text),
+        "truncated": truncated,
+        "path": chosen.name,
+    }
+
+
 def gate_allows_successors(project: Project, gate_node_key: str) -> bool | None:
     """None — нода без вердикта / не branching-роль; True/False — pass/fail."""
     cfg = operator_config(project, gate_node_key)

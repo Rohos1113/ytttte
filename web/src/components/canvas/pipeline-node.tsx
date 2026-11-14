@@ -36,6 +36,7 @@ import {
   useCanvasActionsOptional,
 } from "./canvas-actions-context";
 import { NodeVMenu } from "./node-v-menu";
+import { parseJsonPayload } from "./json-table-view";
 import { NodeResultBadge } from "./node-result-badge";
 import { hideResultBadgeForNodeType } from "@/lib/xlsx-sheets";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
@@ -44,7 +45,6 @@ import { StoragePanel } from "./storage-panel";
 import { StyleExtractPanel } from "./style-extract-panel";
 import { HitlStylePanel } from "./hitl-style-panel";
 import { ShotsReportPanel } from "./shots-report-panel";
-import { HeroConfigPanel } from "./hero-config-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
 import { AssembleMontageTrigger } from "./assemble-montage-board";
 import { ShotMenuPanel, ShotMenuTrigger } from "./shot-menu-panel";
@@ -195,6 +195,30 @@ function NodeExecutionTimer({
   }
 
   return null;
+}
+
+function NodeProgressBadge({
+  progress,
+  status,
+}: {
+  progress: number;
+  status: NodeRunStatus;
+}) {
+  if (!progress || progress <= 0) return null;
+  const failed = status === "failed";
+  return (
+    <span
+      title="Процент выполнения"
+      className={cn(
+        "pointer-events-auto inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-mono font-semibold shadow backdrop-blur-md tabular-nums",
+        failed
+          ? "border-destructive/60 bg-[#1a0e10]/95 text-destructive shadow-[0_0_16px_rgba(248,113,113,0.25)]"
+          : "border-yellow-400/70 bg-[#171204]/95 text-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.35)]",
+      )}
+    >
+      {Math.min(99, Math.round(progress))} %
+    </span>
+  );
 }
 
 export function PipelineNode({ data, selected }: NodeProps) {
@@ -441,7 +465,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   : undefined
               }
               status={d.status}
-              progress={d.progress}
               progressText={d.progressText}
               updatedAt={d.updatedAt}
               error={d.error}
@@ -522,6 +545,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
             {/* Таймер выполнения под нодой */}
             <div className="pointer-events-none absolute -bottom-3.5 left-1/2 z-30 -translate-x-1/2">
               <NodeExecutionTimer status={d.status} startedAt={d.startedAt} finishedAt={d.finishedAt} />
+            </div>
+            {/* Процент выполнения над нодой */}
+            <div className="pointer-events-none absolute -top-3.5 left-1/2 z-30 -translate-x-1/2">
+              <NodeProgressBadge progress={d.progress} status={d.status} />
             </div>
           </div>
         ) : (
@@ -672,6 +699,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
               )}
             </div>
 
+            <div className="pointer-events-none absolute -top-2.5 left-1/2 z-30 -translate-x-1/2">
+              <NodeProgressBadge progress={d.progress} status={d.status} />
+            </div>
+
             <div className="flex w-full flex-col items-center gap-0.5 px-0.5 text-center">
               <span className="line-clamp-2 text-[11px] font-medium leading-tight tracking-tight text-foreground/95">
                 {title}
@@ -707,11 +738,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
               )}
               {d.error && d.status === "failed" && (
                 <span className="line-clamp-2 text-[9px] text-destructive">{truncate(d.error, 48)}</span>
-              )}
-              {d.progressText && d.status === "running" && (
-                <span className="line-clamp-1 font-mono text-[9px] text-muted-foreground">
-                  {d.progressText}
-                </span>
               )}
             </div>
           </div>
@@ -880,6 +906,27 @@ function isVideoItem(i: { kind: string; previewUrl?: string | null }): boolean {
   return i.kind === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(i.previewUrl ?? "");
 }
 
+/**
+ * Текст для карточки ноды: только человеческий текст.
+ * JSON/код на карточке не показываем никогда — из JSON берём лишь поле-отчёт
+ * (report/summary), иначе возвращаем пустую строку.
+ */
+function cardResultText(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  if (t.startsWith("```")) return "";
+  if (!t.startsWith("{") && !t.startsWith("[")) return t;
+  const parsed = parseJsonPayload(t);
+  if (parsed && typeof parsed.value === "object" && parsed.value !== null && !Array.isArray(parsed.value)) {
+    const obj = parsed.value as Record<string, unknown>;
+    for (const key of ["report", "summary", "итог", "отчёт", "отчет"]) {
+      const value = obj[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return "";
+}
+
 function useNodeBg(nodeKey: string, projectId: number | null): string | null {
   const pid = projectId;
   const project = useQuery({
@@ -913,7 +960,6 @@ function PosterTile({
   onFlyRename,
   onFlyBg,
   status,
-  progress,
   progressText,
   updatedAt,
   error,
@@ -939,7 +985,6 @@ function PosterTile({
   onFlyRename?: (label: string) => void;
   onFlyBg?: (file: File) => void;
   status: NodeRunStatus;
-  progress: number;
   progressText: string | null;
   updatedAt?: string | null;
   error: string | null;
@@ -985,7 +1030,9 @@ function PosterTile({
   const media = isPublish ? [] : (has ? items.filter((i) => i.previewUrl && (i.kind === "image" || isVideoItem(i) || i.kind === "frames")) : []);
   const audio = isPublish ? [] : (has ? items.filter((i) => i.kind === "audio" && (i.previewUrl || i.downloadUrl)) : []);
   const text = has && !media.length && !audio.length
-    ? (items.map((i) => i.content).filter(Boolean).join("\n\n") || snapshot?.summary || "").trim()
+    ? cardResultText(
+        (items.map((i) => i.content).filter(Boolean).join("\n\n") || snapshot?.summary || "").trim(),
+      )
     : "";
   const cfg = STATUS_CONFIG[status];
   const dot =
@@ -1222,11 +1269,6 @@ function PosterTile({
                 Повторить
               </button>
             ) : null}
-          </div>
-        ) : null}
-        {running ? (
-          <div className="absolute inset-x-0 bottom-0 h-[2px] bg-white/10">
-            <div className="h-full bg-white" style={{ width: `${Math.max(4, Math.min(100, progress || 0))}%` }} />
           </div>
         ) : null}
         {running && progressText ? (

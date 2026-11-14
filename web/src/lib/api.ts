@@ -1516,6 +1516,19 @@ export const api = {
       {},
       90_000,
     ),
+  /** Полный текст ответа GPT с диска (gpt_reply.txt), без обрезки до превью. */
+  getGptOperatorReply: (projectId: number, nodeKey: string) =>
+    http<{
+      text: string;
+      chars: number;
+      truncated: boolean;
+      path: string | null;
+      at?: string | null;
+    }>(
+      `/api/projects/${projectId}/gpt-operator/${encodeURIComponent(nodeKey)}/reply`,
+      {},
+      60_000,
+    ),
   patchGptOperator: (
     projectId: number,
     nodeKey: string,
@@ -2995,17 +3008,67 @@ export const api = {
   listProjectAssets: (projectId: number, kind = "all") =>
     http<ProjectAsset[]>(`/api/projects/${projectId}/assets?kind=${kind}`),
 
-  replaceHeroImage: async (projectId: number, file: File, replacePath?: string) => {
+  replaceHeroImage: async (
+    projectId: number,
+    file: File,
+    replacePath?: string,
+    code?: string,
+    itemIndex?: number,
+  ) => {
     const fd = new FormData();
     fd.append("file", file);
-    const q = replacePath ? `?replace_path=${encodeURIComponent(replacePath)}` : "";
-    const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q}`, {
+    const qs = new URLSearchParams();
+    if (replacePath) qs.set("replace_path", replacePath);
+    if (code) qs.set("code", code);
+    if (itemIndex) qs.set("item_index", String(itemIndex));
+    const q = qs.toString();
+    const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q ? `?${q}` : ""}`, {
       method: "POST",
       body: fd,
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ path: string; preview_url: string; id: string }>;
   },
+
+  regenerateItem: (projectId: number, index: number) =>
+    http<{ ok: boolean; index: number; removed_artifacts: number; removed_files: string[] }>(
+      `/api/projects/${projectId}/items/${index}/regenerate`,
+      { method: "POST" },
+    ),
+
+  deleteItem: (projectId: number, index: number) =>
+    http<{
+      ok: boolean;
+      index: number;
+      removed_artifacts: number;
+      removed_files: string[];
+      shifted_artifacts: number;
+      renamed_files: string[];
+      remaining: number;
+    }>(`/api/projects/${projectId}/items/${index}`, { method: "DELETE" }),
+
+  regenerateHeroCharacter: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      hero_index: number;
+      excel_mode: boolean;
+      removed_artifacts: number;
+      removed_files: string[];
+    }>(`/api/projects/${projectId}/hero/characters/${encodeURIComponent(code)}/regenerate`, {
+      method: "POST",
+    }),
+
+  deleteHeroCharacter: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      removed_entities: number;
+      removed_artifacts: number;
+      removed_files: string[];
+    }>(`/api/projects/${projectId}/hero/characters/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    }),
 
   listMediaReview: (projectId: number, kind: "images" | "videos") =>
     http<

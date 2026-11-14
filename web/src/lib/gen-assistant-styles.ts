@@ -4,6 +4,8 @@
  * Используется панелью gen-assistant-panel в окне «Генерация».
  */
 
+import { FISHER_STYLE_CATEGORIES } from "./gen-assistant-fisher-styles.ts";
+
 export type GenStyleArt =
   | "polka"
   | "pixel"
@@ -46,7 +48,7 @@ export type GenCategoryDef = {
   styles: GenStyleDef[];
 };
 
-export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
+const CORE_CATEGORIES: GenCategoryDef[] = [
   {
     id: "cartoon",
     art: "polka",
@@ -466,6 +468,15 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       },
     ],
   },
+];
+
+/**
+ * Полный каталог окна «Генерация»: базовые 4 категории помощника + набор «Рыбак»
+ * (14 категорий, 406 стилей). Файл набора собирается scripts/build_fisher_style_catalog.py.
+ */
+export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
+  ...CORE_CATEGORIES,
+  ...FISHER_STYLE_CATEGORIES,
 ];
 
 export const GEN_ASSISTANT_ALL_STYLES: GenStyleDef[] =

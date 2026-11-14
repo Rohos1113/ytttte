@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -1983,9 +1984,16 @@ async def replace_hero_image(
     project_id: int,
     file: UploadFile = File(...),
     replace_path: str | None = Query(None),
+    code: str | None = Query(None),
+    item_index: int | None = Query(None, ge=1, le=999),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Заменить reference-картинку персонажа (файл в data/.../characters/)."""
+    """Заменить reference-картинку персонажа (файл в data/.../characters/).
+
+    `code` — залить референс на место персонажа по его коду (`c01`), даже если
+    картинки ещё нет: тогда файл создаётся как characters/c01.<ext>.
+    `item_index` — то же для предмета: items/predmetN.<ext>.
+    """
     p = _project_or_404(await session.get(Project, project_id))
     if not file.filename:
         raise HTTPException(status_code=400, detail="empty filename")
@@ -1997,11 +2005,16 @@ async def replace_hero_image(
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
 
-    chars_dir = p.data_dir / "characters"
+    chars_dir = p.data_dir / ("items" if item_index else "characters")
     chars_dir.mkdir(parents=True, exist_ok=True)
 
     dest: Path
-    if replace_path:
+    if item_index:
+        dest = chars_dir / f"predmet{int(item_index)}{ext}"
+    elif code:
+        safe_code = "".join(ch for ch in code if ch.isalnum() or ch in "_-")[:24] or "hero"
+        dest = chars_dir / f"{safe_code}{ext}"
+    elif replace_path:
         candidate = Path(replace_path)
         if not candidate.is_absolute():
             candidate = Path(settings.data_dir) / replace_path
@@ -2026,6 +2039,361 @@ async def replace_hero_image(
         "path": str(dest),
         "preview_url": f"/api/files?path={dest}",
         "id": rel,
+    }
+
+
+async def _wipe_hero_character_media(
+    session: AsyncSession, p: Project, code: str
+) -> tuple[int, list[str]]:
+    """Снести hero_reference артефакты и файлы одного персонажа (`c01`)."""
+    removed_artifacts = 0
+    removed_files: list[str] = []
+    arts = (
+        await session.execute(
+            select(Artifact).where(
+                Artifact.project_id == p.id,
+                Artifact.kind == ArtifactKind.hero_reference,
+            )
+        )
+    ).scalars().all()
+    for a in arts:
+        path = Path(a.path or "")
+        if path.stem != code:
+            continue
+        try:
+            if path.is_file():
+                path.unlink()
+                removed_files.append(str(path))
+        except OSError as e:  # noqa: BLE001
+            logger.warning("[#{}] hero {}: файл не удалён ({})", p.id, path, e)
+        await session.delete(a)
+        removed_artifacts += 1
+
+    # Хвосты на диске, не попавшие в артефакты (старые прогоны, ручные копии).
+    for sub in ("characters", "hero"):
+        folder = p.data_dir / sub
+        if not folder.is_dir():
+            continue
+        for f in folder.glob(f"{code}.*"):
+            if not f.is_file():
+                continue
+            try:
+                f.unlink()
+                if str(f) not in removed_files:
+                    removed_files.append(str(f))
+            except OSError as e:  # noqa: BLE001
+                logger.warning("[#{}] hero {}: файл не удалён ({})", p.id, f, e)
+    return removed_artifacts, removed_files
+
+
+@router.delete("/{project_id}/hero/characters/{code}")
+async def delete_hero_character(
+    project_id: int,
+    code: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Удалить персонажа: строку реестра, hero_reference артефакты и файлы.
+
+    Результаты ноды собираются из артефактов и скана `characters/`, поэтому
+    удалить только строку `entities` мало — картинка осталась бы на месте.
+    """
+    from app.models import Entity
+
+    p = _project_or_404(await session.get(Project, project_id))
+    clean = (code or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="empty code")
+
+    removed_entities = 0
+    rows = (
+        await session.execute(
+            select(Entity).where(
+                Entity.project_id == p.id,
+                Entity.type == "character",
+                Entity.code == clean,
+            )
+        )
+    ).scalars().all()
+    for en in rows:
+        await session.delete(en)
+        removed_entities += 1
+
+    removed_artifacts, removed_files = await _wipe_hero_character_media(session, p, clean)
+
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"hero_deleted": clean},
+    )
+    return {
+        "ok": True,
+        "code": clean,
+        "removed_entities": removed_entities,
+        "removed_artifacts": removed_artifacts,
+        "removed_files": removed_files,
+    }
+
+
+@router.post("/{project_id}/hero/characters/{code}/regenerate")
+async def regenerate_hero_character(
+    project_id: int,
+    code: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Перегенерировать одного персонажа: снести его картинку и попросить шаг hero.
+
+    Шаг сам решит, что рисовать: excel-режим добирает только персонажей без
+    артефакта, классический — берёт первую неодобренную пару, поэтому для него
+    кладём HITL-подсказку `regenerate` на нужный (hero_index, variation_index).
+    """
+    from app.models import HITLDecision, HITLKind, HITLRequest
+
+    p = _project_or_404(await session.get(Project, project_id))
+    clean = (code or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="empty code")
+    if not clean.startswith("c") or not clean[1:].isdigit():
+        raise HTTPException(status_code=400, detail="code must look like c01")
+    hero_index = int(clean[1:])
+
+    removed_artifacts, removed_files = await _wipe_hero_character_media(session, p, clean)
+
+    meta = dict(p.meta or {})
+    excel_mode = bool(meta.get("excel_hero") or meta.get("excel_hero_enabled"))
+    if not excel_mode:
+        session.add(
+            HITLRequest(
+                project_id=p.id,
+                kind=HITLKind.approve_hero,
+                decision=HITLDecision.regenerate,
+                payload={
+                    "hero_index": hero_index,
+                    "variation_index": 1,
+                    "source": "ui_regenerate_button",
+                },
+            )
+        )
+
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"hero_regenerate": clean},
+    )
+    return {
+        "ok": True,
+        "code": clean,
+        "hero_index": hero_index,
+        "excel_mode": excel_mode,
+        "removed_artifacts": removed_artifacts,
+        "removed_files": removed_files,
+    }
+
+
+def _item_file_number(path: Path) -> int | None:
+    """Номер предмета из имени файла `predmetN.png` / `predmetN_anything.png`.
+
+    Сравнивать номер нужно числом, а не префиксом строки: `predmet1*.png`
+    зацепил бы заодно `predmet10.png` … `predmet19.png`.
+    """
+    stem = path.stem
+    if not stem.startswith("predmet"):
+        return None
+    num_part, _, _tail = stem[len("predmet") :].partition("_")
+    if not num_part.isdigit():
+        return None
+    return int(num_part)
+
+
+async def _wipe_item_media(session: AsyncSession, p: Project, index: int) -> tuple[int, list[str]]:
+    """Снести item_reference артефакты и файлы одного предмета (`predmetN`)."""
+    removed_artifacts = 0
+    removed_files: list[str] = []
+    arts = (
+        await session.execute(
+            select(Artifact).where(
+                Artifact.project_id == p.id,
+                Artifact.kind == ArtifactKind.item_reference,
+            )
+        )
+    ).scalars().all()
+    for a in arts:
+        if (a.meta or {}).get("item_index") != index:
+            continue
+        path = Path(a.path or "")
+        try:
+            if path.is_file():
+                path.unlink()
+                removed_files.append(str(path))
+        except OSError as e:  # noqa: BLE001
+            logger.warning("[#{}] item {}: файл не удалён ({})", p.id, path, e)
+        await session.delete(a)
+        removed_artifacts += 1
+
+    items_dir = p.data_dir / "items"
+    if items_dir.is_dir():
+        for f in items_dir.glob("predmet*"):
+            if not f.is_file() or _item_file_number(f) != index:
+                continue
+            try:
+                f.unlink()
+                if str(f) not in removed_files:
+                    removed_files.append(str(f))
+            except OSError as e:  # noqa: BLE001
+                logger.warning("[#{}] item {}: файл не удалён ({})", p.id, f, e)
+    return removed_artifacts, removed_files
+
+
+@router.post("/{project_id}/items/{index}/regenerate")
+async def regenerate_item(
+    project_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Перегенерировать один предмет: снести его картинку, шаг items дорисует.
+
+    `generate_items` пропускает индексы, у которых есть артефакт или файл
+    `items/predmetN.png`, поэтому снос одного файла = точечная перерисовка.
+    """
+    p = _project_or_404(await session.get(Project, project_id))
+    if index < 1:
+        raise HTTPException(status_code=400, detail="index must be >= 1")
+
+    removed_artifacts, removed_files = await _wipe_item_media(session, p, index)
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"item_regenerate": index},
+    )
+    return {
+        "ok": True,
+        "index": index,
+        "removed_artifacts": removed_artifacts,
+        "removed_files": removed_files,
+    }
+
+
+async def _shift_item_media(session: AsyncSession, p: Project, removed_index: int) -> tuple[int, list[str]]:
+    """Сдвинуть предметы после удалённого: файлы `predmetN` и их артефакты.
+
+    Индекс предмета — его позиция в `item_descriptions`, поэтому после удаления
+    все последующие сдвигаются на единицу. Иначе картинка `predmet3` осталась бы
+    привязанной к описанию, которое теперь стало вторым.
+    """
+    renamed: list[str] = []
+    path_map: dict[str, str] = {}
+    items_dir = p.data_dir / "items"
+    if items_dir.is_dir():
+        # Сдвиг идёт от младшего номера к старшему: цель переименования уже
+        # освобождена (удалённый файл или только что сдвинутый), поэтому
+        # `predmet10` не наткнётся на ещё не переименованный `predmet9`.
+        files: list[tuple[int, Path, str]] = []
+        for f in items_dir.glob("predmet*"):
+            if not f.is_file():
+                continue
+            num = _item_file_number(f)
+            if num is None or num <= removed_index:
+                continue
+            _num_part, _, tail = f.stem[len("predmet") :].partition("_")
+            files.append((num, f, tail))
+        for num, f, tail in sorted(files, key=lambda item: item[0]):
+            new_name = f"predmet{num - 1}" + (f"_{tail}" if tail else "") + f.suffix
+            new_path = f.with_name(new_name)
+            try:
+                f.rename(new_path)
+            except OSError as e:  # noqa: BLE001
+                logger.warning("[#{}] item shift: не удалось переименовать {} ({})", p.id, f, e)
+                continue
+            path_map[str(f)] = str(new_path)
+            renamed.append(str(new_path))
+
+    arts = (
+        await session.execute(
+            select(Artifact).where(
+                Artifact.project_id == p.id,
+                Artifact.kind == ArtifactKind.item_reference,
+            )
+        )
+    ).scalars().all()
+    touched = 0
+    for a in arts:
+        meta = dict(a.meta or {})
+        idx = meta.get("item_index")
+        if not isinstance(idx, int) or idx <= removed_index:
+            continue
+        meta["item_index"] = idx - 1
+        meta["item_id"] = f"predmet{idx - 1}"
+        a.meta = meta
+        if a.path in path_map:
+            a.path = path_map[a.path]
+        touched += 1
+    return touched, renamed
+
+
+@router.delete("/{project_id}/items/{index}")
+async def delete_item(
+    project_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Удалить предмет: описание, его картинку и сдвинуть следующие.
+
+    Как и у персонажей, одной строки мало: картинка (`items/predmetN*.png` и
+    `item_reference` артефакт) иначе осталась бы в результатах ноды.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    p = _project_or_404(await session.get(Project, project_id))
+    if index < 1:
+        raise HTTPException(status_code=400, detail="index must be >= 1")
+
+    descriptions = [d for d in list(p.item_descriptions or [])]
+    has_description = index <= len(descriptions)
+    removed_artifacts, removed_files = await _wipe_item_media(session, p, index)
+    if not has_description and not removed_artifacts and not removed_files:
+        raise HTTPException(status_code=404, detail=f"item {index} not found")
+
+    if has_description:
+        descriptions.pop(index - 1)
+        p.item_descriptions = descriptions
+        flag_modified(p, "item_descriptions")
+
+    shifted_artifacts, renamed_files = await _shift_item_media(session, p, index)
+
+    # Данные предметов в meta сдвигаются вместе с индексами.
+    meta = dict(p.meta or {})
+    attrs_map = meta.get("item_attrs")
+    if isinstance(attrs_map, dict) and attrs_map:
+        shifted: dict[str, Any] = {}
+        for key, value in attrs_map.items():
+            try:
+                num = int(str(key))
+            except (TypeError, ValueError):
+                shifted[str(key)] = value
+                continue
+            if num == index:
+                continue
+            shifted[str(num - 1 if num > index else num)] = value
+        meta["item_attrs"] = shifted
+        p.meta = meta
+        flag_modified(p, "meta")
+
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"item_deleted": index},
+    )
+    return {
+        "ok": True,
+        "index": index,
+        "removed_artifacts": removed_artifacts,
+        "removed_files": removed_files,
+        "shifted_artifacts": shifted_artifacts,
+        "renamed_files": renamed_files,
+        "remaining": len(descriptions),
     }
 
 
@@ -2123,6 +2491,19 @@ async def gpt_operator_resolve(
 
     p = _project_or_404(await session.get(Project, project_id))
     return resolve_operator(p, node_key)
+
+
+@router.get("/{project_id}/gpt-operator/{node_key}/reply")
+async def gpt_operator_reply(
+    project_id: int,
+    node_key: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Полный текст ответа GPT (gpt_reply.txt) — UI показывает его в «Результатах»."""
+    from app.services.gpt_operator import read_operator_reply
+
+    p = _project_or_404(await session.get(Project, project_id))
+    return read_operator_reply(p, node_key)
 
 
 @router.patch("/{project_id}/gpt-operator/{node_key}")

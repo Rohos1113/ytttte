@@ -84,8 +84,10 @@ export function NodeResultPanel({
         ) : (
           <div
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden",
-              snapshot.viewMode === "html_report" && "bg-black",
+              "flex min-h-0 flex-1 flex-col",
+              snapshot.viewMode === "html_report"
+                ? "overflow-hidden bg-black"
+                : "overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent",
             )}
           >
             <NodeResultViewBody

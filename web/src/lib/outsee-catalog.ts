@@ -153,7 +153,7 @@ export const OUTSEE_FEED_TABS: { id: OutseeFeedKind; label: string }[] = [
   { id: "audio", label: "Аудио" },
 ];
 
-export const OUTSEE_ACCENT = "#22d3ee";
+export const OUTSEE_ACCENT = "#2dd4bf";
 
 /**
  * Порядок picker = Object.values(o).filter(type && !hidden) из 8152.

@@ -395,8 +395,9 @@ export function FlowCanvas({
             completedExcelGptKeys,
           },
         );
-        const progress = status === "running" ? (nr.progress ?? 0) : 0;
-        const progressText = status === "running" ? (nr.progress_text ?? null) : null;
+        const keepProgress = status === "running" || status === "waiting_hitl" || status === "failed";
+        const progress = keepProgress ? (nr.progress ?? 0) : 0;
+        const progressText = keepProgress ? (nr.progress_text ?? null) : null;
         return {
           ...n,
           data: {

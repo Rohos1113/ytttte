@@ -166,6 +166,16 @@ Series workbook — отдельный трек: `docs/SERIES_XLSX_WORKBOOK.md`.
 | Очередь Create      | `app/web/routers/create_queue.py`                                                    |
 | Env                 | `IMAGE_PROVIDER` / `VIDEO_PROVIDER` = `outsee` \| `grsai` — см. `AGENTS.md`          |
 
+**Каталог стилей шага «Генерация»** (`Генерация` → «Каталог стилей», кнопка «Вдохновение»):
+
+| Что                        | SoT                                                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Базовые 5 категорий / 32 стиля | `web/src/lib/gen-assistant-styles.ts` (`CORE_CATEGORIES` + `GEN_ASSISTANT_CATEGORIES`)                            |
+| Набор «Рыбак»: 14 категорий / 406 стилей | `web/src/lib/gen-assistant-fisher-styles.ts` — генерируется, руками не править                          |
+| Сборка набора              | `scripts/build_fisher_style_catalog.py` (источники — `стили-по-номерам.txt`, `стили-с-описаниями.txt`, `стили-по-категориям.xlsx`; ядра 1–90 — `scripts/fisher-cores-part1.json`) |
+| Обложки набора             | `web/public/gen-styles/fisher/*.webp` (448×299) — `scripts/make_fisher_style_covers.py` из PNG 1536×1024 |
+| Тесты                      | `web/src/lib/fisher-style-catalog.test.ts` (`node --experimental-strip-types --test src/lib/*.test.ts`)               |
+
 ---
 
 ## 10. Mass & Batch Creation: Web Studio

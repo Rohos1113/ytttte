@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -14,20 +15,26 @@ import {
   Film,
   Loader2,
   Maximize2,
+  Plus,
+  RefreshCw,
   Replace,
   Save,
   ScrollText,
   Sparkles,
+  Trash2,
   Upload,
   Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { slotIndexFromItem } from "@/lib/node-result-slots";
 import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import type { NodeResultItem, NodeResultSnapshot } from "@/lib/node-result-resolver";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import type { ProjectDetail } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { MediaFrameGallery } from "@/components/hitl/media-frame-gallery";
@@ -37,6 +44,7 @@ import {
   SHEET_PLAN_V8,
 } from "@/lib/xlsx-sheets";
 import { NodeAudioMiniPlayer, ResultAudioCard } from "./custom-audio-player";
+import { JsonTableView, parseJsonPayload } from "./json-table-view";
 
 export function NodeResultViewBody({
   projectId,
@@ -51,6 +59,12 @@ export function NodeResultViewBody({
   snapshot: NodeResultSnapshot;
   onHeroReplaced?: () => void;
 }) {
+  if (nodeType === "hero" || nodeType === "hitl_hero") {
+    return <HeroResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} onHeroReplaced={onHeroReplaced} />;
+  }
+  if (nodeType === "items") {
+    return <ItemResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} />;
+  }
   switch (snapshot.viewMode) {
     case "director_plan":
     case "xlsx_general_plan":
@@ -969,6 +983,766 @@ export function FramePromptsView({ items }: { items: NodeResultItem[] }) {
   );
 }
 
+function LegacyHeroCharacterCard({ projectId, index, name, descriptions }: { projectId: number; index: number; name: string; descriptions: string[] }) {
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  const save = useMutation({
+    mutationFn: () => {
+      const next = [...descriptions];
+      next[index] = draft;
+      return api.patchProject(projectId, { hero_descriptions: next });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Данные персонажа сохранены");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+  return <div className="mt-2 w-full rounded-md border border-white/10 bg-black/25 p-2"><div className="mb-2 flex items-center justify-between gap-2"><span className="text-sm font-medium text-white">Характеристики персонажа</span><span className="font-mono text-xs text-white/50">c{String(index + 1).padStart(2, "0")}</span></div><div className="flex flex-col gap-2"><label className="flex flex-col gap-1 text-xs text-white/60">Имя и характеристики<Input value={draft} onChange={(e) => setDraft(e.target.value)} /></label><Button size="sm" variant="outline" disabled={draft === name || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}Сохранить</Button></div></div>;
+}
+
+function HeroCharacterCard({ projectId, entity }: { projectId: number; entity: import("@/lib/api").DbEntity }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(entity.name ?? "");
+  const [fields, setFields] = useState({
+    look: String(entity.attrs.look ?? entity.attrs["внешность"] ?? ""),
+    clothes: String(entity.attrs.clothes ?? entity.attrs["одежда"] ?? ""),
+    char: String(entity.attrs.char ?? entity.attrs["характер"] ?? ""),
+    rules: String(entity.attrs.rules ?? entity.attrs["правила"] ?? ""),
+  });
+  useEffect(() => {
+    setName(entity.name ?? "");
+    setFields({
+      look: String(entity.attrs.look ?? entity.attrs["внешность"] ?? ""),
+      clothes: String(entity.attrs.clothes ?? entity.attrs["одежда"] ?? ""),
+      char: String(entity.attrs.char ?? entity.attrs["характер"] ?? ""),
+      rules: String(entity.attrs.rules ?? entity.attrs["правила"] ?? ""),
+    });
+  }, [entity]);
+  const save = useMutation({
+    mutationFn: () => api.dbPatchEntity(entity.id, { type: "character", code: entity.code, name, attrs: { ...entity.attrs, ...fields } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      toast.success("Данные персонажа сохранены");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+  const dirty = name !== (entity.name ?? "") || fields.look !== String(entity.attrs.look ?? entity.attrs["внешность"] ?? "") || fields.clothes !== String(entity.attrs.clothes ?? entity.attrs["одежда"] ?? "") || fields.char !== String(entity.attrs.char ?? entity.attrs["характер"] ?? "") || fields.rules !== String(entity.attrs.rules ?? entity.attrs["правила"] ?? "");
+  // Меню характеристик открыто сразу: клик по кнопке под картинкой должен
+  // показывать поля, а не ещё одну строчку, которую надо раскрывать.
+  const inputs = [["Внешность", "look"], ["Одежда", "clothes"], ["Характер", "char"], ["Правила", "rules"]] as const;
+  return (
+    <div className="mt-2 w-full rounded-md border border-white/10 bg-black/25 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-white">Характеристики персонажа</span>
+        <span className="font-mono text-xs text-white/50">{entity.code || `#${entity.id}`}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-xs text-white/60">Имя<Input value={name} onChange={(e) => setName(e.target.value)} /></label>
+        {inputs.map(([label, key]) => <label key={key} className="flex w-full flex-col gap-1 text-xs text-white/60">{label}<Textarea className="w-full" rows={2} value={fields[key]} onChange={(e) => setFields((v) => ({ ...v, [key]: e.target.value }))} /></label>)}
+        <Button size="sm" variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}Сохранить</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Персонажи: результаты сеткой по 2 в ряд. Пока картинки нет — на её месте
+ * рамка 16:9 с подписью `empty`; когда картинка появилась, она показывается
+ * в своём исходном формате (без обрезки и без принудительных пропорций).
+ *
+ * Правило номера слота живёт в lib/node-result-slots.ts — там его покрывают тесты.
+ */
+
+function HeroResultsView({
+  projectId,
+  nodeKey,
+  items,
+  onHeroReplaced,
+}: {
+  projectId: number;
+  nodeKey?: string | null;
+  items: NodeResultItem[];
+  onHeroReplaced?: () => void;
+}) {
+  const qc = useQueryClient();
+  const graph = useQuery({ queryKey: ["db-graph", projectId], queryFn: () => api.dbGraph(projectId) });
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
+  const characters = graph.data?.entities.filter((entity) => entity.type === "character") ?? [];
+  const legacyDescriptions = project.data?.hero_descriptions ?? [];
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [openCard, setOpenCard] = useState<number | null>(null);
+
+  const byIndex = new Map<number, NodeResultItem>();
+  items.forEach((item, i) => {
+    const idx = slotIndexFromItem(item, i);
+    if (!byIndex.has(idx)) byIndex.set(idx, item);
+  });
+  const maxItemIdx = byIndex.size ? Math.max(...Array.from(byIndex.keys())) + 1 : 0;
+  const total = Math.max(characters.length, legacyDescriptions.length, items.length, maxItemIdx);
+
+  const addCharacter = useMutation({
+    mutationFn: async () => {
+      const used = new Set(characters.map((entity) => entity.code).filter(Boolean));
+      let n = 1;
+      while (used.has(`c${String(n).padStart(2, "0")}`)) n += 1;
+      if (characters.length === 0 && legacyDescriptions.length > 0) {
+        await api.patchProject(projectId, {
+          hero_count: legacyDescriptions.length,
+          hero_descriptions: [...legacyDescriptions, `Персонаж ${legacyDescriptions.length + 1}`],
+        });
+        return { legacy: true as const };
+      }
+      await api.dbAddEntity(projectId, {
+        type: "character",
+        code: `c${String(n).padStart(2, "0")}`,
+        name: `Персонаж ${n}`,
+        attrs: { look: "", clothes: "", char: "", rules: "" },
+      });
+      return { legacy: false as const };
+    },
+    onSuccess: async (result) => {
+      if (result.legacy) await qc.invalidateQueries({ queryKey: ["project", projectId] });
+      else await qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      toast.success("Персонаж добавлен");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const replaceHero = useMutation({
+    mutationFn: ({ file, path, code }: { file: File; path?: string | null; code?: string }) =>
+      api.replaceHeroImage(projectId, file, path ?? undefined, code),
+    onSuccess: () => {
+      toast.success("Референс персонажа загружен");
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+      qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      onHeroReplaced?.();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  /** Перегенерация одной картинки: шаг hero дорисует только этого персонажа. */
+  const regenHero = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await api.regenerateHeroCharacter(projectId, code);
+      let runStarted = true;
+      try {
+        await api.runProjectStep(projectId, "hero", {
+          nodeKey: nodeKey ?? undefined,
+          mode: "resume",
+        });
+      } catch {
+        // Картинка уже снесена — шаг мог не пойти (нода не активна). Не роняем
+        // всю операцию: подскажем запустить шаг кнопкой ▶.
+        runStarted = false;
+      }
+      return { ...res, runStarted };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.runStarted
+          ? `Перегенерация ${data.code} запущена`
+          : `Картинка ${data.code} сброшена — запусти шаг «Персонажи» кнопкой ▶`,
+      );
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+      qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      onHeroReplaced?.();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const deleteHero = useMutation({
+    mutationFn: (code: string) => api.deleteHeroCharacter(projectId, code),
+    onSuccess: (data) => {
+      toast.success(`Персонаж ${data.code} удалён`);
+      setOpenCard(null);
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+      qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      onHeroReplaced?.();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {items.length} из {total || items.length} готовы
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: total }).map((_, i) => {
+          const item = byIndex.get(i);
+          const entity = characters[i];
+          const code = entity?.code || `c${String(i + 1).padStart(2, "0")}`;
+          return (
+            <div
+              key={`hero-slot-${i}`}
+              className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 p-2"
+            >
+              <div
+                className={cn(
+                  "relative w-full overflow-hidden rounded-lg border bg-black/40",
+                  item?.previewUrl ? "border-white/10" : "border-dashed border-white/15",
+                )}
+                style={item?.previewUrl ? undefined : { aspectRatio: "16 / 9" }}
+              >
+                {item?.previewUrl ? (
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer"
+                    title="Открыть на весь экран"
+                    onClick={() => setZoom(item.previewUrl ?? null)}
+                  >
+                    <img src={item.previewUrl} alt="" className="block h-auto w-full object-contain" loading="lazy" />
+                  </button>
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 select-none">
+                    <span className="text-[13px] uppercase tracking-[0.22em] text-white/30">empty</span>
+                    <span className="text-[10px] tracking-[0.12em] text-white/20">16:9</span>
+                  </div>
+                )}
+                <span
+                  className="pointer-events-none absolute right-1.5 top-1.5 z-[2] rounded bg-black/75 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
+                  title="ID персонажа"
+                >
+                  {entity?.code || (legacyDescriptions[i] ? `c${String(i + 1).padStart(2, "0")}` : `#${i + 1}`)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {entity || legacyDescriptions[i] ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 gap-1.5 text-[11px]"
+                    onClick={() => setOpenCard((cur) => (cur === i ? null : i))}
+                  >
+                    <ScrollText className="h-3.5 w-3.5" />
+                    Характеристики персонажа
+                  </Button>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-primary/60 hover:text-white disabled:opacity-50"
+                  title="Перегенерировать этого персонажа"
+                  disabled={regenHero.isPending}
+                  onClick={() => regenHero.mutate(code)}
+                >
+                  {regenHero.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </button>
+                <label
+                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-white/35 hover:text-white"
+                  title="Загрузить референс персонажа (картинку)"
+                >
+                  {replaceHero.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) replaceHero.mutate({ file: f, path: item?.filePath ?? null, code });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {item?.downloadUrl ? (
+                  <a
+                    href={item.downloadUrl}
+                    download
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/50 hover:border-white/35 hover:text-white"
+                    title="Скачать"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-500/30 text-rose-300/80 hover:border-rose-400/60 hover:bg-rose-500/10 hover:text-rose-200"
+                  title="Удалить персонажа"
+                  disabled={deleteHero.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`Удалить персонажа ${code}? Картинка и запись в реестре тоже удалятся.`)) return;
+                    deleteHero.mutate(code);
+                  }}
+                >
+                  {deleteHero.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              {openCard === i ? (
+                <div className="mt-1">
+                  {entity ? (
+                    <HeroCharacterCard projectId={projectId} entity={entity} />
+                  ) : (
+                    <LegacyHeroCharacterCard
+                      projectId={projectId}
+                      index={i}
+                      name={legacyDescriptions[i]}
+                      descriptions={legacyDescriptions}
+                    />
+                  )}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          data-hero-add-tile
+          title="Добавить персонажа"
+          disabled={addCharacter.isPending || graph.isLoading}
+          onClick={() => addCharacter.mutate()}
+          className="group flex h-full min-h-[150px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/15 bg-black/20 transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 hover:shadow-[0_0_28px_-8px_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {addCharacter.isPending ? (
+            <Loader2 className="h-10 w-10 animate-spin text-white/50" />
+          ) : (
+            <Plus className="h-10 w-10 text-white/30 transition-transform duration-200 ease-out group-hover:scale-125 group-hover:text-white/75" />
+          )}
+          <span className="text-[11px] text-white/35 transition-colors group-hover:text-white/75">Добавить персонажа</span>
+        </button>
+      </div>
+
+      {zoom
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+              onClick={() => setZoom(null)}
+            >
+              <div
+                className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img src={zoom} alt="" className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" />
+                <div className="absolute right-2 top-2 flex items-center gap-2">
+                  <Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs" asChild>
+                    <a href={zoom} target="_blank" rel="noreferrer">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      В новой вкладке
+                    </a>
+                  </Button>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom(null)}>
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
+ * Предметы: та же раскладка, что и у персонажей — сетка по 2 в ряд, рамка
+ * 16:9 пока картинки нет, ID в углу, под картинкой кнопка «Характеристики
+ * предмета» (раскрывает данные предмета), перегенерация, загрузка референса,
+ * скачивание, удаление и плитка «Добавить предмет».
+ */
+export type ItemAttrs = { name?: string; description?: string; look?: string };
+
+function itemIndexFromRaw(raw: string): number | null {
+  const m = raw.match(/predmet(\d+)/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
+
+/** Данные предметов лежат в `project.meta.item_attrs` по номеру предмета. */
+function itemAttrsMap(project: ProjectDetail | undefined): Record<string, ItemAttrs> {
+  const raw = (project?.meta as Record<string, unknown> | undefined)?.item_attrs;
+  return raw && typeof raw === "object" ? (raw as Record<string, ItemAttrs>) : {};
+}
+
+function itemCode(index: number): string {
+  return `p${String(index).padStart(2, "0")}`;
+}
+
+/** Текст, который уходит в шаг «Предметы» (`item_descriptions[index-1]`). */
+export function composeItemText(attrs: ItemAttrs): string {
+  return [attrs.name, attrs.description, attrs.look]
+    .map((v) => (v ?? "").trim())
+    .filter(Boolean)
+    .join(". ");
+}
+
+function ItemDetailsCard({
+  projectId,
+  index,
+  descriptions,
+  attrs,
+  attrsMap,
+}: {
+  projectId: number;
+  index: number;
+  descriptions: string[];
+  attrs: ItemAttrs;
+  attrsMap: Record<string, ItemAttrs>;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(attrs.name ?? "");
+  const [description, setDescription] = useState(attrs.description ?? descriptions[index - 1] ?? "");
+  const [look, setLook] = useState(attrs.look ?? "");
+  useEffect(() => {
+    setName(attrs.name ?? "");
+    setDescription(attrs.description ?? descriptions[index - 1] ?? "");
+    setLook(attrs.look ?? "");
+  }, [attrs, descriptions, index]);
+
+  const current: ItemAttrs = { name, description, look };
+  const dirty =
+    name !== (attrs.name ?? "") ||
+    description !== (attrs.description ?? descriptions[index - 1] ?? "") ||
+    look !== (attrs.look ?? "");
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const nextDescriptions = [...descriptions];
+      while (nextDescriptions.length < index) nextDescriptions.push("");
+      nextDescriptions[index - 1] = composeItemText(current) || nextDescriptions[index - 1] || "";
+      return api.patchProject(projectId, {
+        item_descriptions: nextDescriptions,
+        meta: { item_attrs: { ...attrsMap, [String(index)]: current } },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Данные предмета сохранены");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  return (
+    <div className="mt-2 w-full rounded-md border border-white/10 bg-black/25 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-white">Характеристики предмета</span>
+        <span className="font-mono text-xs text-white/50">{itemCode(index)}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Название
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: старый фотоаппарат" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Описание
+          <Textarea
+            className="w-full"
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Что это за предмет и какую роль играет в ролике"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          Внешний вид
+          <Textarea
+            className="w-full"
+            rows={2}
+            value={look}
+            onChange={(e) => setLook(e.target.value)}
+            placeholder="Материал, цвет, размер, состояние"
+          />
+        </label>
+        <Button size="sm" variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          Сохранить
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ItemResultsView({
+  projectId,
+  nodeKey,
+  items,
+}: {
+  projectId: number;
+  nodeKey?: string | null;
+  items: NodeResultItem[];
+}) {
+  const qc = useQueryClient();
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
+  const assets = useQuery({
+    queryKey: ["project-assets", projectId, "items"],
+    queryFn: () => api.listProjectAssets(projectId, "items"),
+    refetchInterval: 8000,
+  });
+  const descriptions = project.data?.item_descriptions ?? [];
+  const attrsMap = itemAttrsMap(project.data);
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [openCard, setOpenCard] = useState<number | null>(null);
+
+  // Только предметы: kind item_* или файл items/predmetN.png.
+  const images = useMemo(() => {
+    const rows: { index: number; previewUrl: string; filePath: string | null; downloadUrl: string | null }[] = [];
+    const push = (raw: string, previewUrl: string | null, filePath: string | null) => {
+      const idx = itemIndexFromRaw(`${raw} ${filePath ?? ""}`);
+      if (!idx || !previewUrl) return;
+      if (rows.some((r) => r.index === idx)) return;
+      rows.push({
+        index: idx,
+        previewUrl,
+        filePath,
+        downloadUrl: previewUrl.includes("/api/files?path=") ? `${previewUrl}&download=1` : previewUrl,
+      });
+    };
+    for (const a of assets.data ?? []) {
+      if (!`${a.kind}`.includes("item")) continue;
+      push(`${a.kind} ${a.path ?? ""}`, a.preview_url, a.path ?? null);
+    }
+    for (const it of items) {
+      push(`${it.label ?? ""} ${it.id ?? ""}`, it.previewUrl ?? null, it.filePath ?? null);
+    }
+    return rows.sort((a, b) => a.index - b.index);
+  }, [assets.data, items]);
+
+  const byIndex = new Map(images.map((img) => [img.index, img]));
+  const maxReady = images.length ? Math.max(...images.map((i) => i.index)) : 0;
+  const total = Math.max(descriptions.length, maxReady, 0);
+
+  const addItem = useMutation({
+    mutationFn: async () => {
+      const nextDescriptions = [...descriptions];
+      const nextIndex = nextDescriptions.length + 1;
+      const attrs: ItemAttrs = { name: `Предмет ${nextIndex}`, description: "", look: "" };
+      nextDescriptions.push(composeItemText(attrs));
+      return api.patchProject(projectId, {
+        item_descriptions: nextDescriptions,
+        meta: { item_attrs: { ...attrsMap, [String(nextIndex)]: attrs } },
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Предмет добавлен");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  /** Перегенерация одной картинки: шаг items дорисует только этот предмет. */
+  const regenItem = useMutation({
+    mutationFn: async (index: number) => {
+      const res = await api.regenerateItem(projectId, index);
+      let runStarted = true;
+      try {
+        await api.runProjectStep(projectId, "items", { nodeKey: nodeKey ?? undefined, mode: "resume" });
+      } catch {
+        runStarted = false;
+      }
+      return { ...res, runStarted };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.runStarted
+          ? `Перегенерация предмета ${itemCode(data.index)} запущена`
+          : `Картинка ${itemCode(data.index)} сброшена — запусти шаг «Предметы» кнопкой ▶`,
+      );
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["artifacts", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const uploadItem = useMutation({
+    mutationFn: ({ file, index, path }: { file: File; index: number; path?: string | null }) =>
+      api.replaceHeroImage(projectId, file, path ?? undefined, undefined, index),
+    onSuccess: () => {
+      toast.success("Референс предмета загружен");
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId, "items"] });
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const deleteItem = useMutation({
+    mutationFn: (index: number) => api.deleteItem(projectId, index),
+    onSuccess: (data) => {
+      toast.success(`Предмет ${itemCode(data.index)} удалён`);
+      setOpenCard(null);
+      qc.invalidateQueries({ queryKey: ["project-assets", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["artifacts", projectId, "items"] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {images.length} из {total || images.length} готовы
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: total }).map((_, i) => {
+          const index = i + 1;
+          const img = byIndex.get(index);
+          const hasDescription = Boolean(descriptions[i]?.trim());
+          const attrs = attrsMap[String(index)] ?? { description: descriptions[i] ?? "" };
+          return (
+            <div key={`item-slot-${index}`} className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 p-2">
+              <div
+                className={cn(
+                  "relative w-full overflow-hidden rounded-lg border bg-black/40",
+                  img ? "border-white/10" : "border-dashed border-white/15",
+                )}
+                style={img ? undefined : { aspectRatio: "16 / 9" }}
+              >
+                {img ? (
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer"
+                    title="Открыть на весь экран"
+                    onClick={() => setZoom(img.previewUrl)}
+                  >
+                    <img src={img.previewUrl} alt="" className="block h-auto w-full object-contain" loading="lazy" />
+                  </button>
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 select-none">
+                    <span className="text-[13px] uppercase tracking-[0.22em] text-white/30">empty</span>
+                    <span className="text-[10px] tracking-[0.12em] text-white/20">16:9</span>
+                  </div>
+                )}
+                <span
+                  className="pointer-events-none absolute right-1.5 top-1.5 z-[2] rounded bg-black/75 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
+                  title="ID предмета"
+                >
+                  {itemCode(index)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {hasDescription || attrs.name ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 gap-1.5 text-[11px]"
+                    onClick={() => setOpenCard((cur) => (cur === i ? null : i))}
+                  >
+                    <ScrollText className="h-3.5 w-3.5" />
+                    Характеристики предмета
+                  </Button>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-primary/60 hover:text-white disabled:opacity-50"
+                  title="Перегенерировать этот предмет"
+                  disabled={regenItem.isPending}
+                  onClick={() => regenItem.mutate(index)}
+                >
+                  {regenItem.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </button>
+                <label
+                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-white/35 hover:text-white"
+                  title="Загрузить референс предмета (картинку)"
+                >
+                  {uploadItem.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadItem.mutate({ file: f, index, path: img?.filePath ?? null });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {img?.downloadUrl ? (
+                  <a
+                    href={img.downloadUrl}
+                    download
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/50 hover:border-white/35 hover:text-white"
+                    title="Скачать"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-500/30 text-rose-300/80 hover:border-rose-400/60 hover:bg-rose-500/10 hover:text-rose-200"
+                  title="Удалить предмет"
+                  disabled={deleteItem.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`Удалить предмет ${itemCode(index)}? Картинка и описание тоже удалятся.`)) return;
+                    deleteItem.mutate(index);
+                  }}
+                >
+                  {deleteItem.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              {openCard === i ? (
+                <div className="mt-1">
+                  <ItemDetailsCard
+                    projectId={projectId}
+                    index={index}
+                    descriptions={descriptions}
+                    attrs={attrs}
+                    attrsMap={attrsMap}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          title="Добавить предмет"
+          disabled={addItem.isPending || project.isLoading}
+          onClick={() => addItem.mutate()}
+          className="group flex h-full min-h-[150px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/15 bg-black/20 transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 hover:shadow-[0_0_28px_-8px_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {addItem.isPending ? (
+            <Loader2 className="h-10 w-10 animate-spin text-white/50" />
+          ) : (
+            <Plus className="h-10 w-10 text-white/30 transition-transform duration-200 ease-out group-hover:scale-125 group-hover:text-white/75" />
+          )}
+          <span className="text-[11px] text-white/35 transition-colors group-hover:text-white/75">Добавить предмет</span>
+        </button>
+      </div>
+
+      {zoom
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+              onClick={() => setZoom(null)}
+            >
+              <div
+                className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img src={zoom} alt="" className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" />
+                <div className="absolute right-2 top-2 flex items-center gap-2">
+                  <Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs" asChild>
+                    <a href={zoom} target="_blank" rel="noreferrer">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      В новой вкладке
+                    </a>
+                  </Button>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom(null)}>
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
 function FrameImagesView({
   projectId,
   nodeType,
@@ -991,6 +1765,29 @@ function FrameImagesView({
   const isHero = nodeType === "hero" || nodeType === "hitl_hero";
   const isItems = nodeType === "items";
   const current = items[index] ?? items[0];
+  const graph = useQuery({ queryKey: ["db-graph", projectId], queryFn: () => api.dbGraph(projectId), enabled: isHero });
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId), enabled: isHero });
+  const characters = graph.data?.entities.filter((entity) => entity.type === "character") ?? [];
+  const legacyDescriptions = project.data?.hero_descriptions ?? [];
+  const addCharacter = useMutation({
+    mutationFn: async () => {
+      const used = new Set(characters.map((entity) => entity.code).filter(Boolean));
+      let n = 1;
+      while (used.has(`c${String(n).padStart(2, "0")}`)) n += 1;
+      if (characters.length === 0 && legacyDescriptions.length > 0) {
+        await api.patchProject(projectId, { hero_count: legacyDescriptions.length, hero_descriptions: [...legacyDescriptions, `Персонаж ${legacyDescriptions.length + 1}`] });
+        return { legacy: true as const };
+      }
+      await api.dbAddEntity(projectId, { type: "character", code: `c${String(n).padStart(2, "0")}`, name: `Персонаж ${n}`, attrs: { look: "", clothes: "", char: "", rules: "" } });
+      return { legacy: false as const };
+    },
+    onSuccess: async (result) => {
+      if (result.legacy) await qc.invalidateQueries({ queryKey: ["project", projectId] });
+      else await qc.invalidateQueries({ queryKey: ["db-graph", projectId] });
+      toast.success("Персонаж добавлен");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
 
   const replaceHero = useMutation({
     mutationFn: (file: File) =>
@@ -1006,6 +1803,12 @@ function FrameImagesView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       <div className="flex flex-wrap items-center gap-2">
+        {isHero && (
+          <Button size="sm" variant="outline" disabled={addCharacter.isPending || graph.isLoading} onClick={() => addCharacter.mutate()}>
+            {addCharacter.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            Добавить персонажа
+          </Button>
+        )}
         {isHero && (
           <>
             <input
@@ -1109,12 +1912,20 @@ function FrameImagesView({
           title="Нажмите, чтобы открыть на весь экран"
         >
           <img src={current.previewUrl} alt="" className="max-h-[45vh] w-full object-contain transition group-hover:opacity-95" />
+          {isHero && (characters[index]?.name || characters[index]?.code || legacyDescriptions[index]) ? <span className="absolute bottom-3 left-3 rounded bg-black/80 px-2 py-1 text-xs text-white">{characters[index]?.name || characters[index]?.code || legacyDescriptions[index]}</span> : null}
           <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-black/70 px-2.5 py-1 text-xs text-white/90 opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
             <Maximize2 className="h-3.5 w-3.5" />
             Увеличить
           </div>
         </div>
       )}
+      {isHero ? (
+        <section className="flex flex-col gap-2 rounded-md border border-white/10 bg-black/20 p-2">
+          <h3 className="text-xs font-medium text-white/70">Характеристики персонажей</h3>
+          {characters.length > 0 ? characters.map((entity) => <HeroCharacterCard key={entity.id} projectId={projectId} entity={entity} />) : legacyDescriptions.map((name, i) => <LegacyHeroCharacterCard key={`legacy-${i}`} projectId={projectId} index={i} name={name} descriptions={legacyDescriptions} />)}
+          {characters.length === 0 && legacyDescriptions.length === 0 ? <p className="text-xs text-muted-foreground">Добавьте персонажа, чтобы заполнить его данные.</p> : null}
+        </section>
+      ) : null}
       {isItems ? (
         <div className="rounded-lg border border-white/10 bg-black/20 p-3">
           <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1358,22 +2169,36 @@ function ExcelGptResultView({
     enabled: Boolean(nodeKey),
     staleTime: 5000,
   });
+  // Полный ответ с диска (gpt_reply.txt): превью в meta обрезано — из-за этого
+  // результат выглядел «недописанным».
+  const fullReply = useQuery({
+    queryKey: ["gpt-operator-reply", projectId, nodeKey],
+    queryFn: () => api.getGptOperatorReply(projectId, nodeKey!),
+    enabled: Boolean(nodeKey),
+    staleTime: 10_000,
+    retry: false,
+  });
   const replyFromMeta = snapshot.items.find((i) => i.kind === "text")?.content?.trim();
   const replyFromApi =
     typeof resolve.data?.lastResult?.replyPreview === "string"
       ? String(resolve.data.lastResult.replyPreview).trim()
       : "";
-  const reply = replyFromMeta || replyFromApi;
+  const reply =
+    (fullReply.data?.text || "").trim() || replyFromMeta || replyFromApi;
+  const parsed = useMemo(
+    () => (reply ? parseJsonPayload(reply) : null),
+    [reply],
+  );
   const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
-    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
+    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       <XlsxUploadBar
         projectId={projectId}
         nodeKey={nodeKey}
         nodeType={nodeType}
       />
-      {xlsxItem ? (
+      {xlsxItem && snapshot.summary ? (
         <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
       ) : null}
       {resolve.isLoading && !reply ? (
@@ -1420,14 +2245,18 @@ function ExcelGptResultView({
               </Button>
             </div>
           </div>
-          <div
-            tabIndex={0}
-            className="max-h-[520px] min-h-[140px] overflow-y-auto overflow-x-auto rounded-lg border border-white/10 bg-black/40 p-3.5 select-text outline-none focus:border-white/25 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent"
-          >
-            <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90">
-              {reply}
-            </pre>
-          </div>
+          {parsed ? (
+            <JsonTableView value={parsed.value} raw={reply} partial={parsed.partial} />
+          ) : (
+            <div
+              tabIndex={0}
+              className="min-h-[140px] rounded-lg border border-white/10 bg-black/40 p-3.5 select-text outline-none focus:border-white/25"
+            >
+              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90">
+                {reply}
+              </pre>
+            </div>
+          )}
         </div>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">
@@ -1466,12 +2295,16 @@ function DefaultResultView({
   });
 
   const item = snapshot.items[0];
+  const parsedContent = useMemo(
+    () => (item?.content ? parseJsonPayload(item.content) : null),
+    [item?.content],
+  );
   if (!item) {
     return <p className="text-sm text-muted-foreground">Нет данных для отображения.</p>;
   }
 
   return (
-    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
+    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       {item.kind === "xlsx" && (
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800">
@@ -1552,11 +2385,17 @@ function DefaultResultView({
           </div>
         </div>
       )}
-      {item.content && (
-        <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-lg bg-black/40 p-3.5 text-xs select-text [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent">
+      {item.content && parsedContent ? (
+        <JsonTableView
+          value={parsedContent.value}
+          raw={item.content}
+          partial={parsedContent.partial}
+        />
+      ) : item.content ? (
+        <pre className="whitespace-pre-wrap break-words rounded-lg bg-black/40 p-3.5 text-xs select-text">
           {item.content}
         </pre>
-      )}
+      ) : null}
     </div>
   );
 }

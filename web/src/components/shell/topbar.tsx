@@ -88,7 +88,8 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   return (
     <UiContext.Provider value={{ framesProjectId, openFrames, openOutsee }}>
       <div className="flex h-full min-h-0 w-full flex-1 flex-row">
-      <nav className="flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
+      {/* Левая панель с кнопками — всегда поверх любых экранов/модалок. */}
+      <nav className="relative z-[20000] flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />

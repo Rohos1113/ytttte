@@ -233,7 +233,7 @@ export function ShotMenuBoard({
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[10050] flex flex-col bg-[#0a0a0a] text-white">
+    <div className="fixed inset-y-0 right-0 left-16 z-[10050] flex flex-col bg-[#0a0a0a] text-white">
       <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[#0f0f0f] px-4">
         <div className="min-w-0 flex-1 leading-tight">
           <h2 className="text-sm font-semibold tracking-tight">Меню съёмки</h2>
