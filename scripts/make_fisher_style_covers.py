@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Обложки каталога «406 стилей»: PNG 1536×1024 → webp 448×299 в web/public/gen-styles/fisher.
 
 Источник PNG: папка fisher-images-additional на рабочем столе (имя файла начинается с номера стиля).

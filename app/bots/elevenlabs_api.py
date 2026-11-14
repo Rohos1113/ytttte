@@ -288,7 +288,9 @@ class ElevenLabsApi:
                 return await _aitunnel_speech(client, text, voice_id, out_path)
             except Exception as e:
                 if elevenlabs_api_key():
-                    logger.warning("AITunnel ElevenLabs v4 ошибка ({}). Пробуем откат на прямой ElevenLabs API...", e)
+                    logger.warning(
+                        "AITunnel ElevenLabs v4 ошибка ({}). Пробуем откат на прямой ElevenLabs API...", e
+                    )
                 else:
                     if isinstance(e, ElevenLabsApiError):
                         raise

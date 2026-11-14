@@ -186,7 +186,9 @@ async def test_tts_is_recorded_in_media_ledger(tmp_path: Path, monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_tts_routed_to_wavespeed_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tts_routed_to_wavespeed_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from unittest.mock import patch
 
     from app.bots.outsee import GenerationResult
@@ -199,7 +201,9 @@ async def test_tts_routed_to_wavespeed_when_configured(tmp_path: Path, monkeypat
         return GenerationResult(file_path=out_path, gen_id="pred_123", raw_url="http://fake/audio.mp3")
 
     with patch("app.bots.wavespeed_http.run_generation", side_effect=fake_run) as mock_gen:
-        res = await ea.ElevenLabsApi().tts("Привет через WaveSpeed", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=6)
+        res = await ea.ElevenLabsApi().tts(
+            "Привет через WaveSpeed", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=6
+        )
         assert res == out
         assert out.is_file()
         mock_gen.assert_called_once()
@@ -209,7 +213,9 @@ async def test_tts_routed_to_wavespeed_when_configured(tmp_path: Path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_tts_routed_to_aitunnel_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tts_routed_to_aitunnel_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import json
 
     monkeypatch.setattr(settings, "elevenlabs_api_key", "")
@@ -222,7 +228,9 @@ async def test_tts_routed_to_aitunnel_when_configured(tmp_path: Path, monkeypatc
     monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning(captured))
 
     out = tmp_path / "voice_aitunnel.mp3"
-    res = await ea.ElevenLabsApi().tts("Привет через AITunnel", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=7)
+    res = await ea.ElevenLabsApi().tts(
+        "Привет через AITunnel", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=7
+    )
     assert res == out
     assert out.is_file()
     assert len(captured) == 1
@@ -236,8 +244,11 @@ async def test_tts_routed_to_aitunnel_when_configured(tmp_path: Path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_tts_fallback_from_wavespeed_to_aitunnel_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tts_fallback_from_wavespeed_to_aitunnel_on_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from unittest.mock import patch
+
     from app.bots.wavespeed_http import WaveSpeedError
 
     monkeypatch.setattr(settings, "elevenlabs_api_key", "")
@@ -257,4 +268,3 @@ async def test_tts_fallback_from_wavespeed_to_aitunnel_on_error(tmp_path: Path, 
         assert out.is_file()
         assert len(captured) == 1
         assert captured[0].url == "https://api.aitunnel.ru/v1/audio/speech"
-
