@@ -19,6 +19,7 @@ from app.models import Frame, Project, ProjectStatus
 async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.sfx_planning:
         return
+    from app.services.db_v2 import frame_is_archived
     from app.services.sfx_plan import plan_sfx_events
     from app.settings import settings
 
@@ -40,6 +41,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         .scalars()
         .all()
     )
+    frames = [fr for fr in frames if not frame_is_archived(fr)]
     if not frames:
         raise RuntimeError("sfx_plan: нет кадров — сначала split")
 

@@ -64,6 +64,9 @@ def frame_timeline(
     project: Project | None = None,
 ) -> list[dict[str, Any]]:
     """Старт/конец кадра на таймлайне: words_*.json (ASR) → Frame.start_ts → duration_seconds."""
+    from app.services.db_v2 import frame_is_archived
+
+    frames = [fr for fr in frames if not frame_is_archived(fr)]
     # 1. Точный тайминг и реплики из ASR (words_*.json).
     if project is not None:
         try:
