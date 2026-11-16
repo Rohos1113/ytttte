@@ -13,7 +13,7 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   FEMALE_RU_VOICES,
   MALE_RU_VOICES,
-  STANDARD_ELEVENLABS_VOICES,
+  RU_VOICES,
   elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
@@ -269,6 +269,11 @@ function AudioFields({
           value={voiceDraft}
           onChange={(e) => setVoiceDraft(e.target.value)}
         >
+          {voiceDraft && !RU_VOICES.some((v) => v.id === voiceDraft) ? (
+            <option value={voiceDraft}>
+              {findElevenLabsVoice(voiceDraft)?.name || voiceDraft} (ранее выбранный)
+            </option>
+          ) : null}
           <optgroup label="Женские голоса (100)">
             {FEMALE_RU_VOICES.map((v) => (
               <option key={v.id} value={v.id}>
@@ -280,13 +285,6 @@ function AudioFields({
             {MALE_RU_VOICES.map((v) => (
               <option key={v.id} value={v.id}>
                 #{v.index} {v.name} — {v.description}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Стандартные ElevenLabs (9)">
-            {STANDARD_ELEVENLABS_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} — {v.description}
               </option>
             ))}
           </optgroup>
