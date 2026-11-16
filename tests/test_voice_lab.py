@@ -67,7 +67,7 @@ def test_voice_lab_create_clone_without_key(client: TestClient, tmp_path: Path):
 def test_voice_lab_create_clone_success(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(settings, "elevenlabs_api_key", "sk_test_key_1234567890")
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "sk_test_key_1234567890")  # gitleaks:allow
 
     with patch(
         "app.web.routers.voice_lab.create_voice",

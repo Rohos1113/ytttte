@@ -26,6 +26,7 @@ stopwords = [
     "from-pay52-gpt-api-key",
     "pay52_routes",
     "lease_until=now",
+    "sk_test_key_1234567890",
 ]
 commits = [
     "8397a62de237683c39ecfa4fb66927b83dd6b7ed",
@@ -33,4 +34,5 @@ commits = [
     "233d3b62534a64ac369eaa57b9b35b0ee2cb2cef",
     "89ca97c8d8c5b5be1df2c3909eff9767ef17470d",
     "30921a9088c8b2023ede4c769d3363db20928660",
+    "6a0a716cefa7f55a1eac9bc57d4c367e91a02bee",
 ]
