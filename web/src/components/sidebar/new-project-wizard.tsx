@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { projectDisplayName } from "@/lib/project-display";
+import { useTranslation } from "@/lib/i18n";
 import type { PipelineMode, ProjectSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ export function NewProjectWizard({
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [innerOpen, setInnerOpen] = useState(false);
   const open = openProp ?? innerOpen;
   const setOpen = onOpenChange ?? setInnerOpen;
@@ -50,7 +52,7 @@ export function NewProjectWizard({
 
   const create = useMutation({
     mutationFn: async () => {
-      const rawTitle = projectTitle.trim() || "Новый проект";
+      const rawTitle = projectTitle.trim() || t("projects.wizard.defaultNewTitle");
       const p = await api.createProject({
         title: rawTitle.slice(0, 120),
         topic: rawTitle,
@@ -69,7 +71,7 @@ export function NewProjectWizard({
       onCreated(p);
       setOpen(false);
       reset();
-      toast.success(`Проект «${projectDisplayName(p)}» создан`);
+      toast.success(t("projects.wizard.created", { name: projectDisplayName(p) }));
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -95,10 +97,10 @@ export function NewProjectWizard({
             </div>
             <div>
               <DialogTitle className="text-lg font-bold tracking-tight text-white">
-                Новый проект
+                {t("projects.wizard.title")}
               </DialogTitle>
               <DialogDescription className="text-xs text-zinc-400">
-                Выберите архитектуру пайплайна и укажите название проекта. Механика закрепляется за проектом при создании.
+                {t("projects.wizard.description")}
               </DialogDescription>
             </div>
           </div>
@@ -125,16 +127,16 @@ export function NewProjectWizard({
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        Классика (v1)
+                        {t("projects.wizard.v1Title")}
                       </h3>
-                      <p className="text-[11px] font-medium text-cyan-300/80">Линейный конвейер</p>
+                      <p className="text-[11px] font-medium text-cyan-300/80">{t("projects.wizard.v1Subtitle")}</p>
                     </div>
                   </div>
 
                   {pipelineMode === "v1" ? (
                     <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold uppercase tracking-wider">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Выбрано
+                      {t("projects.wizard.selected")}
                     </Badge>
                   ) : (
                     <Badge variant="muted" className="text-zinc-500 border-white/10 text-[10px]">
@@ -144,30 +146,30 @@ export function NewProjectWizard({
                 </div>
 
                 <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-                  Сквозное линейное производство от общей идеи до готовых кадров. Быстро, просто и стабильно.
+                  {t("projects.wizard.v1Desc")}
                 </p>
 
                 {/* Что внутри */}
                 <div className="space-y-2 mb-4 bg-black/30 rounded-xl p-3 border border-white/[0.05]">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Что внутри:
+                    {t("projects.wizard.whatsInside")}
                   </span>
                   <ul className="space-y-1.5 text-xs text-zinc-300">
                     <li className="flex items-start gap-2">
                       <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Авто-сценарий:</strong> единый текст ролика и тайминг</span>
+                      <span>{t("projects.wizard.v1Feature1")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Линейная раскадровка:</strong> кадры строятся последовательно по тексту</span>
+                      <span>{t("projects.wizard.v1Feature2")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Пакетная генерация:</strong> параллельный рендер картинок и видео (KIE / Flux / Seedance)</span>
+                      <span>{t("projects.wizard.v1Feature3")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Быстрый монтаж:</strong> мгновенный экспорт в Premiere / CapCut</span>
+                      <span>{t("projects.wizard.v1Feature4")}</span>
                     </li>
                   </ul>
                 </div>
@@ -175,10 +177,10 @@ export function NewProjectWizard({
                 {/* Рекомендации каналов */}
                 <div className="rounded-lg bg-cyan-950/20 border border-cyan-800/30 px-3 py-2 mb-4">
                   <span className="text-[10px] font-semibold text-cyan-300 block mb-0.5">
-                    Идеально для каналов:
+                    {t("projects.wizard.v1ChannelsTitle")}
                   </span>
                   <p className="text-[11px] text-zinc-300 leading-snug">
-                    Shorts, Reels, TikTok, познавательные факты, цитаты, конвейерные каналы с частыми публикациями.
+                    {t("projects.wizard.v1ChannelsDesc")}
                   </p>
                 </div>
               </div>
@@ -194,10 +196,10 @@ export function NewProjectWizard({
                 {pipelineMode === "v1" ? (
                   <>
                     <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" />
-                    Выбрана Классика
+                    {t("projects.wizard.v1Selected")}
                   </>
                 ) : (
-                  "Выбрать Классику (v1)"
+                  t("projects.wizard.v1Select")
                 )}
               </div>
             </div>
@@ -220,16 +222,16 @@ export function NewProjectWizard({
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        Режиссёрский монтаж (v2)
+                        {t("projects.wizard.v2Title")}
                       </h3>
-                      <p className="text-[11px] font-medium text-violet-300/80">Сцены и биты</p>
+                      <p className="text-[11px] font-medium text-violet-300/80">{t("projects.wizard.v2Subtitle")}</p>
                     </div>
                   </div>
 
                   {pipelineMode === "v2" ? (
                     <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold uppercase tracking-wider">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Выбрано
+                      {t("projects.wizard.selected")}
                     </Badge>
                   ) : (
                     <Badge variant="muted" className="text-zinc-500 border-white/10 text-[10px]">
@@ -239,30 +241,30 @@ export function NewProjectWizard({
                 </div>
 
                 <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-                  Драматургический подход с делением на сцены, эмоциональные биты и дубли. Полный контроль персонажей, локаций и операторской работы.
+                  {t("projects.wizard.v2Desc")}
                 </p>
 
                 {/* Что внутри */}
                 <div className="space-y-2 mb-4 bg-black/30 rounded-xl p-3 border border-white/[0.05]">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Что внутри:
+                    {t("projects.wizard.whatsInside")}
                   </span>
                   <ul className="space-y-1.5 text-xs text-zinc-300">
                     <li className="flex items-start gap-2">
                       <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Дизайн сцен:</strong> персонажи, окружение, освещение и ракурсы для каждой сцены</span>
+                      <span>{t("projects.wizard.v2Feature1")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Смысловые биты:</strong> расстановка смысловых акцентов и темпа сюжета</span>
+                      <span>{t("projects.wizard.v2Feature2")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Система дублей:</strong> варианты кадров (shot_01, shot_02) и отбор лучших шотов</span>
+                      <span>{t("projects.wizard.v2Feature3")}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Монтажная доска:</strong> гибкое перекрытие планов и точный монтажный ритм</span>
+                      <span>{t("projects.wizard.v2Feature4")}</span>
                     </li>
                   </ul>
                 </div>
@@ -270,10 +272,10 @@ export function NewProjectWizard({
                 {/* Рекомендации каналов */}
                 <div className="rounded-lg bg-violet-950/20 border border-violet-800/30 px-3 py-2 mb-4">
                   <span className="text-[10px] font-semibold text-violet-300 block mb-0.5">
-                    Идеально для каналов:
+                    {t("projects.wizard.v2ChannelsTitle")}
                   </span>
                   <p className="text-[11px] text-zinc-300 leading-snug">
-                    Длинные ролики (YouTube 16:9), документальные фильмы, сюжетные истории, авторские каналы с глубокой режиссурой.
+                    {t("projects.wizard.v2ChannelsDesc")}
                   </p>
                 </div>
               </div>
@@ -289,10 +291,10 @@ export function NewProjectWizard({
                 {pipelineMode === "v2" ? (
                   <>
                     <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" />
-                    Выбран Монтаж
+                    {t("projects.wizard.v2Selected")}
                   </>
                 ) : (
-                  "Выбрать Монтаж (v2)"
+                  t("projects.wizard.v2Select")
                 )}
               </div>
             </div>
@@ -301,13 +303,13 @@ export function NewProjectWizard({
           {/* Название проекта */}
           <div className="space-y-2 pt-2 border-t border-white/[0.08]">
             <label className="text-xs font-semibold uppercase tracking-wider text-zinc-300 flex items-center justify-between">
-              <span>Название проекта</span>
+              <span>{t("projects.wizard.nameLabel")}</span>
               <span className="text-[11px] font-normal text-zinc-500 lowercase">
-                обязательное поле
+                {t("projects.wizard.nameRequired")}
               </span>
             </label>
             <Input
-              placeholder="Например: Киберпанк: Хроники мегаполиса"
+              placeholder={t("projects.wizard.namePlaceholder")}
               value={projectTitle}
               onChange={(e) => setProjectTitle(e.target.value)}
               onKeyDown={(e) => {
@@ -332,7 +334,7 @@ export function NewProjectWizard({
             }}
             className="text-xs text-zinc-400 hover:text-white"
           >
-            Отмена
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -349,10 +351,10 @@ export function NewProjectWizard({
             {create.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Создание...
+                {t("projects.wizard.creating")}
               </>
             ) : (
-              "Создать проект"
+              t("projects.wizard.createBtn")
             )}
           </Button>
         </DialogFooter>

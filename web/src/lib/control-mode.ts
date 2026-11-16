@@ -1,5 +1,7 @@
 /** Режим контроля пайплайна: только ИИ (ручной HITL-режим убран). */
 
+import { useI18nStore, type Locale } from "./i18n.ts";
+
 export type ControlMode = "manual" | "ai";
 
 export const AUTO_REVIEW_KINDS = [
@@ -12,6 +14,24 @@ export const AUTO_REVIEW_KINDS = [
 ] as const;
 
 export type AutoReviewKind = (typeof AUTO_REVIEW_KINDS)[number]["kind"];
+
+const AUTO_REVIEW_LABELS_EN: Record<string, string> = {
+  approve_plan: "Script Plan",
+  approve_script: "Voiceover Script",
+  approve_hero: "Characters",
+  approve_images: "Images",
+  approve_videos: "Videos",
+  approve_final: "Final Video",
+};
+
+export function getAutoReviewKindLabel(kind: string, locale?: Locale): string {
+  const loc = locale ?? useI18nStore.getState().locale;
+  if (loc === "en") {
+    return AUTO_REVIEW_LABELS_EN[kind] ?? kind;
+  }
+  const item = AUTO_REVIEW_KINDS.find((k) => k.kind === kind);
+  return item?.label ?? kind;
+}
 
 export function readControlMode(_meta: Record<string, unknown> | undefined): ControlMode {
   return "ai";

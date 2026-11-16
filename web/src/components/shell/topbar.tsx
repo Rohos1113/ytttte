@@ -12,6 +12,7 @@ import { StoragePanel } from "@/components/panels/left-top/storage-panel";
 import { PaymentsPanel } from "@/components/panels/left-bottom/payments-panel";
 import { PayoutsPanel } from "@/components/panels/left-bottom/payouts-panel";
 import { LanguageSwitcher } from "@/components/ui/language-switcher";
+import { useTranslation } from "@/lib/i18n";
 
 interface UiState {
   framesProjectId: number | null;
@@ -28,9 +29,10 @@ export function useUi(): UiState {
 }
 
 export function Topbar({ children }: { children?: React.ReactNode }) {
+  const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [railPanel, setRailPanel] = useState<null | "Хранилище" | "Оплата" | "Выплаты">(null);
-  const togglePanel = (k: "Хранилище" | "Оплата" | "Выплаты") => setRailPanel((v) => (v === k ? null : k));
+  const [railPanel, setRailPanel] = useState<null | "storage" | "payments" | "payouts">(null);
+  const togglePanel = (k: "storage" | "payments" | "payouts") => setRailPanel((v) => (v === k ? null : k));
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -92,17 +94,17 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
       {/* Левая панель с кнопками — всегда поверх любых экранов/модалок. */}
       <nav className="relative z-[20000] flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
-        <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
-        <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
-        <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
+        <a href="/home" title={t("common.nav.home")}><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
+        <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label={t("common.nav.generation")} title={t("common.nav.generationTitle")} onClick={() => openOutsee()} />
+        <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label={t("common.nav.projects")} title={t("common.nav.projectsTitle")} onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
+        <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label={t("common.nav.chat")} title={t("common.nav.chatTitle")} onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
         <BugReportButton />
         {isAdmin ? (
           <RailBtn
             icon={<HardDrive className="h-[18px] w-[18px]" />}
-            label="Хранилище"
-            active={railPanel === "Хранилище"}
-            onClick={() => togglePanel("Хранилище")}
+            label={t("common.nav.storage")}
+            active={railPanel === "storage"}
+            onClick={() => togglePanel("storage")}
           />
         ) : null}
         {isAdmin ? <AdminRailLink /> : null}
@@ -110,41 +112,32 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         {/* ИИ-агент размещён чуть выше центра навигационного меню */}
         <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
         <div className="min-h-2" style={{ flexGrow: 1.55 }} />
-        <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
-        <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
-        {railPanel === "Хранилище" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
-        {railPanel === "Оплата" ? <PaymentsPanel onClose={() => setRailPanel(null)} /> : null}
-        {railPanel === "Выплаты" ? <PayoutsPanel onClose={() => setRailPanel(null)} /> : null}
-        {railPanel && railPanel !== "Хранилище" && railPanel !== "Оплата" && railPanel !== "Выплаты" ? (
-          <div data-rail-panel={railPanel} className="fixed left-[72px] top-3 z-50 w-[320px] rounded-[14px] border border-white/10 bg-[#0a0a0a] p-4 shadow-2xl" style={{ fontFamily: "Rubik, sans-serif" }}>
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[15px] font-medium text-white">{railPanel}</span>
-              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-white" onClick={() => setRailPanel(null)} aria-label="Закрыть">×</button>
-            </div>
-            <div className="rounded-lg border border-white/[0.06] bg-black/60 px-3 py-6 text-center text-[13px] text-zinc-400">скоро</div>
-          </div>
-        ) : null}
-        <button type="button" onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title="Пользователь" aria-label="Пользователь">
+        <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label={t("common.nav.billing")} active={railPanel === "payments"} onClick={() => togglePanel("payments")} />
+        <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label={t("common.nav.payouts")} active={railPanel === "payouts"} onClick={() => togglePanel("payouts")} />
+        {railPanel === "storage" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "payments" ? <PaymentsPanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "payouts" ? <PayoutsPanel onClose={() => setRailPanel(null)} /> : null}
+        <button type="button" onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title={t("common.nav.user")} aria-label={t("common.nav.user")}>
           <User className="h-5 w-5" strokeWidth={1.6} />
         </button>
         <LanguageSwitcher variant="compact" className="my-0.5" />
         <div className="relative">
-          <button type="button" onClick={() => setSettingsOpen((v) => !v)} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (settingsOpen ? "text-white" : "text-zinc-400")} title="Настройки" aria-label="Настройки">
+          <button type="button" onClick={() => setSettingsOpen((v) => !v)} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (settingsOpen ? "text-white" : "text-zinc-400")} title={t("common.settings")} aria-label={t("common.settings")}>
             <Settings className="h-5 w-5" strokeWidth={1.6} />
           </button>
           {settingsOpen ? (
             <div className="absolute bottom-0 left-full z-50 ml-2 w-[300px] border border-white/10 bg-[#141417] p-3 shadow-2xl">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[13px] font-medium uppercase tracking-[0.12em] text-zinc-300">Настройки</span>
-                <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
+                <span className="text-[13px] font-medium uppercase tracking-[0.12em] text-zinc-300">{t("common.settings")}</span>
+                <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label={t("common.close")}>×</button>
               </div>
-              <div className="mb-1.5 text-[13px] text-zinc-500">Язык интерфейса / Language</div>
+              <div className="mb-1.5 text-[13px] text-zinc-500">{t("common.nav.interfaceLanguage")}</div>
               <div className="mb-3">
                 <LanguageSwitcher className="w-full justify-center" />
               </div>
-              <div className="mb-2 text-[13px] text-zinc-500">Текстовая модель</div>
+              <div className="mb-2 text-[13px] text-zinc-500">{t("common.nav.textModel")}</div>
               <TextLlmPicker className="w-full h-8" side="bottom" align="start" />
-              <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">Версия <StudioVersionBadge /></div>
+              <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">{t("common.nav.version")} <StudioVersionBadge /></div>
             </div>
           ) : null}
         </div>
@@ -176,11 +169,12 @@ function RailBtn({ icon, label, title, onClick, active, labelClassName }: { icon
 
 /** Вход в /admin — только для администратора. */
 function AdminRailLink() {
+  const { t } = useTranslation();
   return (
     <RailBtn
       icon={<ShieldCheck className="h-[18px] w-[18px]" />}
-      label="Админка"
-      title="Админ-панель: метрики, пользователи, генерации, запросы и начисления"
+      label={t("common.nav.admin")}
+      title={t("common.nav.adminTitle")}
       onClick={() => {
         window.location.href = "/admin";
       }}
@@ -196,13 +190,14 @@ function OrchestratorRailBtn({
   active?: boolean;
   onClick: () => void;
 }) {
+  const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
 
   return (
     <button
       type="button"
       onClick={onClick}
-      title={active ? "Скрыть ИИ-агент" : "Открыть ИИ-агент"}
+      title={active ? t("common.nav.hideAiAgent") : t("common.nav.openAiAgent")}
       className={cn(
         "group relative flex w-[62px] flex-col items-center gap-1.5 py-1.5 text-[11px] tracking-[-0.02em] transition-all rounded-md select-none",
         active
@@ -236,7 +231,7 @@ function OrchestratorRailBtn({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src="/orchestrator-avatar.jpg"
-              alt="ИИ-агент"
+              alt={t("common.nav.aiAgent")}
               className="h-full w-full object-cover rounded-full"
               onError={() => setImgError(true)}
             />
@@ -252,7 +247,7 @@ function OrchestratorRailBtn({
           active ? "text-emerald-300 font-medium" : "text-zinc-400 group-hover:text-emerald-200",
         )}
       >
-        ИИ-агент
+        {t("common.nav.aiAgent")}
       </span>
     </button>
   );

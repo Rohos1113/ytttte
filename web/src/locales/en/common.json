@@ -30,5 +30,28 @@
   "seconds": "sec",
   "secondsShort": "s",
   "characterCount": "Character count",
-  "showingOf": "Showing: {current} of {total}"
+  "showingOf": "Showing: {current} of {total}",
+  "nav": {
+    "home": "Home",
+    "generation": "Generation",
+    "projects": "Projects",
+    "chat": "Chat",
+    "storage": "Storage",
+    "billing": "Billing",
+    "payouts": "Payouts",
+    "admin": "Admin",
+    "adminTitle": "Admin panel: metrics, users, generations, requests and payouts",
+    "profile": "Profile",
+    "user": "User Profile",
+    "textModel": "Text Model",
+    "version": "Version",
+    "comingSoon": "soon",
+    "generationTitle": "Full generation interface",
+    "projectsTitle": "Show / hide projects panel",
+    "chatTitle": "GPT Chat",
+    "aiAgent": "AI Agent",
+    "hideAiAgent": "Hide AI Agent",
+    "openAiAgent": "Open AI Agent",
+    "interfaceLanguage": "Interface Language"
+  }
 }

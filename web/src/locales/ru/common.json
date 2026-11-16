@@ -30,5 +30,28 @@
   "seconds": "сек",
   "secondsShort": "с",
   "characterCount": "Количество символов",
-  "showingOf": "Показано: {current} из {total}"
+  "showingOf": "Показано: {current} из {total}",
+  "nav": {
+    "home": "Главная",
+    "generation": "Генерация",
+    "projects": "Проекты",
+    "chat": "Чат",
+    "storage": "Хранилище",
+    "billing": "Оплата",
+    "payouts": "Выплаты",
+    "admin": "Админка",
+    "adminTitle": "Админ-панель: метрики, пользователи, генерации, запросы и начисления",
+    "profile": "Профиль",
+    "user": "Пользователь",
+    "textModel": "Текстовая модель",
+    "version": "Версия",
+    "comingSoon": "скоро",
+    "generationTitle": "Полный интерфейс генерации",
+    "projectsTitle": "Показать / скрыть панель проектов",
+    "chatTitle": "Чат GPT",
+    "aiAgent": "ИИ-агент",
+    "hideAiAgent": "Скрыть ИИ-агент",
+    "openAiAgent": "Открыть ИИ-агент",
+    "interfaceLanguage": "Язык интерфейса"
+  }
 }

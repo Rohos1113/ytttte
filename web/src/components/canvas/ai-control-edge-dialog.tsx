@@ -8,12 +8,14 @@ import { api } from "@/lib/api";
 import {
   AUTO_REVIEW_KINDS,
   autoReviewKindForNodeType,
+  getAutoReviewKindLabel,
   readAiNewWindowPerCheck,
   readAutoReviewKinds,
 } from "@/lib/control-mode";
 import { defaultPromptSlots } from "@/lib/node-prompts";
-import { getNodeSpec } from "@/lib/node-catalog";
+import { getNodeSpec, resolveDisplayNodeLabel } from "@/lib/node-catalog";
 import { nodeSupportsGptText } from "@/lib/gpt-text-steps";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,11 +48,12 @@ export function AiControlEdgeDialog({
   onOpenPrompt: (nodeKey: string, nodeType: string) => void;
   onOpenGptText: (nodeKey: string, nodeType: string) => void;
 }) {
+  const { t, locale } = useTranslation();
   const qc = useQueryClient();
   const kindsOn = new Set(readAutoReviewKinds(projectMeta));
   const newWindow = readAiNewWindowPerCheck(projectMeta);
   const targetKind = autoReviewKindForNodeType(targetType);
-  const targetLabel = getNodeSpec(targetType).label;
+  const targetLabel = resolveDisplayNodeLabel(targetType, getNodeSpec(targetType).label, locale);
 
   const patch = useMutation({
     mutationFn: (meta: Record<string, unknown>) => api.patchProject(projectId, { meta }),
@@ -69,7 +72,12 @@ export function AiControlEdgeDialog({
     if (next.has(kind)) next.delete(kind);
     else next.add(kind);
     persist({ auto_review_kinds: [...next] });
-    toast.message(next.has(kind) ? `GPT-проверка: ${kind}` : `Авто-апрув: ${kind}`);
+    const label = getAutoReviewKindLabel(kind, locale);
+    toast.message(
+      next.has(kind)
+        ? t("canvas.aiControl.toastGptCheck", { kind: label })
+        : t("canvas.aiControl.toastAutoApprove", { kind: label }),
+    );
   };
 
   const slots = defaultPromptSlots(targetType).slice(0, 4);
@@ -80,15 +88,14 @@ export function AiControlEdgeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-red-400" />
-            ИИ-контроль → {targetLabel}
+            {t("canvas.aiControl.titleEdge", { targetLabel })}
           </DialogTitle>
           <DialogDescription>
-            Настройки автоматического одобрения (как в массовой генерации через GPT).
-            Ребро: {sourceKey} → {targetKey}
+            {t("canvas.aiControl.subtitleEdge")} {t("canvas.aiControl.edgeLabel", { source: sourceKey, target: targetKey })}
           </DialogDescription>
         </DialogHeader>
 
-        <Section title="Промты ноды">
+        <Section title={t("canvas.aiControl.nodePrompts")}>
           <div className="flex flex-wrap gap-1.5">
             {slots.map((slot) => (
               <Button
@@ -109,13 +116,13 @@ export function AiControlEdgeDialog({
               className="h-7 text-[11px]"
               onClick={() => onOpenPrompt(targetKey, targetType)}
             >
-              Все промты…
+              {t("canvas.aiControl.allPrompts")}
             </Button>
           </div>
         </Section>
 
         {nodeSupportsGptText(targetType) && (
-          <Section title="Текст для GPT">
+          <Section title={t("canvas.aiControl.textForGpt")}>
             <Button
               type="button"
               size="sm"
@@ -124,22 +131,22 @@ export function AiControlEdgeDialog({
               onClick={() => onOpenGptText(targetKey, targetType)}
             >
               <MessageSquareText className="h-3.5 w-3.5" />
-              Текстовый вариант
+              {t("canvas.aiControl.textVariant")}
             </Button>
           </Section>
         )}
 
-        <Section title="GPT-проверка шага">
+        <Section title={t("canvas.aiControl.stepGptCheck")}>
           <p className="mb-2 text-[10px] text-muted-foreground">
-            Включено — GPT-vision/text проверяет перед авто-одобрением. Выключено — шаг
-            одобряется автоматически без проверки.
+            {t("canvas.aiControl.stepGptCheckDesc")}
           </p>
           <div className="flex flex-col gap-1">
             {(targetKind
               ? AUTO_REVIEW_KINDS.filter((k) => k.kind === targetKind)
               : AUTO_REVIEW_KINDS
-            ).map(({ kind, label }) => {
+            ).map(({ kind }) => {
               const on = kindsOn.has(kind);
+              const label = getAutoReviewKindLabel(kind, locale);
               return (
                 <button
                   key={kind}
@@ -155,7 +162,7 @@ export function AiControlEdgeDialog({
                 >
                   <span>{label}</span>
                   <span className="text-[10px] text-muted-foreground">
-                    {on ? "GPT проверяет" : "авто-апрув"}
+                    {on ? t("canvas.aiControl.gptChecking") : t("canvas.aiControl.autoApprove")}
                   </span>
                 </button>
               );
@@ -163,27 +170,27 @@ export function AiControlEdgeDialog({
           </div>
         </Section>
 
-        <Section title="Окно браузера">
+        <Section title={t("canvas.aiControl.browserWindow")}>
           <ToggleLine
-            label="Каждая проверка — новое окно"
-            hint="Отдельная CDP-сессия для каждого HITL (рекомендуется при массовой генерации)"
+            label={t("canvas.aiControl.newWindowPerCheck")}
+            hint={t("canvas.aiControl.newWindowHint")}
             active={newWindow}
             disabled={patch.isPending}
             onClick={() => {
               persist({ ai_new_window_per_check: !newWindow });
-              toast.success(!newWindow ? "Новое окно на проверку" : "Одно окно на все проверки");
+              toast.success(!newWindow ? t("canvas.aiControl.newWindowToast") : t("canvas.aiControl.singleWindowToast"));
             }}
           />
         </Section>
 
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Закрыть
+            {t("canvas.aiControl.close")}
           </Button>
           {patch.isPending && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Сохранение…
+              {t("canvas.aiControl.saving")}
             </span>
           )}
         </DialogFooter>

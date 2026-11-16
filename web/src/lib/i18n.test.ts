@@ -28,6 +28,8 @@ test("getTranslation returns correct Russian translations", () => {
   assert.equal(getTranslation("canvas.nodes.script", undefined, "ru"), "Закадровый текст");
   assert.equal(getTranslation("sfx.categories.foley.label", undefined, "ru"), "Шумы");
   assert.equal(getTranslation("sfx.readyFiles", { count: 5 }, "ru"), "Готово · 5 файл(ов)");
+  assert.equal(getTranslation("projects.title", undefined, "ru"), "Проекты");
+  assert.equal(getTranslation("projects.wizard.v1Title", undefined, "ru"), "Классика (v1)");
 });
 
 test("getTranslation returns correct English translations", () => {
@@ -36,6 +38,8 @@ test("getTranslation returns correct English translations", () => {
   assert.equal(getTranslation("canvas.nodes.script", undefined, "en"), "Voiceover Script");
   assert.equal(getTranslation("sfx.categories.foley.label", undefined, "en"), "Foley");
   assert.equal(getTranslation("sfx.readyFiles", { count: 5 }, "en"), "Ready · 5 file(s)");
+  assert.equal(getTranslation("projects.title", undefined, "en"), "Projects");
+  assert.equal(getTranslation("projects.wizard.v1Title", undefined, "en"), "Classic (v1)");
 });
 
 test("getTranslation falls back to Russian when key is missing in English", () => {

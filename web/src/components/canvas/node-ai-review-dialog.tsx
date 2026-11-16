@@ -8,13 +8,15 @@ import { api } from "@/lib/api";
 import {
   AUTO_REVIEW_KINDS,
   autoReviewKindForNodeType,
+  getAutoReviewKindLabel,
   readAiNewWindowPerCheck,
   readAutoReviewKinds,
 } from "@/lib/control-mode";
-import { getNodeSpec } from "@/lib/node-catalog";
+import { getNodeSpec, resolveDisplayNodeLabel } from "@/lib/node-catalog";
 import { nodeSupportsGptText } from "@/lib/gpt-text-steps";
 import { nodeSupportsGptVerdict, verdictStepForNode } from "@/lib/gpt-verdict-steps";
 import { GptVerdictPanel } from "@/components/studio/gpt-verdict-panel";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,8 +47,9 @@ export function NodeAiReviewDialog({
   onOpenPrompt: (nodeKey: string, nodeType: string) => void;
   onOpenGptText: (nodeKey: string, nodeType: string) => void;
 }) {
+  const { t, locale } = useTranslation();
   const qc = useQueryClient();
-  const label = getNodeSpec(nodeType).label;
+  const label = resolveDisplayNodeLabel(nodeType, getNodeSpec(nodeType).label, locale);
   const stepCode = verdictStepForNode(nodeType);
   const showVerdict = stepCode && nodeSupportsGptVerdict(nodeType);
   const kindsOn = new Set(readAutoReviewKinds(projectMeta));
@@ -71,7 +74,12 @@ export function NodeAiReviewDialog({
     if (next.has(kind)) next.delete(kind);
     else next.add(kind);
     persist({ auto_review_kinds: [...next] });
-    toast.message(next.has(kind) ? `GPT-проверка: ${kind}` : `Авто-апрув: ${kind}`);
+    const kindLabel = getAutoReviewKindLabel(kind, locale);
+    toast.message(
+      next.has(kind)
+        ? t("canvas.aiControl.toastGptCheck", { kind: kindLabel })
+        : t("canvas.aiControl.toastAutoApprove", { kind: kindLabel }),
+    );
   };
 
   return (
@@ -80,10 +88,10 @@ export function NodeAiReviewDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-violet-400" />
-            ИИ-проверка — {label}
+            {t("canvas.aiControl.titleReview", { label })}
           </DialogTitle>
           <DialogDescription>
-            Шаблоны проверки GPT, текст промта и настройки авто-одобрения для этой ноды.
+            {t("canvas.aiControl.subtitleReview")}
           </DialogDescription>
         </DialogHeader>
 
@@ -96,11 +104,11 @@ export function NodeAiReviewDialog({
           />
         ) : (
           <p className="text-sm text-muted-foreground">
-            Для этой ноды нет GPT-проверки «Вердикт».
+            {t("canvas.aiControl.noVerdictCheck")}
           </p>
         )}
 
-        <Section title="Промты ноды">
+        <Section title={t("canvas.aiControl.nodePrompts")}>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -109,7 +117,7 @@ export function NodeAiReviewDialog({
               className="text-xs"
               onClick={() => onOpenPrompt(nodeKey, nodeType)}
             >
-              Открыть промты…
+              {t("canvas.aiControl.openPrompts")}
             </Button>
             {nodeSupportsGptText(nodeType) && (
               <Button
@@ -120,22 +128,23 @@ export function NodeAiReviewDialog({
                 onClick={() => onOpenGptText(nodeKey, nodeType)}
               >
                 <MessageSquareText className="h-3.5 w-3.5" />
-                Текст для GPT
+                {t("canvas.aiControl.textForGpt")}
               </Button>
             )}
           </div>
         </Section>
 
-        <Section title="GPT-проверка шага">
+        <Section title={t("canvas.aiControl.stepGptCheck")}>
           <p className="mb-2 text-[10px] text-muted-foreground">
-            Включено — GPT проверяет перед авто-одобрением. Выключено — шаг одобряется без проверки.
+            {t("canvas.aiControl.stepGptCheckDesc")}
           </p>
           <div className="flex flex-col gap-1">
             {(targetKind
               ? AUTO_REVIEW_KINDS.filter((k) => k.kind === targetKind)
               : AUTO_REVIEW_KINDS
-            ).map(({ kind, label: kindLabel }) => {
+            ).map(({ kind }) => {
               const on = kindsOn.has(kind);
+              const kindLabel = getAutoReviewKindLabel(kind, locale);
               return (
                 <button
                   key={kind}
@@ -151,7 +160,7 @@ export function NodeAiReviewDialog({
                 >
                   <span>{kindLabel}</span>
                   <span className="text-[10px] text-muted-foreground">
-                    {on ? "GPT проверяет" : "авто-апрув"}
+                    {on ? t("canvas.aiControl.gptChecking") : t("canvas.aiControl.autoApprove")}
                   </span>
                 </button>
               );
@@ -159,13 +168,13 @@ export function NodeAiReviewDialog({
           </div>
         </Section>
 
-        <Section title="Окно браузера">
+        <Section title={t("canvas.aiControl.browserWindow")}>
           <button
             type="button"
             disabled={patch.isPending}
             onClick={() => {
               persist({ ai_new_window_per_check: !newWindow });
-              toast.success(!newWindow ? "Новое окно на проверку" : "Одно окно на все проверки");
+              toast.success(!newWindow ? t("canvas.aiControl.newWindowToast") : t("canvas.aiControl.singleWindowToast"));
             }}
             className={cn(
               "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left",
@@ -173,8 +182,8 @@ export function NodeAiReviewDialog({
             )}
           >
             <span className="flex flex-col">
-              <span className="text-xs font-medium">Каждая проверка — новое окно</span>
-              <span className="text-[10px] text-muted-foreground">Отдельная CDP-сессия для HITL</span>
+              <span className="text-xs font-medium">{t("canvas.aiControl.newWindowPerCheck")}</span>
+              <span className="text-[10px] text-muted-foreground">{t("canvas.aiControl.newWindowHint")}</span>
             </span>
             <span
               className={cn(
@@ -194,12 +203,12 @@ export function NodeAiReviewDialog({
 
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Закрыть
+            {t("canvas.aiControl.close")}
           </Button>
           {patch.isPending && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Сохранение…
+              {t("canvas.aiControl.saving")}
             </span>
           )}
         </DialogFooter>

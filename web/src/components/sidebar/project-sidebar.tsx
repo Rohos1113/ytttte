@@ -40,21 +40,30 @@ import { GenQueueDialog } from "@/components/sidebar/gen-queue-dialog";
 import { SidebarResizeHandle } from "@/components/sidebar/sidebar-resize-handle";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { useSidebarWidth } from "@/hooks/use-sidebar-width";
+import { useTranslation, type Locale } from "@/lib/i18n";
 
 type DragPayload =
   | { kind: "project"; id: number; folderId: string | null }
   | { kind: "folder"; id: string };
 
-function queueIdleShortLabel(idle: GenQueueIdleInfo | null, projectId: number): string | null {
+function queueIdleShortLabel(idle: GenQueueIdleInfo | null, projectId: number, locale: Locale): string | null {
   if (!idle || idle.project_id !== projectId) return null;
-  const byReason: Record<string, string> = {
+  const byReasonRu: Record<string, string> = {
     paused: "пауза",
     user_stop: "стоп",
     failed: "ошибка",
     auto_mode: "нет ИИ",
     waiting: "ждёт",
   };
-  return byReason[idle.reason] ?? idle.detail.slice(0, 12);
+  const byReasonEn: Record<string, string> = {
+    paused: "pause",
+    user_stop: "stop",
+    failed: "error",
+    auto_mode: "no AI",
+    waiting: "waiting",
+  };
+  const dict = locale === "en" ? byReasonEn : byReasonRu;
+  return dict[idle.reason] ?? idle.detail.slice(0, 12);
 }
 
 function queueIdleTooltip(idle: GenQueueIdleInfo | null, projectId: number): string | null {
@@ -84,6 +93,7 @@ export function ProjectSidebar({
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
+  const { t, locale } = useTranslation();
   const [slideAnimating, setSlideAnimating] = useState(false);
   const firstCollapsedRef = useRef(true);
   useEffect(() => {
@@ -164,9 +174,9 @@ export function ProjectSidebar({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["sidebar-layout"] });
-      toast.success("Проект удалён");
+      toast.success(t("projects.deleted"));
     },
-    onError: (e) => toast.error(`Не получилось удалить: ${String(e)}`),
+    onError: (e) => toast.error(t("projects.deleteFailed", { error: String(e) })),
   });
 
   const createChildMutation = useMutation({
@@ -175,7 +185,7 @@ export function ProjectSidebar({
       qc.invalidateQueries({ queryKey: ["projects"] });
       setExpanded((e) => ({ ...e, [`mass:${parentId}`]: true }));
       onSelect(child.id);
-      toast.success(`Дочерний проект создан: ${projectDisplayName(child)}`);
+      toast.success(t("projects.childCreated", { name: projectDisplayName(child) }));
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -199,7 +209,7 @@ export function ProjectSidebar({
       qc.invalidateQueries({ queryKey: ["sidebar-layout"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
-    onError: (e) => toast.error(`Не удалось сохранить порядок: ${String(e)}`),
+    onError: (e) => toast.error(t("projects.saveOrderFailed", { error: String(e) })),
   });
 
   const createFolderMutation = useMutation({
@@ -210,7 +220,7 @@ export function ProjectSidebar({
       setNewFolderName("");
       setActiveFolderId(folder.id);
       setExpanded((e) => ({ ...e, [`folder:${folder.id}`]: true }));
-      toast.success(`Папка «${folder.name}» создана`);
+      toast.success(t("projects.folderCreated", { name: folder.name }));
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -221,9 +231,9 @@ export function ProjectSidebar({
       qc.invalidateQueries({ queryKey: ["sidebar-layout"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       setActiveFolderId((id) => (id === folderId ? null : id));
-      toast.success("Папка удалена");
+      toast.success(t("projects.folderDeleted"));
     },
-    onError: (e) => toast.error(`Не получилось удалить папку: ${String(e)}`),
+    onError: (e) => toast.error(t("projects.folderDeleteFailed", { error: String(e) })),
   });
 
   const queueToggleMutation = useMutation({
@@ -242,7 +252,7 @@ export function ProjectSidebar({
       });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["sidebar-layout"] });
-      toast.success("Проект снят с очереди");
+      toast.success(t("projects.removedFromQueue"));
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -423,8 +433,8 @@ export function ProjectSidebar({
     const isFactory = p.mass_factory || children.length > 0;
     const isOpen = expanded[`mass:${p.id}`] ?? isFactory;
     const parentBadge = opts?.badge
-      ?? (p.mass_factory ? "шаблон" : children.length > 0 ? `${children.length} доч.` : undefined);
-    const queueIdleShort = queueIdleShortLabel(genQueueIdle, p.id);
+      ?? (p.mass_factory ? (locale === "en" ? "template" : "шаблон") : children.length > 0 ? `${children.length} ${locale === "en" ? "sub." : "доч."}` : undefined);
+    const queueIdleShort = queueIdleShortLabel(genQueueIdle, p.id, locale);
     const queueIdleTip = queueIdleTooltip(genQueueIdle, p.id);
     return (
       <div key={p.id} className="flex flex-col">
@@ -498,9 +508,9 @@ export function ProjectSidebar({
                   project={c}
                   selected={c.id === selectedProjectId}
                   compact
-                  badge={p.mass_factory ? `#${c.mass_lane_position ?? "?"}` : `доч. ${c.mass_lane_position ?? "?"}`}
+                  badge={p.mass_factory ? `#${c.mass_lane_position ?? "?"}` : t("projects.childBadge", { pos: c.mass_lane_position ?? "?" })}
                   queuePosition={c.gen_queue_position ?? null}
-                  queueIdleShort={queueIdleShortLabel(genQueueIdle, c.id)}
+                  queueIdleShort={queueIdleShortLabel(genQueueIdle, c.id, locale)}
                   queueIdleDetail={queueIdleTooltip(genQueueIdle, c.id)}
                   onToggleQueue={() => handleQueueClick(c)}
                   onSelect={() => onSelect(c.id)}
@@ -554,12 +564,14 @@ export function ProjectSidebar({
           </div>
           <div className="min-w-0">
             <span className="block text-[13px] font-bold tracking-wider text-zinc-200 uppercase">
-              Проекты
+              {t("projects.title")}
             </span>
             {projects.data && (
               <span className="text-[13px] text-zinc-400 font-medium">
-                {roots.length} {roots.length === 1 ? "проект" : roots.length > 1 && roots.length < 5 ? "проекта" : "проектов"}
-                {isAdmin ? (adminScope === "all" ? " · все" : " · мои") : ""}
+                {locale === "en"
+                  ? `${roots.length} ${roots.length === 1 ? "project" : "projects"}`
+                  : `${roots.length} ${roots.length === 1 ? "проект" : roots.length > 1 && roots.length < 5 ? "проекта" : "проектов"}`}
+                {isAdmin ? (adminScope === "all" ? t("projects.scopeAll") : t("projects.scopeMine")) : ""}
               </span>
             )}
           </div>
@@ -576,8 +588,8 @@ export function ProjectSidebar({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8 rounded-none bg-transparent text-zinc-400 hover:bg-[#1a1a1e] hover:text-white"
-                title="Новый проект"
-                aria-label="Новый проект"
+                title={t("projects.newProject")}
+                aria-label={t("projects.newProject")}
               >
                 <Plus className="h-4 w-4" strokeWidth={1.75} />
               </Button>
@@ -588,7 +600,7 @@ export function ProjectSidebar({
             size="icon"
             variant="ghost"
             className="h-8 w-8 rounded-none bg-transparent text-zinc-400 hover:bg-[#1a1a1e] hover:text-white"
-            title="Новая папка"
+            title={t("projects.newFolder")}
             onClick={() => setNewFolderOpen(true)}
           >
             <FolderPlus className="h-4 w-4" strokeWidth={1.75} />
@@ -598,7 +610,7 @@ export function ProjectSidebar({
             size="icon"
             variant="ghost"
             className="h-8 w-8 rounded-none bg-transparent text-zinc-400 hover:bg-[#1a1a1e] hover:text-white"
-            title="Скрыть панель"
+            title={t("projects.hideSidebar")}
             onClick={onToggleCollapsed}
           >
             <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
@@ -610,7 +622,7 @@ export function ProjectSidebar({
         <div className="flex items-center gap-1.5 border-b border-white/[0.06] bg-zinc-900/60 px-3 py-2.5">
           <Input
             autoFocus
-            placeholder="Название папки…"
+            placeholder={t("projects.folderNamePlaceholder")}
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             className="h-8.5 border-zinc-700 bg-zinc-950/80 text-[13px] font-medium text-zinc-100 placeholder:text-zinc-500"
@@ -639,7 +651,7 @@ export function ProjectSidebar({
             strokeWidth={1.75}
           />
           <Input
-            placeholder="Поиск проектов…"
+            placeholder={t("projects.searchPlaceholder")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="h-9 rounded-none border-0 bg-[#18181c] pl-9.5 text-[13px] font-medium text-zinc-100 placeholder:text-zinc-400 focus-visible:ring-1 focus-visible:ring-zinc-600"
@@ -660,7 +672,7 @@ export function ProjectSidebar({
                   : "text-zinc-400 hover:text-zinc-200 border border-transparent",
               )}
             >
-              Мои проекты
+              {t("projects.myProjects")}
             </button>
             <button
               type="button"
@@ -672,7 +684,7 @@ export function ProjectSidebar({
                   : "text-zinc-400 hover:text-zinc-200 border border-transparent",
               )}
             >
-              Все проекты
+              {t("projects.allProjects")}
             </button>
           </div>
         </div>
@@ -691,7 +703,7 @@ export function ProjectSidebar({
 
           {!projects.isLoading && visibleFolders.length === 0 && visibleRootProjects.length === 0 && (
             <div className="px-3 py-10 text-center text-[13px] font-light text-muted-foreground/60">
-              {filter ? "Ничего не найдено." : "Пока ни одного проекта."}
+              {filter ? t("projects.nothingFound") : t("projects.noProjectsYet")}
             </div>
           )}
 
@@ -764,7 +776,7 @@ export function ProjectSidebar({
                       e.dataTransfer.effectAllowed = "move";
                     }}
                     className="cursor-grab rounded p-0.5 text-muted-foreground/35 opacity-0 transition-opacity hover:text-muted-foreground/70 active:cursor-grabbing group-hover:opacity-100"
-                    title="Перетащить папку"
+                    title={t("projects.dragFolder")}
                   >
                     <GripVertical className="h-3 w-3" strokeWidth={1.5} />
                   </span>
@@ -791,7 +803,7 @@ export function ProjectSidebar({
                       setActiveFolderId(folder.id);
                       setExpanded((e) => ({ ...e, [fKey]: true }));
                     }}
-                    title="Выбрать папку для новых проектов"
+                    title={t("projects.selectFolderForNew")}
                   >
                     <FolderOpen
                       className={cn(
@@ -814,18 +826,18 @@ export function ProjectSidebar({
                       const count = folderProjects.length;
                       const detail =
                         count > 0
-                          ? `\n\n${count} ${count === 1 ? "проект" : "проектов"} переместится в корень списка (папка не удаляет проекты).`
+                          ? t("projects.folderProjectsMoveNote", { count })
                           : "";
                       if (
-                        confirm(`Удалить папку «${folder.name}»?${detail}`)
+                        confirm(t("projects.deleteFolderConfirm", { name: folder.name, detail }))
                       ) {
                         deleteFolderMutation.mutate(folder.id);
                       }
                     }}
                     disabled={deleteFolderMutation.isPending}
                     className="invisible h-6 w-6 shrink-0 rounded-md text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive/90 group-hover:visible"
-                    aria-label="Удалить папку"
-                    title="Удалить папку"
+                    aria-label={t("projects.deleteFolder")}
+                    title={t("projects.deleteFolder")}
                   >
                     <Trash2 className="h-3 w-3" strokeWidth={1.5} />
                   </button>
@@ -837,7 +849,7 @@ export function ProjectSidebar({
                     {folderProjects.map((p) => renderProject(p, { draggable: true }))}
                     {folderProjects.length === 0 && (
                       <div className="px-3 py-3 text-center text-[13px] font-light text-muted-foreground/45">
-                        Перетащите проект сюда
+                        {t("projects.dragProjectHere")}
                       </div>
                     )}
                   </div>
@@ -1022,6 +1034,7 @@ function ProjectRow({
   onCreateChild?: () => void;
   onRename?: (title: string) => void;
 }) {
+  const { t, locale } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(projectDisplayName(project));
   const displayName = projectDisplayName(project);
@@ -1078,7 +1091,7 @@ function ProjectRow({
     if (!v) return "—";
     const d = new Date(v);
     if (Number.isNaN(d.getTime())) return "—";
-    return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }).replace(".", "");
+    return d.toLocaleDateString(locale === "en" ? "en-US" : "ru-RU", { day: "2-digit", month: "short" }).replace(".", "");
   };
   const stepChip = (
     <span
@@ -1086,10 +1099,10 @@ function ProjectRow({
         "inline-flex max-w-full items-center gap-1.5 px-1.5 py-0.5 text-[13px]",
         showCover ? "bg-black/65 text-zinc-200" : "bg-[#1d1d22] text-zinc-300",
       )}
-      title="Текущий шаг"
+      title={t("projects.currentStep")}
     >
       <span className={cn("h-1.5 w-1.5 shrink-0", statusDot(project.status))} />
-      <span className="truncate">{formatProjectStatus(project.status)}</span>
+      <span className="truncate">{formatProjectStatus(project.status, locale)}</span>
     </span>
   );
   const menu = (
@@ -1103,9 +1116,9 @@ function ProjectRow({
               "opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100",
               queuePosition && "opacity-100",
             )}
-            title="Действия с проектом"
+            title={t("projects.actionsWithProject")}
           >
-            {queuePosition ? `Очередь ${queuePosition}${queueIdleShort ? ` · ${queueIdleShort}` : ""}` : "Действия"}
+            {queuePosition ? `${t("projects.queueWithPos", { pos: queuePosition })}${queueIdleShort ? ` · ${queueIdleShort}` : ""}` : t("common.actions")}
             <ChevronDown className="h-3 w-3" />
           </button>
         </DropdownMenuTrigger>
@@ -1118,27 +1131,27 @@ function ProjectRow({
                 setEditing(true);
               }}
             >
-              <Pencil className="mr-2 h-3.5 w-3.5" /> Переименовать
+              <Pencil className="mr-2 h-3.5 w-3.5" /> {t("common.rename")}
             </DropdownMenuItem>
           ) : null}
           {canCreateChild && onCreateChild ? (
             <DropdownMenuItem className="rounded-none px-3 py-2" disabled={creatingChild} onSelect={() => onCreateChild()}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Дочерний проект
+              <Plus className="mr-2 h-3.5 w-3.5" /> {t("projects.childProject")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem className="rounded-none px-3 py-2" onSelect={() => onToggleQueue?.()}>
             <ListOrdered className="mr-2 h-3.5 w-3.5" />
             {queuePosition
-              ? `Снять из очереди (${queuePosition}${queueIdleDetail ? ` — ${queueIdleDetail}` : ""})`
-              : "Добавить в очередь генерации"}
+              ? t("projects.removeFromQueue", { pos: queuePosition, detail: queueIdleDetail ? ` — ${queueIdleDetail}` : "" })
+              : t("projects.addToQueue")}
           </DropdownMenuItem>
           <DropdownMenuItem
             className="rounded-none px-3 py-2 text-red-300 focus:text-red-200"
             onSelect={() => {
-              if (confirm(`Удалить проект «${displayName}»?`)) onDelete();
+              if (confirm(t("projects.deleteConfirm", { name: displayName }))) onDelete();
             }}
           >
-            <Trash2 className="mr-2 h-3.5 w-3.5" /> Удалить
+            <Trash2 className="mr-2 h-3.5 w-3.5" /> {t("common.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

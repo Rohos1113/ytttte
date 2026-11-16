@@ -6,7 +6,8 @@ import { Loader2, ListOrdered } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
-import { getNodeSpec } from "@/lib/node-catalog";
+import { getNodeSpec, resolveDisplayNodeLabel } from "@/lib/node-catalog";
+import { useTranslation } from "@/lib/i18n";
 import type { ProjectSummary, WorkflowNode } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,6 +61,7 @@ export function GenQueueDialog({
   onOpenChange: (open: boolean) => void;
   project: ProjectSummary | null;
 }) {
+  const { t, locale } = useTranslation();
   const qc = useQueryClient();
   const workflows = useQuery({
     queryKey: ["workflows"],
@@ -106,7 +108,7 @@ export function GenQueueDialog({
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["sidebar-layout"] });
       const pos = data.position;
-      toast.success(pos ? `Проект в очереди (#${pos})` : "Проект в очереди");
+      toast.success(pos ? t("projects.queue.enqueuedWithPos", { pos }) : t("projects.queue.enqueued"));
       onOpenChange(false);
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
@@ -115,7 +117,7 @@ export function GenQueueDialog({
   const submitFull = () => {
     if (!project) return;
     if (!project.auto_mode) {
-      toast.error("Включите режим ИИ (auto_mode) для проекта");
+      toast.error(t("projects.queue.needAutoMode"));
       return;
     }
     enqueue.mutate({ mode: "full" });
@@ -124,7 +126,7 @@ export function GenQueueDialog({
   const submitUntil = (node: WorkflowNode) => {
     if (!project) return;
     if (!project.auto_mode) {
-      toast.error("Включите режим ИИ (auto_mode) для проекта");
+      toast.error(t("projects.queue.needAutoMode"));
       return;
     }
     enqueue.mutate({
@@ -140,16 +142,13 @@ export function GenQueueDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListOrdered className="h-4 w-4 text-sky-400" />
-            Очередь генерации
+            {t("projects.queue.title")}
           </DialogTitle>
           <DialogDescription>
             {project ? (
-              <>
-                Проект <span className="font-medium text-foreground">#{project.id}</span> — до
-                какой ноды выполнить работу?
-              </>
+              t("projects.queue.desc", { id: project.id })
             ) : (
-              "Выберите цель прогона"
+              t("projects.queue.selectTarget")
             )}
           </DialogDescription>
         </DialogHeader>
@@ -162,14 +161,14 @@ export function GenQueueDialog({
             disabled={enqueue.isPending || !project}
             onClick={submitFull}
           >
-            <span className="font-medium">Выполнить проект полностью</span>
+            <span className="font-medium">{t("projects.queue.runFull")}</span>
             <span className="mt-0.5 block text-[10px] font-normal text-primary-foreground/80">
-              До публикации или конца пайплайна
+              {t("projects.queue.runFullDesc")}
             </span>
           </Button>
 
           <p className="pt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            Или до ноды (включительно)
+            {t("projects.queue.orUntilNode")}
           </p>
 
           {workflow.isLoading || workflows.isLoading ? (
@@ -179,8 +178,8 @@ export function GenQueueDialog({
           ) : (
             targets.map((node) => {
               const spec = getNodeSpec(node.type);
-              const label =
-                (node.data?.label as string | undefined)?.trim() || spec.label;
+              const rawLabel = (node.data?.label as string | undefined)?.trim() || spec.label;
+              const label = resolveDisplayNodeLabel(node.type, rawLabel, locale);
               return (
                 <Button
                   key={node.id}
@@ -205,7 +204,7 @@ export function GenQueueDialog({
 
         <DialogFooter className="sm:justify-start">
           <p className="text-[10px] text-muted-foreground">
-            Нужен включённый режим ИИ. HITL-точки при auto_mode проходятся автоматически.
+            {t("projects.queue.footerNote")}
           </p>
         </DialogFooter>
       </DialogContent>

@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 export function SidebarResizeHandle({
   width,
@@ -14,6 +15,7 @@ export function SidebarResizeHandle({
   minWidth: number;
   maxWidth: number;
 }) {
+  const { t } = useTranslation();
   const onMouseDown = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -46,7 +48,7 @@ export function SidebarResizeHandle({
       role="separator"
       aria-orientation="vertical"
       aria-valuenow={width}
-      title="Потяните, чтобы изменить ширину панели"
+      title={t("projects.resizeHandle")}
       onMouseDown={onMouseDown}
       className={cn(
         "absolute right-0 top-0 z-30 h-full w-2 translate-x-1/2 cursor-col-resize",
