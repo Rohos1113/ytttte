@@ -2537,11 +2537,6 @@ function SfxPlanView({
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs text-zinc-400 border border-white/10">
                     Кадр {ev.frame_number}
                   </span>
-                  {ev.duck && (
-                    <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 border border-blue-500/20">
-                      Duck (под голосом)
-                    </span>
-                  )}
                 </div>
               </div>
               <div className="flex items-center justify-between sm:justify-end gap-3 min-w-0 flex-1 sm:max-w-[55%]">
@@ -2780,11 +2775,6 @@ function SfxGenView({
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs text-zinc-400 border border-white/10">
                     Кадр {item.frameNumber}
                   </span>
-                  {item.duck && (
-                    <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 border border-blue-500/20">
-                      Duck
-                    </span>
-                  )}
                   <span className="text-[11px] font-mono text-zinc-400">
                     Громкость: {Math.round(item.gain * 100)}%
                   </span>
