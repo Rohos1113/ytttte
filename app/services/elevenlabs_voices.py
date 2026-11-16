@@ -85,6 +85,22 @@ def resolve_elevenlabs_voice_id(project: Project) -> str:
 
         if get_ru_voice_by_id(vid_clean):
             return vid_clean
+        try:
+            from app.web.routers.voice_lab import _load_records
+
+            for rec in _load_records():
+                rid = rec.get("id") if isinstance(rec, dict) else getattr(rec, "id", None)
+                ext_id = (
+                    rec.get("external_voice_id")
+                    if isinstance(rec, dict)
+                    else getattr(rec, "external_voice_id", None)
+                )
+                if rid == vid_clean or ext_id == vid_clean:
+                    if ext_id:
+                        return ext_id
+                    return rid
+        except Exception:
+            pass
         if len(vid_clean) >= 15:
             return vid_clean
     raise ValueError(f"elevenlabs_voice_id {vid!r} некорректен — выбери голос заново")

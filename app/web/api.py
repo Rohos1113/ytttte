@@ -163,6 +163,9 @@ from app.web.routers import (
     voices as voices_router,
 )
 from app.web.routers import (
+    voice_lab as voice_lab_router,
+)
+from app.web.routers import (
     workflows as workflows_router,
 )
 from app.web.settings_default import seed_default_workflow
@@ -630,6 +633,7 @@ def create_app() -> FastAPI:
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
     app.include_router(storage_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
+    app.include_router(voice_lab_router.router, prefix=API_PREFIX)
     app.include_router(profile_router.router, prefix=API_PREFIX)
     app.include_router(ratings_router.router, prefix=API_PREFIX)
     app.include_router(node_reviews_router.router, prefix=API_PREFIX)

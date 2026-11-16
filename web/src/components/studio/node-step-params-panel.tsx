@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause } from "lucide-react";
+import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
@@ -13,7 +13,9 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
-import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
+import { VoiceLibraryModal, getVoiceById, resolveVoiceName } from "@/components/outsee/voice-library-modal";
+import { CloneVoiceDialog } from "@/components/voices/clone-voice-dialog";
+import { voiceLabSampleUrl } from "@/lib/voice-lab-api";
 import {
   charCountFromDuration,
   effectiveDurationSeconds,
@@ -139,6 +141,7 @@ function AudioFields({
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [isPlayingSample, setIsPlayingSample] = useState(false);
   const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -157,6 +160,8 @@ function AudioFields({
 
   const selected = findElevenLabsVoice(voiceDraft);
   const ruVoice = getVoiceById(voiceDraft);
+  const cloneVoiceName = resolveVoiceName(voiceDraft);
+  const isClone = !selected && !ruVoice && Boolean(voiceDraft);
 
   const togglePlaySample = () => {
     if (isPlayingSample) {
@@ -167,7 +172,11 @@ function AudioFields({
       setIsPlayingSample(false);
       return;
     }
-    const sampleUrl = ruVoice?.sample_url || selected?.sample_url || `/api/voices/${voiceDraft}/sample`;
+    const sampleUrl =
+      ruVoice?.sample_url ||
+      selected?.sample_url ||
+      (isClone ? voiceLabSampleUrl(voiceDraft) : null) ||
+      `/api/voices/${voiceDraft}/sample`;
     if (!sampleUrl) return;
     const a = new Audio(sampleUrl);
     sampleAudioRef.current = a;
@@ -189,62 +198,102 @@ function AudioFields({
     toast.success(`Выбран голос: ${voiceName}`);
   };
 
+  const displayName =
+    selected?.name ||
+    ruVoice?.name ||
+    cloneVoiceName ||
+    (voiceDraft ? `Клон голоса (${voiceDraft.slice(0, 8)})` : "Голос");
+  const displayDesc =
+    selected?.description ||
+    ruVoice?.description ||
+    (isClone ? "Пользовательский клон голоса ElevenLabs" : "");
+
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            200 русских премиум-голосов (100 Ж / 100 М) ElevenLabs v4 с естественной интонацией и таймингами ASR.
+            200 русских премиум-голосов ElevenLabs v4 или ваш собственный клон голоса.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setLibraryOpen(true)}
-          className="h-8 gap-1.5 border-cyan-500/30 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
-        >
-          <Mic className="h-3.5 w-3.5" />
-          Библиотека 200 голосов
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCloneOpen(true)}
+            className="h-8 gap-1.5 border-teal-500/30 text-xs text-teal-400 hover:bg-teal-500/10 hover:text-teal-300"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Клонировать голос
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setLibraryOpen(true)}
+            className="h-8 gap-1.5 border-cyan-500/30 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
+          >
+            <Mic className="h-3.5 w-3.5" />
+            Библиотека голосов
+          </Button>
+        </div>
       </div>
 
       {/* Карточка выбранного голоса */}
-      {selected ? (
+      {selected || ruVoice || isClone ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-pink-500/30 bg-pink-500/15 text-pink-400">
+            <div
+              className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border",
+                isClone
+                  ? "border-teal-500/30 bg-teal-500/15 text-teal-300"
+                  : "border-pink-500/30 bg-pink-500/15 text-pink-400",
+              )}
+            >
               <Mic className="h-4 w-4" />
             </div>
             <div className="flex min-w-0 flex-col">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold text-foreground">
-                  {selected.name}
+                  {displayName}
                 </span>
-                <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] text-cyan-300">
-                  {selected.gender === "female" ? "Женский" : selected.gender === "male" ? "Мужской" : "Стандартный"}
-                  {selected.index ? ` #${selected.index}` : ""}
+                <span
+                  className={cn(
+                    "shrink-0 rounded border px-1.5 py-0.5 text-[10px]",
+                    isClone
+                      ? "border-teal-500/30 bg-teal-500/15 text-teal-300"
+                      : "border-cyan-500/30 bg-cyan-500/15 text-cyan-300",
+                  )}
+                >
+                  {isClone
+                    ? "Клон голоса"
+                    : selected?.gender === "female" || ruVoice?.gender === "female"
+                      ? "Женский"
+                      : selected?.gender === "male" || ruVoice?.gender === "male"
+                        ? "Мужской"
+                        : "Стандартный"}
+                  {selected?.index || ruVoice?.index ? ` #${selected?.index || ruVoice?.index}` : ""}
                 </span>
               </div>
               <span className="truncate text-xs text-muted-foreground">
-                {selected.description}
+                {displayDesc}
               </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {ruVoice ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={togglePlaySample}
-                className="h-8 gap-1.5 text-xs text-foreground"
-              >
-                {isPlayingSample ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5 text-cyan-400" />}
-                {isPlayingSample ? "Пауза" : "Образец"}
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={togglePlaySample}
+              className="h-8 gap-1.5 text-xs text-foreground"
+            >
+              {isPlayingSample ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5 text-cyan-400" />}
+              {isPlayingSample ? "Пауза" : "Образец"}
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -252,7 +301,7 @@ function AudioFields({
               onClick={() => setLibraryOpen(true)}
               className="h-8 text-xs text-muted-foreground hover:text-foreground"
             >
-              Выбрать из 200
+              Выбрать другой
             </Button>
           </div>
         </div>
@@ -266,7 +315,7 @@ function AudioFields({
             onClick={() => setLibraryOpen(true)}
             className="h-8 text-xs text-muted-foreground hover:text-foreground"
           >
-            Выбрать из 200
+            Выбрать из библиотеки
           </Button>
         </div>
       )}
@@ -290,6 +339,14 @@ function AudioFields({
         onOpenChange={setLibraryOpen}
         selectedVoiceId={voiceDraft}
         onSelectVoice={handleSelectVoiceFromModal}
+      />
+      <CloneVoiceDialog
+        open={cloneOpen}
+        onOpenChange={setCloneOpen}
+        onCreated={(voice) => {
+          const vid = voice.external_voice_id || voice.id;
+          handleSelectVoiceFromModal(vid, voice.name);
+        }}
       />
     </section>
   );
@@ -821,7 +878,7 @@ export function NodeStepParamsPanel({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-params-panel="true">
       {step === "plan" ? (
         <PlanScriptFields
           header="Сценарий"
