@@ -137,11 +137,14 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Any = None
         await session.flush()
         raise RuntimeError(f"сборка невозможна: {reason}. Статус → {project.status.value}")
 
+    from app.services.db_v2 import frame_is_archived
+
     frames_all = list(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()
     )
+    frames_all = [fr for fr in frames_all if not frame_is_archived(fr)]
     if not frames_all:
         from app.services.ensure_frames_from_disk import bootstrap_project_frames_from_disk
 

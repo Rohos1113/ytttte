@@ -81,6 +81,8 @@ def collect_sfx_inputs(
     for rec in load_sfx_files(project):
         try:
             fn = int(rec.get("frame_number") or 0)
+            if fn >= 1_000_000:
+                continue
             gain = float(rec.get("gain") or 0.5)
             if rec.get("duck"):
                 gain *= 0.35  # фоновые звуки под речью — тише

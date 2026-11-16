@@ -2432,7 +2432,9 @@ function SfxPlanView({
       }
     | undefined;
 
-  const events = rawPlan?.events || [];
+  const events = (rawPlan?.events || []).filter(
+    (ev) => typeof ev.frame_number !== "number" || ev.frame_number < 1_000_000,
+  );
   const totalDuration = rawPlan?.total_duration;
 
   const kindColors: Record<string, { bg: string; text: string; border: string }> = {
@@ -2603,8 +2605,12 @@ function SfxGenView({
       }
     | undefined;
 
-  const plannedEvents = sfxPlan?.events || [];
-  const generatedFiles = sfxFilesRecord?.files || [];
+  const plannedEvents = (sfxPlan?.events || []).filter(
+    (ev) => typeof ev.frame_number !== "number" || ev.frame_number < 1_000_000,
+  );
+  const generatedFiles = (sfxFilesRecord?.files || []).filter(
+    (f) => typeof f.frame_number !== "number" || f.frame_number < 1_000_000,
+  );
   const items = snapshot.items;
   const hasFiles = generatedFiles.length > 0 || items.length > 0;
 
@@ -2710,7 +2716,8 @@ function SfxGenView({
           audioUrl: item.previewUrl || item.downloadUrl || "",
           fileName: item.label || `sfx_${idx}.mp3`,
         };
-      });
+      })
+      .filter((d) => typeof d.frameNumber !== "number" || d.frameNumber < 1_000_000);
 
   const providers = Array.from(new Set(displayItems.map((d) => d.provider)));
   const providerLabel = providers.includes("elevenlabs")

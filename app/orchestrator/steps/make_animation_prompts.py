@@ -174,6 +174,7 @@ async def fill_animation_prompts(
         .scalars()
         .all()
     )
+    frames = [fr for fr in frames if not db_v2.frame_is_archived(fr)]
 
     # VO только из БД — Excel hydrate отключён.
 

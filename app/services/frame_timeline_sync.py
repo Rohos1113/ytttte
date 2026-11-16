@@ -47,7 +47,10 @@ def timeline_frames_and_cells(
     frames: list[Frame],
 ) -> tuple[list[Frame], list[tuple[int, str]]]:
     """Кадры и VO для таймлайна — только из БД (Frame.voiceover_text)."""
+    from app.services.db_v2 import frame_is_archived
+
     del project  # Excel больше не SoT
+    frames = [fr for fr in frames if not frame_is_archived(fr)]
     cells = [(fr.number, (fr.voiceover_text or "").strip()) for fr in frames]
     filtered_cells: list[tuple[int, str]] = []
     allowed: set[int] = set()
