@@ -2400,6 +2400,80 @@ function DefaultResultView({
   );
 }
 
+export const SFX_KIND_META: Record<
+  string,
+  {
+    label: string;
+    desc: string;
+    bg: string;
+    text: string;
+    border: string;
+  }
+> = {
+  foley: {
+    label: "Шумы",
+    desc: "Синхронные шумы и действия: шаги, шорохи, щелчки, взаимодействие с предметами",
+    bg: "bg-emerald-500/15",
+    text: "text-emerald-300",
+    border: "border-emerald-500/30",
+  },
+  ambience: {
+    label: "Атмосфера",
+    desc: "Фоновое окружение локации: ветер, природа, шум помещения, фоновый гул",
+    bg: "bg-indigo-500/15",
+    text: "text-indigo-300",
+    border: "border-indigo-500/30",
+  },
+  whoosh: {
+    label: "Свуш",
+    desc: "Звук быстрого движения, взмах, пролёт камеры или объекта",
+    bg: "bg-cyan-500/15",
+    text: "text-cyan-300",
+    border: "border-cyan-500/30",
+  },
+  hit: {
+    label: "Импакт",
+    desc: "Резкий звуковой акцент, удар, выстрел, падение или взрыв",
+    bg: "bg-rose-500/15",
+    text: "text-rose-300",
+    border: "border-rose-500/30",
+  },
+  stinger: {
+    label: "Акцент",
+    desc: "Драматический музыкальный всплеск, смысловой или сюжетный акцент",
+    bg: "bg-purple-500/15",
+    text: "text-purple-300",
+    border: "border-purple-500/30",
+  },
+  riser: {
+    label: "Нарастание",
+    desc: "Постепенное нагнетание звукового напряжения перед важным событием",
+    bg: "bg-amber-500/15",
+    text: "text-amber-300",
+    border: "border-amber-500/30",
+  },
+  transition: {
+    label: "Переход",
+    desc: "Звуковой эффект перехода между сценами, кадрами или настроением",
+    bg: "bg-sky-500/15",
+    text: "text-sky-300",
+    border: "border-sky-500/30",
+  },
+};
+
+export function getSfxMeta(kind: string) {
+  const k = (kind || "").toLowerCase().trim();
+  return (
+    SFX_KIND_META[k] || {
+      label: "Эффект",
+      desc: "Звуковой эффект саунд-дизайна",
+      bg: "bg-white/5",
+      text: "text-zinc-300",
+      border: "border-white/10",
+    }
+  );
+}
+
 function SfxPlanView({
   projectId,
   snapshot,
@@ -2436,16 +2510,6 @@ function SfxPlanView({
     (ev) => typeof ev.frame_number !== "number" || ev.frame_number < 1_000_000,
   );
   const totalDuration = rawPlan?.total_duration;
-
-  const kindColors: Record<string, { bg: string; text: string; border: string }> = {
-    hit: { bg: "bg-rose-500/15", text: "text-rose-300", border: "border-rose-500/30" },
-    whoosh: { bg: "bg-cyan-500/15", text: "text-cyan-300", border: "border-cyan-500/30" },
-    foley: { bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/30" },
-    stinger: { bg: "bg-purple-500/15", text: "text-purple-300", border: "border-purple-500/30" },
-    riser: { bg: "bg-amber-500/15", text: "text-amber-300", border: "border-amber-500/30" },
-    ambience: { bg: "bg-indigo-500/15", text: "text-indigo-300", border: "border-indigo-500/30" },
-    transition: { bg: "bg-sky-500/15", text: "text-sky-300", border: "border-sky-500/30" },
-  };
 
   const copyJson = () => {
     if (!rawPlan) return;
@@ -2505,14 +2569,24 @@ function SfxPlanView({
         </div>
       </div>
 
+      {/* Подсказка по категориям саунд-дизайна */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 text-[11px] text-zinc-400">
+        <span className="font-semibold text-zinc-300 mr-1">Категории звука:</span>
+        {Object.entries(SFX_KIND_META).map(([key, info]) => (
+          <span
+            key={key}
+            className={cn("rounded px-1.5 py-0.5 border text-[10px] font-medium cursor-help", info.bg, info.text, info.border)}
+            title={info.desc}
+          >
+            {key.toUpperCase()} — {info.label}
+          </span>
+        ))}
+      </div>
+
       {/* Список звуковых событий */}
       <div className="flex flex-col gap-2">
         {events.map((ev, idx) => {
-          const style = kindColors[ev.kind.toLowerCase()] || {
-            bg: "bg-white/5",
-            text: "text-zinc-300",
-            border: "border-white/10",
-          };
+          const meta = getSfxMeta(ev.kind);
           return (
             <div
               key={idx}
@@ -2525,13 +2599,16 @@ function SfxPlanView({
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={cn(
-                      "rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wider border",
-                      style.bg,
-                      style.text,
-                      style.border,
+                      "rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide border cursor-help",
+                      meta.bg,
+                      meta.text,
+                      meta.border,
                     )}
+                    title={`${ev.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                   >
-                    {ev.kind}
+                    <span className="uppercase">{ev.kind}</span>
+                    <span className="mx-1 opacity-50">·</span>
+                    <span className="normal-case font-medium">{meta.label}</span>
                   </span>
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs font-mono text-zinc-300 border border-white/10">
                     {ev.t_start.toFixed(1)} с (+{ev.duration.toFixed(1)} с)
@@ -2614,16 +2691,6 @@ function SfxGenView({
   const items = snapshot.items;
   const hasFiles = generatedFiles.length > 0 || items.length > 0;
 
-  const kindColors: Record<string, { bg: string; text: string; border: string }> = {
-    hit: { bg: "bg-rose-500/15", text: "text-rose-300", border: "border-rose-500/30" },
-    whoosh: { bg: "bg-cyan-500/15", text: "text-cyan-300", border: "border-cyan-500/30" },
-    foley: { bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/30" },
-    stinger: { bg: "bg-purple-500/15", text: "text-purple-300", border: "border-purple-500/30" },
-    riser: { bg: "bg-amber-500/15", text: "text-amber-300", border: "border-amber-500/30" },
-    ambience: { bg: "bg-indigo-500/15", text: "text-indigo-300", border: "border-indigo-500/30" },
-    transition: { bg: "bg-sky-500/15", text: "text-sky-300", border: "border-sky-500/30" },
-  };
-
   if (!hasFiles) {
     return (
       <div className="flex flex-col gap-4">
@@ -2645,11 +2712,7 @@ function SfxGenView({
               Очередь генерации по плану ({plannedEvents.length} событий):
             </div>
             {plannedEvents.map((ev, idx) => {
-              const style = kindColors[ev.kind.toLowerCase()] || {
-                bg: "bg-white/5",
-                text: "text-zinc-300",
-                border: "border-white/10",
-              };
+              const meta = getSfxMeta(ev.kind);
               return (
                 <div
                   key={idx}
@@ -2659,13 +2722,16 @@ function SfxGenView({
                     <span className="font-mono text-zinc-500">#{idx + 1}</span>
                     <span
                       className={cn(
-                        "rounded px-2 py-0.5 text-[11px] font-semibold uppercase border",
-                        style.bg,
-                        style.text,
-                        style.border,
+                        "rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border cursor-help",
+                        meta.bg,
+                        meta.text,
+                        meta.border,
                       )}
+                      title={`${ev.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                     >
-                      {ev.kind}
+                      <span className="uppercase">{ev.kind}</span>
+                      <span className="mx-1 opacity-50">·</span>
+                      <span className="normal-case font-medium">{meta.label}</span>
                     </span>
                     <span className="text-zinc-400 font-mono">
                       {ev.t_start.toFixed(1)} с · Кадр {ev.frame_number}
@@ -2748,14 +2814,24 @@ function SfxGenView({
         </div>
       </div>
 
+      {/* Подсказка по категориям саунд-дизайна */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 text-[11px] text-zinc-400">
+        <span className="font-semibold text-zinc-300 mr-1">Категории звука:</span>
+        {Object.entries(SFX_KIND_META).map(([key, info]) => (
+          <span
+            key={key}
+            className={cn("rounded px-1.5 py-0.5 border text-[10px] font-medium cursor-help", info.bg, info.text, info.border)}
+            title={info.desc}
+          >
+            {key.toUpperCase()} — {info.label}
+          </span>
+        ))}
+      </div>
+
       {/* Список звуков с аудиоплеерами */}
       <div className="flex flex-col gap-2.5">
         {displayItems.map((item) => {
-          const style = kindColors[item.kind.toLowerCase()] || {
-            bg: "bg-white/5",
-            text: "text-zinc-300",
-            border: "border-white/10",
-          };
+          const meta = getSfxMeta(item.kind);
           return (
             <div
               key={item.idx}
@@ -2768,13 +2844,16 @@ function SfxGenView({
                   </span>
                   <span
                     className={cn(
-                      "rounded-lg px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider border",
-                      style.bg,
-                      style.text,
-                      style.border,
+                      "rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide border cursor-help",
+                      meta.bg,
+                      meta.text,
+                      meta.border,
                     )}
+                    title={`${item.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                   >
-                    {item.kind}
+                    <span className="uppercase">{item.kind}</span>
+                    <span className="mx-1 opacity-50">·</span>
+                    <span className="normal-case font-medium">{meta.label}</span>
                   </span>
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs font-mono text-zinc-300 border border-white/10">
                     {item.tStart.toFixed(1)} с (+{item.duration.toFixed(1)} с)
