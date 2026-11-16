@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { useHotkeysInDialog } from "@/hooks/use-hotkeys";
 import { VisualHitlGallery } from "@/components/hitl/visual-hitl-gallery";
 import { useCanvasActionsOptional } from "@/components/canvas/canvas-actions-context";
+import { useTranslation } from "@/lib/i18n";
 
 const HITL_TITLES: Record<HITLKind, string> = {
   approve_plan: "Сценарий",
@@ -52,6 +53,7 @@ const HITL_DESCRIPTIONS: Record<HITLKind, string> = {
 
 export function HitlBanner({ projectId }: { projectId: number }) {
   const actions = useCanvasActionsOptional();
+  const { t } = useTranslation();
 
   const pending = useQuery({
     queryKey: ["hitl", projectId],
@@ -75,18 +77,22 @@ export function HitlBanner({ projectId }: { projectId: number }) {
     );
   };
 
+  const titleKey = `hitl.kinds.${first.kind}`;
+  const translatedTitle = t(titleKey);
+  const title = translatedTitle !== titleKey ? translatedTitle : (HITL_TITLES[first.kind] ?? first.kind);
+
   return (
     <div className="pointer-events-none absolute right-3 top-3 z-[5] max-w-[min(100%,14rem)]">
       <button
         type="button"
         className="pointer-events-auto flex max-w-full items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] font-medium leading-tight text-warning shadow-sm backdrop-blur-sm transition-colors hover:bg-warning/20"
         onClick={() => openModal(first.id)}
-        title="Открыть проверку"
+        title={t("hitl.banner.openReview")}
       >
         <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
         <AlertTriangle className="h-3 w-3 shrink-0" />
         <span className="truncate">
-          Одобрение: {HITL_TITLES[first.kind] ?? first.kind}
+          {t("hitl.banner.approval", { title })}
           {items.length > 1 ? ` (${items.length})` : ""}
         </span>
       </button>
@@ -106,6 +112,7 @@ export function HitlModal({
   onOpenChange: (o: boolean) => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const [editedPrompt, setEditedPrompt] = useState("");
   const [editMode, setEditMode] = useState(false);
 
@@ -127,17 +134,17 @@ export function HitlModal({
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["project-run"] });
       const map: Record<string, string> = {
-        approve: "Одобрено",
-        regenerate: "Отправлено на перегенерацию",
-        reject: "Отклонено",
-        edit_prompt: "Отправлено на правку",
+        approve: t("hitl.decisions.approve"),
+        regenerate: t("hitl.decisions.regenerate"),
+        reject: t("hitl.decisions.reject"),
+        edit_prompt: t("hitl.decisions.edit_prompt"),
       };
-      toast.success(map[vars.decision] ?? "Решение записано");
+      toast.success(map[vars.decision] ?? t("hitl.decisions.recorded"));
       onOpenChange(false);
       setEditMode(false);
       setEditedPrompt("");
     },
-    onError: (e) => toast.error(`Ошибка: ${errorMessageFromUnknown(e)}`),
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
   const decide = (decision: string, edited?: string) => {
@@ -171,6 +178,14 @@ export function HitlModal({
   }
   if (!current) return null;
 
+  const titleKey = `hitl.kinds.${current.kind}`;
+  const translatedTitle = t(titleKey);
+  const modalTitle = translatedTitle !== titleKey ? translatedTitle : (HITL_TITLES[current.kind] ?? current.kind);
+
+  const descKey = `hitl.descriptions.${current.kind}`;
+  const translatedDesc = t(descKey);
+  const modalDesc = translatedDesc !== descKey ? translatedDesc : (HITL_DESCRIPTIONS[current.kind] ?? t("hitl.descriptions.fallbackDesc"));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -185,10 +200,10 @@ export function HitlModal({
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-warning/15 text-warning">
               <KindIcon kind={current.kind} />
             </span>
-            {HITL_TITLES[current.kind] ?? current.kind}
+            {modalTitle}
           </DialogTitle>
           <DialogDescription>
-            {HITL_DESCRIPTIONS[current.kind] ?? "Требуется решение пользователя."}
+            {modalDesc}
           </DialogDescription>
         </DialogHeader>
 
@@ -201,14 +216,14 @@ export function HitlModal({
         {(current.kind === "approve_images" || current.kind === "approve_videos") ? null : editMode ? (
           <div className="flex flex-col gap-2">
             <label className="text-xs font-medium text-muted-foreground">
-              Что поменять?
+              {t("hitl.actions.whatToChange")}
             </label>
             <Textarea
               autoFocus
               value={editedPrompt}
               onChange={(e) => setEditedPrompt(e.target.value)}
               rows={4}
-              placeholder="Например: «Сделай героя моложе, тон более динамичный, добавь упоминание про космос»"
+              placeholder={t("hitl.actions.editPromptPlaceholder")}
               className="font-mono text-xs"
             />
           </div>
@@ -227,7 +242,7 @@ export function HitlModal({
                   className="gap-1.5 h-9 px-3.5 text-xs font-semibold text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/40 shadow-sm rounded-xl transition-all"
                 >
                   <PenLine className="h-3.5 w-3.5 text-cyan-400" />
-                  Изменить промт
+                  {t("hitl.actions.editPrompt")}
                 </Button>
               </div>
               <div className="flex items-center gap-2">
@@ -239,7 +254,7 @@ export function HitlModal({
                   className="gap-1.5 h-9 px-3.5 text-xs font-semibold text-red-300 hover:text-red-200 bg-red-950/30 hover:bg-red-900/50 border border-red-500/30 shadow-sm rounded-xl transition-all"
                 >
                   <XCircle className="h-3.5 w-3.5 text-red-400" />
-                  Отклонить
+                  {t("hitl.actions.reject")}
                 </Button>
                 <Button
                   variant="outline"
@@ -249,7 +264,7 @@ export function HitlModal({
                   className="gap-1.5 h-9 px-3.5 text-xs font-semibold text-amber-200 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/40 shadow-sm rounded-xl transition-all"
                 >
                   <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
-                  Перегенерировать
+                  {t("hitl.actions.regenerate")}
                 </Button>
                 <Button
                   size="sm"
@@ -262,7 +277,7 @@ export function HitlModal({
                   ) : (
                     <CheckCircle2 className="h-3.5 w-3.5" />
                   )}
-                  Одобрить
+                  {t("hitl.actions.approve")}
                 </Button>
               </div>
             </>
@@ -275,7 +290,7 @@ export function HitlModal({
                 disabled={submit.isPending}
                 className="rounded-xl"
               >
-                Отмена
+                {t("hitl.actions.cancel")}
               </Button>
               <Button
                 size="sm"
@@ -284,7 +299,7 @@ export function HitlModal({
                 className="gap-1.5 h-9 px-4 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all"
               >
                 {submit.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Применить правки
+                {t("hitl.actions.applyEdits")}
               </Button>
             </>
           )}
@@ -302,6 +317,7 @@ function HitlPreview({
   hitl: HITLDTO;
   projectId?: number | null;
 }) {
+  const { t, locale } = useTranslation();
   const pId = projectId ?? hitl.project_id;
   const projQuery = useQuery({
     queryKey: ["project", pId],
@@ -331,7 +347,7 @@ function HitlPreview({
       <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/30 p-3.5">
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
           <ImageIcon className="h-3 w-3" />
-          Превью картинки
+          {t("hitl.actions.imagePreview")}
         </div>
         <div className="overflow-hidden rounded-lg">
           <img
@@ -353,7 +369,7 @@ function HitlPreview({
       <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/30 p-3.5">
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
           <Video className="h-3 w-3" />
-          Превью видео
+          {t("hitl.actions.videoPreview")}
         </div>
         <div className="flex max-h-[380px] w-full items-center justify-center overflow-hidden rounded-lg bg-black/60">
           <video
@@ -375,7 +391,9 @@ function HitlPreview({
         <div className="flex items-center justify-between gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
           <span className="flex items-center gap-1.5 text-cyan-300 font-medium">
             <FileText className="h-3.5 w-3.5 text-cyan-400" />
-            Содержимое ({text.length.toLocaleString("ru-RU")} симв.)
+            {t("hitl.actions.textContent", {
+              count: text.length.toLocaleString(locale === "en" ? "en-US" : "ru-RU"),
+            })}
           </span>
         </div>
         <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-100 bg-black/30 p-3 rounded-lg border border-white/5">
@@ -387,7 +405,7 @@ function HitlPreview({
 
   return (
     <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-5 text-center text-xs text-muted-foreground">
-      Превью недоступно — открой папку проекта или дождись артефакта.
+      {t("hitl.actions.noPreview")}
     </div>
   );
 }

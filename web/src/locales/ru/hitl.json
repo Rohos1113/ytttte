@@ -1,0 +1,67 @@
+{
+  "kinds": {
+    "approve_plan": "Сценарий",
+    "approve_script": "Закадровый текст",
+    "approve_hero": "Референс героя",
+    "approve_images": "Картинки кадров",
+    "approve_videos": "Клипы кадров",
+    "approve_final": "Финальный ролик"
+  },
+  "descriptions": {
+    "approve_plan": "Согласуй сценарий ролика, прежде чем мы пойдём писать закадровый текст.",
+    "approve_script": "Закадровый текст, разбитый по кадрам. После approve пойдёт раскадровка.",
+    "approve_hero": "Reference-картинка героя. После approve пойдёт генерация всех сцен.",
+    "approve_images": "Все картинки кадров. Можно одобрить целиком или отклонить.",
+    "approve_videos": "Все клипы кадров. После approve пойдёт сборка с озвучкой.",
+    "approve_final": "Финальный mp4. После approve пайплайн опубликует на 5 площадок.",
+    "fallbackDesc": "Требуется решение пользователя."
+  },
+  "banner": {
+    "approval": "Одобрение: {title}",
+    "openReview": "Открыть проверку"
+  },
+  "decisions": {
+    "approve": "Одобрено",
+    "regenerate": "Отправлено на перегенерацию",
+    "reject": "Отклонено",
+    "edit_prompt": "Отправлено на правку",
+    "recorded": "Решение записано"
+  },
+  "actions": {
+    "editPrompt": "Изменить промт",
+    "reject": "Отклонить",
+    "regenerate": "Перегенерировать",
+    "approve": "Одобрить",
+    "applyEdits": "Применить правки",
+    "cancel": "Отмена",
+    "whatToChange": "Что поменять?",
+    "editPromptPlaceholder": "Например: «Сделай героя моложе, тон более динамичный, добавь упоминание про космос»",
+    "imagePreview": "Превью картинки",
+    "videoPreview": "Превью видео",
+    "textContent": "Содержимое ({count} симв.)",
+    "noPreview": "Превью недоступно — открой папку проекта или дождись артефакта."
+  },
+  "verdict": {
+    "title": "Проверка GPT — {label}",
+    "description": "Шаблон проверки для шага «{stepCode}». Доступно при включённом ИИ-контроле.",
+    "templateNameRequired": "Введите имя шаблона",
+    "promptRequired": "Промт проверки пуст",
+    "templateSaved": "Шаблон «{name}» сохранён",
+    "templateDeleted": "Шаблон «{name}» удалён",
+    "approved": "GPT: одобрено",
+    "approvedStatus": "GPT: одобрено → {status}",
+    "fixesSavedStatus": "GPT: правки сохранены → {status}",
+    "fixesSavedFile": "GPT: правки сохранены ({file})",
+    "fixesSavedComplete": "GPT: правки сохранены, проверка завершена",
+    "notApproved": "GPT: не одобрено",
+    "loading": "Загрузка проверки…",
+    "verdictFormat": "Проверка GPT (формат «Вердикт»)",
+    "templateLabel": "Шаблон проверки",
+    "saveTemplate": "Сохранить «{name}»",
+    "newTemplatePlaceholder": "Имя нового шаблона",
+    "saveAs": "Сохранить как…",
+    "deleteConfirm": "Удалить шаблон «{name}»? Это необратимо.",
+    "deleteTemplate": "Удалить «{name}»",
+    "runCheck": "Запустить проверку"
+  }
+}

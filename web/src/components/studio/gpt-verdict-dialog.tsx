@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getNodeSpec } from "@/lib/node-catalog";
+import { useTranslation } from "@/lib/i18n";
 
 export function GptVerdictDialog({
   open,
@@ -30,7 +31,8 @@ export function GptVerdictDialog({
   projectMeta: Record<string, unknown>;
 }) {
   const qc = useQueryClient();
-  const label = getNodeSpec(nodeType).label;
+  const { t, locale } = useTranslation();
+  const label = getNodeSpec(nodeType, locale).label;
 
   const patch = useMutation({
     mutationFn: (meta: Record<string, unknown>) => api.patchProject(projectId, { meta }),
@@ -44,9 +46,9 @@ export function GptVerdictDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Проверка GPT — {label}</DialogTitle>
+          <DialogTitle>{t("hitl.verdict.title", { label })}</DialogTitle>
           <DialogDescription>
-            Шаблон проверки для шага «{stepCode}». Доступно при включённом ИИ-контроле.
+            {t("hitl.verdict.description", { stepCode })}
           </DialogDescription>
         </DialogHeader>
         <GptVerdictPanel

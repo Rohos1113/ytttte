@@ -23,11 +23,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { NodeGroupDetail, NodeGroupSummary } from "@/lib/types";
 import {
   getNodeSpec,
   NODE_CATALOG,
-  NODE_CATEGORY_LABELS,
+  getNodeCategoryLabel,
   NODE_CATEGORY_ORDER,
   type NodeCategory,
 } from "@/lib/node-catalog";
@@ -65,6 +66,7 @@ export function NodePalette({
   onPersistCanvas?: () => Promise<void> | void;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<LibrarySource>("builtin");
   const [search, setSearch] = useState("");
@@ -110,14 +112,19 @@ export function NodePalette({
 
   const insertGroup = async (groupId: string) => {
     if (!projectId) {
-      toast.error("Сначала выбери проект");
+      toast.error(t("canvas.palette.selectProjectFirst"));
       return;
     }
     try {
       const res = await api.insertNodeGroup(projectId, groupId);
       await qc.invalidateQueries({ queryKey: ["project", projectId] });
       await qc.invalidateQueries({ queryKey: ["project-run", projectId] });
-      toast.success(`Группа вставлена: ${res.nodes.length} нод после «${res.after}»`);
+      toast.success(
+        t("canvas.palette.groupInserted", {
+          count: res.nodes.length,
+          after: res.after,
+        }),
+      );
       setOpen(false);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
@@ -144,22 +151,22 @@ export function NodePalette({
         <button
           type="button"
           className="inline-flex h-8 w-[34px] items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-all duration-150 hover:border-white/8 hover:bg-white/5 hover:text-foreground [&_svg]:size-4"
-          title="Добавить"
-          aria-label="Добавить"
+          title={t("canvas.palette.add")}
+          aria-label={t("canvas.palette.add")}
         >
           <Plus className="h-4 w-4" />
         </button>
       </DialogTrigger>
       <DialogContent className="flex h-[640px] max-h-[88vh] w-[960px] max-w-[94vw] flex-col gap-0 overflow-hidden rounded-[14px] border-white/[0.08] bg-[rgba(24,24,28,0.96)] p-0 text-white" style={{ fontFamily: RUBIK }}>
         <div className="flex shrink-0 items-center gap-4 border-b border-white/10 px-4 py-3 pr-12">
-          <DialogTitle className="text-[15px] font-medium">Библиотека</DialogTitle>
+          <DialogTitle className="text-[15px] font-medium">{t("canvas.palette.title")}</DialogTitle>
           <LibrarySwitch value={tab} onChange={setTab} />
           <div className="relative ml-auto w-[240px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/45" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск по названию и описанию…"
+              placeholder={t("canvas.palette.searchPlaceholder")}
               className="h-9 rounded-none border-white/10 bg-black/30 pl-8 text-[13px]"
             />
           </div>
@@ -224,6 +231,7 @@ function GroupsTab({
   onInsert: (groupId: string) => Promise<void>;
   onChanged: () => void;
 }) {
+  const { t, locale } = useTranslation();
   const [creating, setCreating] = useState(false);
 
   const customGroups = groups.filter((g) => !g.builtin);
@@ -255,12 +263,12 @@ function GroupsTab({
                 : "border-teal-400/30 bg-teal-500/10 text-teal-300",
             )}
           >
-            {g.builtin ? "встроенная" : "своя"}
+            {g.builtin ? t("canvas.palette.builtin") : t("canvas.palette.custom")}
           </span>
         </div>
         <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {NODE_CATEGORY_LABELS[g.category as NodeCategory] ?? g.category} ·{" "}
-          {g.node_count} нод
+          {getNodeCategoryLabel(g.category as NodeCategory, locale)} ·{" "}
+          {t("canvas.palette.nodesCount", { count: g.node_count })}
         </div>
       </button>
     );
@@ -293,11 +301,10 @@ function GroupsTab({
               <PackagePlus className="h-4 w-4 shrink-0" />
               <span>
                 <span className="block font-medium">
-                  Сохранить выделение как группу
+                  {t("canvas.palette.saveSelectionAsGroup")}
                 </span>
                 <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                  Выдели ноды рамкой (правая кнопка мыши) — в группу уйдут типы,
-                  промты, конфиги, позиции и связи.
+                  {t("canvas.palette.selectionHint")}
                 </span>
               </span>
             </button>
@@ -310,14 +317,14 @@ function GroupsTab({
           )}
           {!loading && groups.length === 0 && (
             <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-              Групп нет — сохрани первую из выделения.
+              {t("canvas.palette.noGroups")}
             </div>
           )}
 
           {customGroups.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-teal-300/80">
-                Мои группы · {customGroups.length}
+                {t("canvas.palette.myGroups", { count: customGroups.length })}
               </div>
               {customGroups.map(renderGroupCard)}
             </div>
@@ -326,7 +333,7 @@ function GroupsTab({
           {builtinGroups.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Встроенные шаблоны · {builtinGroups.length}
+                {t("canvas.palette.builtinTemplates", { count: builtinGroups.length })}
               </div>
               {builtinGroups.map(renderGroupCard)}
             </div>
@@ -367,6 +374,7 @@ function GroupDetailPane({
   onChanged: () => void;
   onDeleted: () => void;
 }) {
+  const { t, locale } = useTranslation();
   const detail = useQuery({
     queryKey: ["node-group", groupId],
     queryFn: () => api.getNodeGroup(groupId),
@@ -387,7 +395,7 @@ function GroupDetailPane({
   if (!g) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-destructive">
-        Не удалось загрузить группу.
+        {t("canvas.palette.failedToLoadGroup")}
       </div>
     );
   }
@@ -397,7 +405,7 @@ function GroupDetailPane({
     setBusy(true);
     try {
       await api.deleteNodeGroup(g.id);
-      toast.success(`Группа «${g.title}» удалена`);
+      toast.success(t("canvas.palette.groupDeleted", { title: g.title }));
       onChanged();
       onDeleted();
     } catch (e) {
@@ -427,15 +435,21 @@ function GroupDetailPane({
                     : "border-teal-400/30 bg-teal-500/10 text-teal-300",
                 )}
               >
-                {g.builtin ? "встроенная" : "своя"}
+                {g.builtin ? t("canvas.palette.builtin") : t("canvas.palette.custom")}
               </span>
             </div>
             <div className="mt-1 text-[10px] text-muted-foreground">
-              {NODE_CATEGORY_LABELS[g.category as NodeCategory] ?? g.category} ·{" "}
-              {g.nodes.length} нод · вставляется после «
-              {g.default_after_type || "хвоста цепочки"}»
+              {getNodeCategoryLabel(g.category as NodeCategory, locale)} ·{" "}
+              {t("canvas.palette.insertsAfter", {
+                count: g.nodes.length,
+                after: g.default_after_type || t("canvas.palette.tailOfChain"),
+              })}
               {g.updated_at
-                ? ` · обновлена ${new Date(g.updated_at).toLocaleString("ru-RU")}`
+                ? t("canvas.palette.updatedAt", {
+                    date: new Date(g.updated_at).toLocaleString(
+                      locale === "en" ? "en-US" : "ru-RU",
+                    ),
+                  })
                 : ""}
             </div>
           </div>
@@ -448,7 +462,7 @@ function GroupDetailPane({
                 onClick={() => setEditing(true)}
               >
                 <Pencil className="h-3 w-3" />
-                Изменить
+                {t("canvas.palette.editGroup")}
               </Button>
               <Button
                 size="sm"
@@ -482,21 +496,20 @@ function GroupDetailPane({
 
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Дизайн группы
+                {t("canvas.palette.groupDesign")}
               </div>
               <GroupPreview detail={g} />
               <div className="mt-1 text-[9px] text-muted-foreground">
-                <span className="text-teal-400">вход</span> — ноды, принимающие
-                связь от канваса · <span className="text-sky-400">выход</span> —
-                нода, от которой уходит дальше ·{" "}
-                <span className="text-teal-400">Ок</span>/
-                <span className="text-red-400">Не ок</span> — ветки проверок
+                <span className="text-teal-400">{t("canvas.palette.groupLegendIn")}</span> — {t("canvas.palette.groupLegendInDesc")} ·{" "}
+                <span className="text-sky-400">{t("canvas.palette.groupLegendOut")}</span> — {t("canvas.palette.groupLegendOutDesc")} ·{" "}
+                <span className="text-teal-400">{t("canvas.palette.groupLegendOk")}</span>/
+                <span className="text-red-400">{t("canvas.palette.groupLegendNotOk")}</span> — {t("canvas.palette.groupLegendBranches")}
               </div>
             </div>
 
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Состав ({g.nodes.length})
+                {t("canvas.palette.composition", { count: g.nodes.length })}
               </div>
               <div className="flex flex-wrap gap-1">
                 {g.nodes.map((n) => (
@@ -519,8 +532,7 @@ function GroupDetailPane({
             {confirmDelete ? (
               <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3">
                 <div className="text-xs text-destructive">
-                  Удалить группу «{g.title}»? Ноды, уже стоящие на канвасах
-                  проектов, останутся на месте.
+                  {t("canvas.palette.deleteGroupConfirm", { title: g.title })}
                 </div>
                 <div className="mt-2 flex gap-1.5">
                   <Button
@@ -535,7 +547,7 @@ function GroupDetailPane({
                     ) : (
                       <Trash2 className="h-3 w-3" />
                     )}
-                    Удалить группу
+                    {t("canvas.palette.deleteGroupBtn")}
                   </Button>
                   <Button
                     size="sm"
@@ -544,7 +556,7 @@ function GroupDetailPane({
                     disabled={busy}
                     onClick={() => setConfirmDelete(false)}
                   >
-                    Отмена
+                    {t("canvas.palette.cancel")}
                   </Button>
                 </div>
               </div>
@@ -564,7 +576,7 @@ function GroupDetailPane({
                   ) : (
                     <Boxes className="h-3.5 w-3.5" />
                   )}
-                  Вставить группу на канвас
+                  {t("canvas.palette.insertGroupCanvas")}
                 </Button>
               )
             )}
@@ -588,13 +600,14 @@ function EditGroupForm({
   setBusy: (v: boolean) => void;
   onDone: (saved: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(group.title);
   const [description, setDescription] = useState(group.description);
   const [category, setCategory] = useState(group.category);
 
   const save = async () => {
     if (!title.trim()) {
-      toast.error("Название не может быть пустым");
+      toast.error(t("canvas.palette.titleRequired"));
       return;
     }
     setBusy(true);
@@ -604,7 +617,7 @@ function EditGroupForm({
         description: description.trim(),
         category,
       });
-      toast.success("Группа обновлена");
+      toast.success(t("canvas.palette.groupUpdated"));
       onDone(true);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
@@ -616,19 +629,19 @@ function EditGroupForm({
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-teal-400/30 bg-teal-400/5 p-3">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-teal-300">
-        Редактирование группы
+        {t("canvas.palette.editGroupTitle")}
       </div>
       <Input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Название группы"
+        placeholder={t("canvas.palette.groupTitlePlaceholder")}
         className="h-8 text-xs"
         autoFocus
       />
       <Textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Описание — что делает связка"
+        placeholder={t("canvas.palette.groupDescPlaceholder")}
         className="min-h-[64px] text-xs"
       />
       <CategoryPicker value={category} onChange={setCategory} />
@@ -644,7 +657,7 @@ function EditGroupForm({
           ) : (
             <Check className="h-3 w-3" />
           )}
-          Сохранить
+          {t("canvas.palette.save")}
         </Button>
         <Button
           size="sm"
@@ -653,7 +666,7 @@ function EditGroupForm({
           disabled={busy}
           onClick={() => onDone(false)}
         >
-          Отмена
+          {t("canvas.palette.cancel")}
         </Button>
       </div>
     </div>
@@ -672,6 +685,7 @@ function CreateGroupForm({
   onDone: (created: boolean, createdGroup?: NodeGroupSummary) => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("planning");
@@ -679,16 +693,16 @@ function CreateGroupForm({
 
   const submit = async () => {
     if (!projectId) {
-      toast.error("Сначала выбери проект");
+      toast.error(t("canvas.palette.selectProjectFirst"));
       return;
     }
     const nodeIds = getSelectedNodeIds();
     if (nodeIds.length === 0) {
-      toast.error("Ничего не выделено — выдели ноды рамкой (правая кнопка мыши)");
+      toast.error(t("canvas.palette.nothingSelected"));
       return;
     }
     if (!title.trim()) {
-      toast.error("Введи название группы");
+      toast.error(t("canvas.palette.enterGroupName"));
       return;
     }
     setBusy(true);
@@ -706,7 +720,12 @@ function CreateGroupForm({
         g,
         ...(prev ?? []).filter((x) => x.id !== g.id),
       ]);
-      toast.success(`Группа «${g.title}» сохранена (${g.node_count} нод)`);
+      toast.success(
+        t("canvas.palette.groupSaved", {
+          title: g.title,
+          count: g.node_count,
+        }),
+      );
       onDone(true, g);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
@@ -718,19 +737,19 @@ function CreateGroupForm({
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-teal-400/30 bg-teal-400/5 p-2.5">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-teal-300">
-        Новая группа из выделения
+        {t("canvas.palette.newGroupFromSelection")}
       </div>
       <Input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Название (например «Моя связка GPT»)"
+        placeholder={t("canvas.palette.newGroupPlaceholder")}
         className="h-7 text-xs"
         autoFocus
       />
       <Textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Описание — что делает связка (необязательно)"
+        placeholder={t("canvas.palette.newGroupDescPlaceholder")}
         className="min-h-[48px] text-xs"
       />
       <CategoryPicker value={category} onChange={setCategory} />
@@ -746,7 +765,7 @@ function CreateGroupForm({
           ) : (
             <Check className="h-3 w-3" />
           )}
-          Создать группу
+          {t("canvas.palette.createGroupBtn")}
         </Button>
         <Button
           size="sm"
@@ -755,7 +774,7 @@ function CreateGroupForm({
           disabled={busy}
           onClick={() => onDone(false)}
         >
-          Отмена
+          {t("canvas.palette.cancel")}
         </Button>
       </div>
     </div>
@@ -773,9 +792,12 @@ function CategoryPicker({
   value: string;
   onChange: (cat: string) => void;
 }) {
+  const { t, locale } = useTranslation();
   const [open, setOpen] = useState(false);
   const label =
-    NODE_CATEGORY_LABELS[value as NodeCategory] ?? value ?? "Категория";
+    getNodeCategoryLabel(value as NodeCategory, locale) ||
+    value ||
+    t("canvas.palette.categoryLabel");
   return (
     <div className="rounded-md border border-white/10 bg-black/30">
       <button
@@ -783,7 +805,7 @@ function CategoryPicker({
         className="flex h-7 w-full items-center justify-between px-2 text-xs"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="text-muted-foreground">Категория:</span>
+        <span className="text-muted-foreground">{t("canvas.palette.categoryLabel")}</span>
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground">{open ? "▴" : "▾"}</span>
       </button>
@@ -804,7 +826,7 @@ function CategoryPicker({
                 setOpen(false);
               }}
             >
-              {NODE_CATEGORY_LABELS[c]}
+              {getNodeCategoryLabel(c as NodeCategory, locale)}
             </button>
           ))}
         </div>

@@ -1,0 +1,67 @@
+{
+  "kinds": {
+    "approve_plan": "Script Plan",
+    "approve_script": "Voiceover Script",
+    "approve_hero": "Hero Reference",
+    "approve_images": "Frame Images",
+    "approve_videos": "Frame Video Clips",
+    "approve_final": "Final Video"
+  },
+  "descriptions": {
+    "approve_plan": "Review the video plan before proceeding to scriptwriting.",
+    "approve_script": "Voiceover script broken down by frame. Storyboard follows approval.",
+    "approve_hero": "Character reference image. Scene generation follows approval.",
+    "approve_images": "All frame images. Approve completely or reject.",
+    "approve_videos": "All frame clips. Assembly and voiceover follow approval.",
+    "approve_final": "Final mp4 video. Pipeline publishes to 5 platforms upon approval.",
+    "fallbackDesc": "User decision required."
+  },
+  "banner": {
+    "approval": "Approval: {title}",
+    "openReview": "Open review"
+  },
+  "decisions": {
+    "approve": "Approved",
+    "regenerate": "Sent for regeneration",
+    "reject": "Rejected",
+    "edit_prompt": "Sent for edits",
+    "recorded": "Decision recorded"
+  },
+  "actions": {
+    "editPrompt": "Edit prompt",
+    "reject": "Reject",
+    "regenerate": "Regenerate",
+    "approve": "Approve",
+    "applyEdits": "Apply edits",
+    "cancel": "Cancel",
+    "whatToChange": "What to change?",
+    "editPromptPlaceholder": "E.g.: 'Make the hero younger, tone more dynamic, add a mention of space'",
+    "imagePreview": "Image preview",
+    "videoPreview": "Video preview",
+    "textContent": "Content ({count} chars)",
+    "noPreview": "Preview unavailable — open project folder or wait for artifact."
+  },
+  "verdict": {
+    "title": "GPT Check — {label}",
+    "description": "Verification template for step '{stepCode}'. Available with AI control enabled.",
+    "templateNameRequired": "Enter template name",
+    "promptRequired": "Verification prompt is empty",
+    "templateSaved": "Template \"{name}\" saved",
+    "templateDeleted": "Template \"{name}\" deleted",
+    "approved": "GPT: approved",
+    "approvedStatus": "GPT: approved → {status}",
+    "fixesSavedStatus": "GPT: edits saved → {status}",
+    "fixesSavedFile": "GPT: edits saved ({file})",
+    "fixesSavedComplete": "GPT: edits saved, verification completed",
+    "notApproved": "GPT: not approved",
+    "loading": "Loading verification…",
+    "verdictFormat": "GPT Verification (\"Verdict\" format)",
+    "templateLabel": "Verification template",
+    "saveTemplate": "Save \"{name}\"",
+    "newTemplatePlaceholder": "New template name",
+    "saveAs": "Save as…",
+    "deleteConfirm": "Delete template \"{name}\"? This is irreversible.",
+    "deleteTemplate": "Delete \"{name}\"",
+    "runCheck": "Run verification"
+  }
+}

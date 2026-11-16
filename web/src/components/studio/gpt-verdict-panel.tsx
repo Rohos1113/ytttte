@@ -27,34 +27,22 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { Badge } from "@/components/ui/badge";
-
 import { Input } from "@/components/ui/input";
-
-
+import { useTranslation } from "@/lib/i18n";
 
 export function GptVerdictPanel({
-
   projectId,
-
   stepCode,
-
   projectMeta,
-
   onPersistMeta,
-
 }: {
-
   projectId: number;
-
   stepCode: string;
-
   projectMeta: Record<string, unknown>;
-
   onPersistMeta: (meta: Record<string, unknown>) => void;
-
 }) {
-
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   const [draft, setDraft] = useState("");
 
@@ -135,111 +123,58 @@ export function GptVerdictPanel({
     mutationFn: (name: string) => {
 
       const trimmed = name.trim();
-
-      if (!trimmed) return Promise.reject(new Error("Введите имя шаблона"));
-
-      if (!draft.trim()) return Promise.reject(new Error("Промт проверки пуст"));
-
+      if (!trimmed) return Promise.reject(new Error(t("hitl.verdict.templateNameRequired")));
+      if (!draft.trim()) return Promise.reject(new Error(t("hitl.verdict.promptRequired")));
       return api.saveGptVerdictTemplate(projectId, stepCode, {
-
         name: trimmed,
-
         content: draft,
-
       });
-
     },
-
     onSuccess: (_r, name) => {
-
-      toast.success(`Шаблон «${name}» сохранён`);
-
+      toast.success(t("hitl.verdict.templateSaved", { name }));
       setSaveName("");
-
       setActiveTemplate(name);
-
       setDirty(false);
-
       persistTemplateChoice(name);
-
       qc.invalidateQueries({ queryKey: ["gpt-verdict", projectId, stepCode] });
-
       qc.invalidateQueries({ queryKey: ["gpt-verdict-templates", stepCode] });
-
     },
-
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
-
   });
-
-
 
   const deleteTemplate = useMutation({
-
     mutationFn: (name: string) => api.deleteGptVerdictTemplate(projectId, stepCode, name),
-
     onSuccess: (_r, name) => {
-
-      toast.success(`Шаблон «${name}» удалён`);
-
+      toast.success(t("hitl.verdict.templateDeleted", { name }));
       const next = "default";
-
       setActiveTemplate(next);
-
       setDirty(false);
-
       persistTemplateChoice(next);
-
       qc.invalidateQueries({ queryKey: ["gpt-verdict", projectId, stepCode] });
-
       qc.invalidateQueries({ queryKey: ["gpt-verdict-templates", stepCode] });
-
     },
-
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
-
   });
 
-
-
   const saveCurrentTemplate = () => saveTemplate.mutate(activeTemplate);
-
   const saveAsNewTemplate = () => saveTemplate.mutate(saveName.trim());
 
-
-
   const run = useMutation({
-
     mutationFn: () => api.runGptVerdict(projectId, stepCode, draft),
-
     onSuccess: (r) => {
-
       setLastRaw(r.last_raw);
-
       if (r.approved) {
-
-        toast.success(r.advanced ? `GPT: одобрено → ${r.status}` : "GPT: одобрено");
-
+        toast.success(r.advanced ? t("hitl.verdict.approvedStatus", { status: r.status }) : t("hitl.verdict.approved"));
       } else if (r.fix_applied) {
-
         toast.success(
-
           r.advanced
-
-            ? `GPT: правки сохранены → ${r.status}`
-
+            ? t("hitl.verdict.fixesSavedStatus", { status: r.status })
             : r.fix_path
-
-              ? `GPT: правки сохранены (${r.fix_path.split(/[/\\]/).pop()})`
-
-              : "GPT: правки сохранены, проверка завершена",
-
+              ? t("hitl.verdict.fixesSavedFile", { file: r.fix_path.split(/[/\\]/).pop() || "" })
+              : t("hitl.verdict.fixesSavedComplete"),
         );
-
       } else {
-
-        toast.error(r.fix_text || "GPT: не одобрено");
-
+        toast.error(r.fix_text || t("hitl.verdict.notApproved"));
       }
 
       if (r.advanced) {
@@ -266,7 +201,7 @@ export function GptVerdictPanel({
 
         <Loader2 className="h-4 w-4 animate-spin" />
 
-        Загрузка проверки…
+        {t("hitl.verdict.loading")}
 
       </div>
 
@@ -308,7 +243,7 @@ export function GptVerdictPanel({
 
       <div className="flex flex-wrap items-center gap-2">
 
-        <span className="text-sm font-medium">Проверка GPT (формат «Вердикт»)</span>
+        <span className="text-sm font-medium">{t("hitl.verdict.verdictFormat")}</span>
 
         <Badge variant="muted">{activeTemplate}</Badge>
 
@@ -325,9 +260,7 @@ export function GptVerdictPanel({
       <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
 
         <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-
-          Шаблон проверки
-
+          {t("hitl.verdict.templateLabel")}
         </label>
 
         <select
@@ -388,7 +321,7 @@ export function GptVerdictPanel({
 
             )}
 
-            Сохранить «{activeTemplate}»
+            {t("hitl.verdict.saveTemplate", { name: activeTemplate })}
 
           </Button>
 
@@ -398,7 +331,7 @@ export function GptVerdictPanel({
 
             onChange={(e) => setSaveName(e.target.value)}
 
-            placeholder="Имя нового шаблона"
+            placeholder={t("hitl.verdict.newTemplatePlaceholder")}
 
             className="h-9 max-w-xs text-sm"
 
@@ -430,7 +363,7 @@ export function GptVerdictPanel({
 
             )}
 
-            Сохранить как…
+            {t("hitl.verdict.saveAs")}
 
           </Button>
 
@@ -450,7 +383,7 @@ export function GptVerdictPanel({
 
               if (
 
-                !window.confirm(`Удалить шаблон «${activeTemplate}»? Это необратимо.`)
+                !window.confirm(t("hitl.verdict.deleteConfirm", { name: activeTemplate }))
 
               ) {
 
@@ -474,7 +407,7 @@ export function GptVerdictPanel({
 
             )}
 
-            Удалить «{activeTemplate}»
+            {t("hitl.verdict.deleteTemplate", { name: activeTemplate })}
 
           </Button>
 
@@ -524,7 +457,7 @@ export function GptVerdictPanel({
 
         )}
 
-        Запустить проверку
+        {t("hitl.verdict.runCheck")}
 
       </Button>
 

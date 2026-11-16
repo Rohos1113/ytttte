@@ -16,10 +16,11 @@ import { Plus } from "lucide-react";
 import type { NodeGroupSummary } from "@/lib/types";
 import {
   getNodeSpec,
-  NODE_CATEGORY_LABELS,
+  getNodeCategoryLabel,
   NODE_CATEGORY_ORDER,
   type NodeCategory,
 } from "@/lib/node-catalog";
+import { useTranslation } from "@/lib/i18n";
 import { defaultPromptSlots, nodeTypeRequiresExcel } from "@/lib/node-prompts";
 import { stepCodeForNodeType, stepHasPromptVariants } from "@/lib/node-step-map";
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
@@ -29,12 +30,7 @@ export const RUBIK = "Rubik, sans-serif";
 
 export type LibrarySource = "builtin" | "custom" | "mine" | "groups";
 
-export const LIBRARY_SOURCES: [LibrarySource, string][] = [
-  ["builtin", "Встроенные"],
-  ["custom", "Пользовательские"],
-  ["mine", "Мои"],
-  ["groups", "Группы"],
-];
+export const LIBRARY_SOURCES: LibrarySource[] = ["builtin", "custom", "mine", "groups"];
 
 /** Переключатель верхнего уровня — как вкладки меню ноды. */
 export function LibrarySwitch({
@@ -44,9 +40,17 @@ export function LibrarySwitch({
   value: LibrarySource;
   onChange: (v: LibrarySource) => void;
 }) {
+  const { t } = useTranslation();
+  const labels: Record<LibrarySource, string> = {
+    builtin: t("canvas.palette.tabBuiltin"),
+    custom: t("canvas.palette.tabCustom"),
+    mine: t("canvas.palette.tabMine"),
+    groups: t("canvas.palette.tabGroups"),
+  };
+
   return (
     <div className="grid grid-cols-4 border border-white/10" style={{ fontFamily: RUBIK }}>
-      {LIBRARY_SOURCES.map(([id, label]) => (
+      {LIBRARY_SOURCES.map((id) => (
         <button
           key={id}
           type="button"
@@ -56,7 +60,7 @@ export function LibrarySwitch({
             value === id ? "bg-[#2bb8a0]/15 text-[#bff3e8]" : "text-white/60 hover:bg-white/[0.05] hover:text-white",
           )}
         >
-          {label}
+          {labels[id]}
         </button>
       ))}
     </div>
@@ -82,6 +86,7 @@ export function LibraryBrowser({
   onAddNode: (t: string) => void;
   onOpenGroup: (id: string) => void;
 }) {
+  const { t, locale } = useTranslation();
   const list = addable.filter(matchNode);
   const [selected, setSelected] = useState<string | null>(null);
   const openType = selected && list.includes(selected) ? selected : (list[0] ?? null);
@@ -95,17 +100,17 @@ export function LibraryBrowser({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.join("|")]);
 
-  if (source === "custom") return <EmptyPane text="Пользовательских нод пока нет." />;
+  if (source === "custom") return <EmptyPane text={t("canvas.palette.emptyCustom")} />;
   if (source === "mine") {
     const mine = myGroups.filter(matchGroup);
-    if (!mine.length) return <EmptyPane text="Своих пока нет — сохрани выделение на канвасе во вкладке «Группы»." />;
+    if (!mine.length) return <EmptyPane text={t("canvas.palette.emptyMine")} />;
     return (
       <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ fontFamily: RUBIK }}>
         <div className="flex w-[300px] flex-col gap-1.5">
           {mine.map((g) => (
             <button key={g.id} type="button" onClick={() => onOpenGroup(g.id)} className="rounded-xl border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left transition-colors hover:border-teal-400/40">
               <div className="truncate text-xs font-semibold">{g.title}</div>
-              <div className="mt-0.5 text-[10px] text-muted-foreground">{g.description || `${g.node_count} нод`}</div>
+              <div className="mt-0.5 text-[10px] text-muted-foreground">{g.description || t("canvas.palette.nodesCount", { count: g.node_count })}</div>
             </button>
           ))}
         </div>
@@ -118,11 +123,11 @@ export function LibraryBrowser({
       <div className="flex w-[300px] shrink-0 flex-col border-r border-white/10">
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-1.5 p-2">
-            {!list.length && <div className="px-2 py-6 text-center text-xs text-muted-foreground">{query ? "Ничего не найдено." : "Нод нет."}</div>}
+            {!list.length && <div className="px-2 py-6 text-center text-xs text-muted-foreground">{query ? t("canvas.palette.nothingFound") : t("canvas.palette.noNodes")}</div>}
             {byCategory.map(([cat, types]) => (
               <div key={cat} className="flex flex-col gap-1.5">
                 <div className="px-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {NODE_CATEGORY_LABELS[cat]} · {types.length}
+                  {getNodeCategoryLabel(cat, locale)} · {types.length}
                 </div>
                 {types.map((t) => (
                   <NodeCard key={t} type={t} active={t === openType} onClick={() => setSelected(t)} onDoubleClick={() => onAddNode(t)} />
@@ -136,7 +141,7 @@ export function LibraryBrowser({
         {openType ? (
           <NodeDetailPane key={openType} type={openType} onAdd={() => onAddNode(openType)} />
         ) : (
-          <div className="flex h-full items-center justify-center text-center text-[11px] text-muted-foreground">Кликни по ноде слева, чтобы посмотреть её данные</div>
+          <div className="flex h-full items-center justify-center text-center text-[11px] text-muted-foreground">{t("canvas.palette.clickNodeHint")}</div>
         )}
       </div>
     </div>
@@ -158,13 +163,14 @@ function EmptyPane({ text }: { text: string }) {
 }
 
 function NodeCard({ type, active, onClick, onDoubleClick }: { type: string; active: boolean; onClick: () => void; onDoubleClick: () => void }) {
-  const s = getNodeSpec(type);
+  const { t, locale } = useTranslation();
+  const s = getNodeSpec(type, locale);
   return (
     <div
       role="button"
       tabIndex={0}
       data-node-card={type}
-      title="Клик — данные ноды; двойной клик — сразу на канвас"
+      title={t("canvas.palette.nodeClickTip")}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onKeyDown={(e) => e.key === "Enter" && onClick()}
@@ -189,7 +195,8 @@ type Review = { author: string; rating: number; text: string; ts?: number; place
 
 function NodeDetailPane({ type, onAdd }: { type: string; onAdd: () => void }) {
   const qc = useQueryClient();
-  const spec = getNodeSpec(type);
+  const { t, locale } = useTranslation();
+  const spec = getNodeSpec(type, locale);
   const step = stepCodeForNodeType(type);
   const slots = defaultPromptSlots(type);
   const reviews = useQuery({
@@ -206,7 +213,7 @@ function NodeDetailPane({ type, onAdd }: { type: string; onAdd: () => void }) {
     },
     onSuccess: () => {
       setText("");
-      toast.success("Отзыв добавлен");
+      toast.success(t("canvas.palette.reviewAdded"));
       void qc.invalidateQueries({ queryKey: ["node-reviews", type] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
@@ -226,21 +233,25 @@ function NodeDetailPane({ type, onAdd }: { type: string; onAdd: () => void }) {
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-teal-300" />
               <span className="truncate text-sm font-semibold">{spec.label}</span>
-              <span className="rounded-full border border-teal-400/30 bg-teal-500/10 px-1.5 py-0.5 text-[9px] font-medium text-teal-300">встроенная</span>
+              <span className="rounded-full border border-teal-400/30 bg-teal-500/10 px-1.5 py-0.5 text-[9px] font-medium text-teal-300">{t("canvas.palette.builtin")}</span>
             </div>
             <div className="mt-1 text-[10px] text-muted-foreground">
-              {NODE_CATEGORY_LABELS[spec.category]} · <code>{type}</code> · автор: VIA Studio
+              {getNodeCategoryLabel(spec.category, locale)} · <code>{type}</code> · {t("canvas.palette.author")}: VIA Studio
             </div>
           </div>
           <button type="button" onClick={onAdd} data-node-add className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[#2bb8a0]/20 px-3 text-[12px] font-medium text-[#bff3e8] ring-1 ring-[#2bb8a0]/35 hover:bg-[#2bb8a0]/30">
-            <Plus className="h-3.5 w-3.5" /> На канвас
+            <Plus className="h-3.5 w-3.5" /> {t("canvas.palette.toCanvas")}
           </button>
         </div>
         <div>
-          <H>Что делает</H>
-          <p className="text-xs leading-relaxed text-white/80">{spec.description || "Без описания."}</p>
+          <H>{t("canvas.palette.whatItDoes")}</H>
+          <p className="text-xs leading-relaxed text-white/80">{spec.description || t("canvas.palette.noDescription")}</p>
           <div className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Шаг пайплайна: {step ?? "—"} · варианты промтов: {stepHasPromptVariants(step) ? "есть" : "нет"} · нужна Excel-таблица: {nodeTypeRequiresExcel(type) ? "да" : "нет"}
+            {t("canvas.palette.pipelineStepInfo", {
+              step: step ?? "—",
+              variants: stepHasPromptVariants(step) ? t("canvas.palette.yes") : t("canvas.palette.no"),
+              excel: nodeTypeRequiresExcel(type) ? t("canvas.palette.yesRequired") : t("canvas.palette.noRequired"),
+            })}
           </div>
           {slots.length ? (
             <div className="mt-2 flex flex-wrap gap-1">
@@ -251,18 +262,18 @@ function NodeDetailPane({ type, onAdd }: { type: string; onAdd: () => void }) {
           ) : null}
         </div>
         <div>
-          <H>Автор</H>
-          <div className="text-xs text-white/80">VIA Studio · встроенная нода</div>
+          <H>{t("canvas.palette.author")}</H>
+          <div className="text-xs text-white/80">{t("canvas.palette.authorBuiltin")}</div>
         </div>
         <div>
-          <H>Отзывы ({reviews.data?.length ?? 0})</H>
+          <H>{t("canvas.palette.reviews", { count: reviews.data?.length ?? 0 })}</H>
           <div className="flex flex-col gap-1.5">
             {(reviews.data ?? []).map((r, i) => (
               <div key={i} className="rounded-xl border border-white/10 bg-white/[0.02] px-2.5 py-2" data-review>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold">{r.author}</span>
                   <span className="text-[10px] text-teal-300">{"★".repeat(r.rating)}<span className="text-white/25">{"★".repeat(5 - r.rating)}</span></span>
-                  {r.placeholder ? <span className="text-[9px] text-muted-foreground">пример</span> : null}
+                  {r.placeholder ? <span className="text-[9px] text-muted-foreground">{t("canvas.palette.reviewExample")}</span> : null}
                 </div>
                 <div className="mt-0.5 text-[11px] leading-relaxed text-white/75">{r.text}</div>
               </div>
@@ -270,16 +281,16 @@ function NodeDetailPane({ type, onAdd }: { type: string; onAdd: () => void }) {
           </div>
           <div className="mt-2 flex flex-col gap-1.5 rounded-xl border border-dashed border-teal-400/40 bg-teal-400/5 p-2.5">
             <div className="flex items-center gap-2">
-              <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Имя" className="h-7 w-[140px] rounded-md border border-white/10 bg-black/30 px-2 text-[12px] text-white" />
+              <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder={t("canvas.palette.reviewNamePlaceholder")} className="h-7 w-[140px] rounded-md border border-white/10 bg-black/30 px-2 text-[12px] text-white" />
               <span className="flex items-center">
                 {[1, 2, 3, 4, 5].map((n) => (
                   <button key={n} type="button" onClick={() => setStars(n)} className={cn("px-[1px] text-[14px]", n <= stars ? "text-teal-300" : "text-white/25")}>★</button>
                 ))}
               </span>
             </div>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Ваш отзыв о ноде…" data-review-text className="min-h-[56px] rounded-md border border-white/10 bg-black/30 p-2 text-[12px] text-white" />
+            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={t("canvas.palette.reviewTextPlaceholder")} data-review-text className="min-h-[56px] rounded-md border border-white/10 bg-black/30 p-2 text-[12px] text-white" />
             <button type="button" disabled={!text.trim() || add.isPending} onClick={() => add.mutate()} data-review-add className="h-7 w-fit rounded-md border border-teal-400/50 px-3 text-[12px] text-teal-300 hover:bg-teal-400/10 disabled:opacity-40">
-              Добавить отзыв
+              {t("canvas.palette.addReview")}
             </button>
           </div>
         </div>

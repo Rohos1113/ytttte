@@ -12,6 +12,8 @@ import voicesRu from "../locales/ru/voices.json" with { type: "json" };
 import voicesEn from "../locales/en/voices.json" with { type: "json" };
 import paramsRu from "../locales/ru/params.json" with { type: "json" };
 import paramsEn from "../locales/en/params.json" with { type: "json" };
+import hitlRu from "../locales/ru/hitl.json" with { type: "json" };
+import hitlEn from "../locales/en/hitl.json" with { type: "json" };
 
 export type Locale = "ru" | "en";
 
@@ -26,6 +28,7 @@ const DICTIONARIES: Record<Locale, Record<string, unknown>> = {
     sfx: sfxRu,
     voices: voicesRu,
     params: paramsRu,
+    hitl: hitlRu,
   },
   en: {
     common: commonEn,
@@ -33,6 +36,7 @@ const DICTIONARIES: Record<Locale, Record<string, unknown>> = {
     sfx: sfxEn,
     voices: voicesEn,
     params: paramsEn,
+    hitl: hitlEn,
   },
 };
 

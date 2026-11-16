@@ -58,6 +58,7 @@ import {
   nodeRunsFromPayload,
 } from "@/lib/format-labels";
 import { buildExcelLaneBindings } from "@/lib/excel-lane-bindings";
+import { useTranslation } from "@/lib/i18n";
 import {
   inferNodeStatusFromProject,
   reconcileNodeRunStatus,
@@ -143,6 +144,7 @@ export function FlowCanvas({
   onCanvasZoom?: (zoom: number) => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   // 1) Дефолтный Workflow с бэкенда.
   const workflows = useQuery({
     queryKey: ["workflows"],
@@ -544,10 +546,10 @@ export function FlowCanvas({
           eds,
         ),
       );
-      toast.message("Связь добавлена — клик по метке: связь / ок / не ок. Вход файлов — в приёмной ноде.");
+      toast.message(t("canvas.toasts.edgeAdded"));
       scheduleSaveWorkflow();
     },
-    [setEdges, scheduleSaveWorkflow],
+    [setEdges, scheduleSaveWorkflow, t],
   );
 
   const [saving, setSaving] = useState(false);
@@ -598,8 +600,8 @@ export function FlowCanvas({
         const cycle = (check.errors || []).find((e) => e.includes("цикл"));
         toast.error(
           cycle
-            ? `Граф не сохранён: жёсткий цикл без проверяющей ноды. Петля через excel_gpt помечается сама; иначе уберите кольцо.`
-            : `Граф не сохранён: ${check.errors.join("; ")}`,
+            ? t("canvas.toasts.cycleDetected")
+            : t("canvas.toasts.graphSaveError", { errors: check.errors.join("; ") }),
         );
         return;
       }
@@ -661,9 +663,9 @@ export function FlowCanvas({
           edges: wfEdges,
         });
       }
-      toast.success("Граф сохранён");
+      toast.success(t("canvas.toasts.graphSaved"));
     } catch (e) {
-      toast.error(`Не сохранилось: ${errorMessageFromUnknown(e)}`);
+      toast.error(t("canvas.toasts.saveFailed", { error: errorMessageFromUnknown(e) }));
     } finally {
       setSaving(false);
       persistInFlightRef.current = false;
@@ -772,7 +774,9 @@ export function FlowCanvas({
         }, 50);
       } else {
         toast.success(
-          side === "in" ? "Входящие связи сняты" : "Исходящие связи сняты",
+          side === "in"
+            ? t("canvas.toasts.incomingDisconnected")
+            : t("canvas.toasts.outgoingDisconnected"),
         );
       }
     };
@@ -787,7 +791,7 @@ export function FlowCanvas({
           window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
         }, 50);
       } else {
-        toast.success("Нода удалена — сохраните граф");
+        toast.success(t("canvas.toasts.nodeDeletedSave"));
       }
     };
     const onSaveRequest = () => {
@@ -803,7 +807,7 @@ export function FlowCanvas({
       window.removeEventListener("canvas-delete-node", onDelete);
       window.removeEventListener("canvas-save-workflow", onSaveRequest);
     };
-  }, [setNodes, setEdges, persistWorkflow]);
+  }, [setNodes, setEdges, persistWorkflow, t]);
 
   const deleteNodesByIds = useCallback(
     (ids: Set<string>, opts?: { toast?: boolean }) => {
@@ -820,17 +824,19 @@ export function FlowCanvas({
       scheduleSaveWorkflow();
       if (opts?.toast !== false) {
         toast.success(
-          ids.size === 1 ? "Нода удалена" : `Удалено ${ids.size} нод`,
+          ids.size === 1
+            ? t("canvas.toasts.nodeDeleted")
+            : t("canvas.toasts.nodesDeleted", { count: ids.size }),
         );
       }
     },
-    [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges, setNodes],
+    [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges, setNodes, t],
   );
 
   const copySelectedNodes = useCallback(() => {
     const selected = selectedNodesRef.current;
     if (!selected.length) {
-      toast.error("Выделите одну или несколько нод (Ctrl+клик или рамкой)");
+      toast.error(t("canvas.toasts.selectNodesToCopy"));
       return;
     }
     const ids = new Set(selected.map((n) => n.id));
@@ -859,15 +865,21 @@ export function FlowCanvas({
     };
     writeCanvasClipboard(payload);
     setHasClipboard(true);
+    const edgesSuffix = payload.edges.length
+      ? t("canvas.toasts.copiedEdgesSuffix", { count: payload.edges.length })
+      : "";
     toast.success(
-      `Скопировано ${selected.length} нод${payload.edges.length ? ` и ${payload.edges.length} связей` : ""}`,
+      t("canvas.toasts.copiedNodes", {
+        nodes: selected.length,
+        edges: edgesSuffix,
+      }),
     );
-  }, [projectId]);
+  }, [projectId, t]);
 
   const pasteFromClipboard = useCallback(() => {
     const clip = readCanvasClipboard();
     if (!clip?.nodes.length) {
-      toast.error("Буфер пуст — выделите ноды и нажмите Ctrl+C");
+      toast.error(t("canvas.toasts.clipboardEmpty"));
       return;
     }
     const stamp = Date.now();
@@ -979,7 +991,7 @@ export function FlowCanvas({
     }
     if (projectId && Object.keys(excelRemap).length > 0) {
       void api.remapExcelGptNodes(projectId, excelRemap).catch((e) => {
-        toast.error(`Не перенесены настройки Excel: ${errorMessageFromUnknown(e)}`);
+        toast.error(t("canvas.toasts.excelMigrateError", { error: errorMessageFromUnknown(e) }));
       });
       for (const [oldId, newId] of Object.entries(excelRemap)) {
         const src = clip.nodes.find((n) => n.id === oldId);
@@ -1004,10 +1016,13 @@ export function FlowCanvas({
       clip.sourceProjectId !== projectId;
     toast.success(
       fromOther
-        ? `Вставлено ${newNodes.length} нод из проекта #${clip.sourceProjectId}`
-        : `Вставлено ${newNodes.length} нод`,
+        ? t("canvas.toasts.pastedFromProject", {
+            count: newNodes.length,
+            projectId: clip.sourceProjectId ?? 0,
+          })
+        : t("canvas.toasts.pastedNodes", { count: newNodes.length }),
     );
-  }, [onSelectNode, projectId, scheduleSaveWorkflow, setEdges, setNodes]);
+  }, [onSelectNode, projectId, scheduleSaveWorkflow, setEdges, setNodes, t]);
 
   const deleteSelectedNodes = useCallback(() => {
     const selected = selectedNodesRef.current;
@@ -1016,11 +1031,11 @@ export function FlowCanvas({
       return;
     }
     if (!selected.length) {
-      toast.error("Выделите ноды для удаления");
+      toast.error(t("canvas.toasts.selectNodesToCopy"));
       return;
     }
     deleteNodesByIds(new Set(selected.map((n) => n.id)));
-  }, [deleteNodesByIds, selectedNodeKey]);
+  }, [deleteNodesByIds, selectedNodeKey, t]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -1115,11 +1130,11 @@ export function FlowCanvas({
       scheduleSaveWorkflow();
       toast.success(
         deleted.length === 1
-          ? "Нода удалена"
-          : `Удалено ${deleted.length} нод`,
+          ? t("canvas.toasts.nodeDeleted")
+          : t("canvas.toasts.nodesDeleted", { count: deleted.length }),
       );
     },
-    [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges],
+    [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges, t],
   );
 
   const canvasBootLoading =
@@ -1138,11 +1153,10 @@ export function FlowCanvas({
       <div className="flex h-full items-center justify-center">
         <div className="max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
           <h3 className="text-sm font-semibold text-destructive">
-            Бэкенд не отвечает
+            {t("canvas.emptyState.backendUnreachable")}
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Запусти его командой <code className="rounded bg-muted px-1.5 py-0.5 font-mono">python -m app.main</code>
-            {" "}— веб-UI поднимется на :8765.
+            {t("canvas.emptyState.backendStartCmd", { cmd: "python -m app.main" })}
           </p>
         </div>
       </div>
@@ -1355,7 +1369,7 @@ export function FlowCanvas({
             } as Node<PipelineNodeData>,
           ]);
           scheduleSaveWorkflow();
-          toast.success("Нода Excel добавлена слева — загрузите topics.xlsx");
+          toast.success(t("canvas.toasts.excelNodeAdded"));
         }}
         onDuplicateBelow={() => {
           if (nodes.length === 0) return;
@@ -1418,8 +1432,8 @@ export function FlowCanvas({
           scheduleSaveWorkflow();
           toast.success(
             excelEdges.length
-              ? `Граф продублирован (${excelEdges.length} связей от Excel)`
-              : "Граф продублирован вниз — сохраните при необходимости",
+              ? t("canvas.toasts.graphDuplicatedEdges", { count: excelEdges.length })
+              : t("canvas.toasts.graphDuplicatedDown"),
           );
         }}
       />
@@ -1464,13 +1478,14 @@ function WorkflowToolbar({
   onAddExcelFeed: () => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   const duplicateWf = async () => {
     if (!workflowId) return;
     try {
       await api.duplicateWorkflow(workflowId);
       await qc.invalidateQueries({ queryKey: ["workflows"] });
-      toast.success("Workflow скопирован на сервере");
+      toast.success(t("canvas.toasts.workflowCopiedServer"));
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     }
@@ -1492,7 +1507,7 @@ function WorkflowToolbar({
           className="h-8 px-2 text-xs hover:bg-white/5"
           onClick={onPaste}
           disabled={!canPaste}
-          title="Вставить скопированные ноды (Ctrl+V) — работает и в другом проекте"
+          title={t("canvas.toolbar.pasteCopied")}
         >
           <ClipboardPaste className="h-3.5 w-3.5" />
         </Button>
@@ -1502,7 +1517,7 @@ function WorkflowToolbar({
           variant="ghost"
           className="h-8 px-2 text-xs hover:bg-white/5"
           onClick={onDuplicateBelow}
-          title="Дублировать весь граф ниже (массовые потоки)"
+          title={t("canvas.toolbar.duplicateGraph")}
         >
           <Copy className="h-3.5 w-3.5 text-muted-foreground" />
         </Button>
@@ -1512,7 +1527,7 @@ function WorkflowToolbar({
           className="h-8 px-2 text-xs text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
           onClick={onDelete}
           disabled={!canDelete}
-          title="Удалить выделенные ноды (Delete)"
+          title={t("canvas.toolbar.deleteSelected")}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -1522,15 +1537,15 @@ function WorkflowToolbar({
 }
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex max-w-md flex-col items-center gap-3 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
         <Play className="h-5 w-5 text-primary" />
       </div>
-      <h2 className="text-lg font-semibold tracking-tight">Выбери проект слева</h2>
+      <h2 className="text-lg font-semibold tracking-tight">{t("canvas.emptyState.selectProject")}</h2>
       <p className="text-sm text-muted-foreground">
-        Каждый проект — это граф из 20 нод: от темы и плана до сборки и публикации.
-        Кликни «+» в сайдбаре, чтобы создать новый ролик.
+        {t("canvas.emptyState.selectProjectDesc")}
       </p>
     </div>
   );
@@ -1552,6 +1567,7 @@ function RunOverlay({
   const [busy, setBusy] = useState(false);
   const [pausing, setPausing] = useState(false);
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   if (!workflow) return null;
 
@@ -1564,7 +1580,7 @@ function RunOverlay({
     setPausing(true);
     try {
       await api.pauseProject(projectId);
-      toast.success("Проект на паузе");
+      toast.success(t("canvas.toasts.projectPaused"));
       onRunCreated();
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
@@ -1578,11 +1594,11 @@ function RunOverlay({
     try {
       const r = await api.continueProject(projectId);
       if (r.advanced) {
-        toast.success(`Следующий шаг: ${r.status}`);
+        toast.success(t("canvas.toasts.nextStep", { step: r.status }));
       } else if (r.action === "resumed") {
-        toast.success("Проект продолжен");
+        toast.success(t("canvas.toasts.projectResumed"));
       } else {
-        toast.message("Нет шага для автопродвижения — запустите шаг в ноде");
+        toast.message(t("canvas.toasts.noStepAdvance"));
       }
       onRunCreated();
     } catch (e) {
@@ -1596,7 +1612,7 @@ function RunOverlay({
     setBusy(true);
     try {
       const r = await api.stopProject(projectId);
-      toast.success(r.message || "⏹ Шаг остановлен");
+      toast.success(r.message || t("canvas.toasts.stepStopped"));
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       await qc.refetchQueries({ queryKey: ["project", projectId] });
@@ -1613,9 +1629,9 @@ function RunOverlay({
   const controls = (
     <div className="flex flex-col gap-2.5 border-b border-white/10 pb-3">
       <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Прогон:</span>
+          <span className="text-muted-foreground">{t("canvas.toolbar.runLabel")}</span>
           <span className="font-medium">
-            {formatRunOverlayLabel(run, project?.status) ?? "не запущен"}
+            {formatRunOverlayLabel(run, project?.status) ?? t("canvas.toolbar.notRunning")}
           </span>
         </div>
       {project ? (
@@ -1640,7 +1656,7 @@ function RunOverlay({
               className="pointer-events-auto gap-1 text-xs border-white/20 bg-zinc-800/80 hover:bg-zinc-700"
             >
               {pausing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Пауза
+              {t("canvas.toolbar.pause")}
             </Button>
             <Button
               size="sm"
@@ -1648,10 +1664,10 @@ function RunOverlay({
               onClick={handleStopProject}
               disabled={busy}
               className="pointer-events-auto gap-1.5 text-xs font-semibold shadow-lg shadow-red-500/25 bg-red-600 hover:bg-red-500 text-white"
-              title="Остановить выполнение текущего шага"
+              title={t("canvas.toolbar.stopStepTitle")}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3 w-3 fill-current" />}
-              Остановить шаг
+              {t("canvas.toolbar.stopStep")}
             </Button>
           </>
         ) : (
@@ -1661,10 +1677,10 @@ function RunOverlay({
               onClick={handleResume}
               disabled={pausing}
               className="pointer-events-auto transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs bg-[#2bb8a0]/20 hover:bg-[#2bb8a0]/30 text-[#bff3e8] active:scale-[0.98] border border-[#2bb8a0]/35 rounded-xl backdrop-blur-md"
-              title="Продолжить выполнение пайплайна (переход к следующему шагу)"
+              title={t("canvas.toolbar.resumeTitle")}
             >
               {pausing ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-200" /> : <Play className="h-3.5 w-3.5 fill-current" />}
-              Продолжить
+              {t("canvas.toolbar.resume")}
             </Button>
             {project?.status && project.status !== "new" && project.status !== "published" && (
               <Button
@@ -1673,10 +1689,10 @@ function RunOverlay({
                 onClick={handleStopProject}
                 disabled={busy}
                 className="pointer-events-auto gap-1 text-xs border-white/10 text-muted-foreground hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
-                title="Остановить процесс / сбросить активность"
+                title={t("canvas.toolbar.stopTitle")}
               >
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current text-destructive/80" />}
-                Остановить
+                {t("canvas.toolbar.stop")}
               </Button>
             )}
           </div>
