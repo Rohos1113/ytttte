@@ -213,58 +213,28 @@ async def test_tts_routed_to_wavespeed_when_configured(
 
 
 @pytest.mark.asyncio
-async def test_tts_routed_to_aitunnel_when_configured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import json
-
-    monkeypatch.setattr(settings, "elevenlabs_api_key", "")
-    monkeypatch.setattr(settings, "wavespeed_api_key", "")
-    monkeypatch.setattr(settings, "aitunnel_api_key", "sk-aitunnel-test")
-    monkeypatch.setattr(settings, "aitunnel_api_base_url", "https://api.aitunnel.ru/v1")
-    monkeypatch.setattr(settings, "aitunnel_tts_model", "eleven-v4")
-
-    captured: list[httpx.Request] = []
-    monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning(captured))
-
-    out = tmp_path / "voice_aitunnel.mp3"
-    res = await ea.ElevenLabsApi().tts(
-        "Привет через AITunnel", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=7
-    )
-    assert res == out
-    assert out.is_file()
-    assert len(captured) == 1
-    req = captured[0]
-    assert req.url == "https://api.aitunnel.ru/v1/audio/speech"
-    assert req.headers["authorization"] == "Bearer sk-aitunnel-test"
-    data = json.loads(req.content)
-    assert data["model"] == "eleven-v4"
-    assert data["input"] == "Привет через AITunnel"
-    assert data["voice"] == "ymDCYd8puC7gYjxIamPt"
-
-
-@pytest.mark.asyncio
-async def test_tts_fallback_from_wavespeed_to_aitunnel_on_error(
+async def test_tts_fallback_from_elevenlabs_to_wavespeed_on_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from unittest.mock import patch
+    from app.bots.wavespeed_http import GenerationResult
 
-    from app.bots.wavespeed_http import WaveSpeedError
-
-    monkeypatch.setattr(settings, "elevenlabs_api_key", "")
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "sk-el-test")
     monkeypatch.setattr(settings, "wavespeed_api_key", "test-wsk-key")
-    monkeypatch.setattr(settings, "aitunnel_api_key", "sk-aitunnel-test")
 
     captured: list[httpx.Request] = []
-    monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning(captured))
+    # ElevenLabs direct fails with 500 error
+    monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning(captured, status=500, body=b"Internal Error"))
 
-    async def fail_run(payload, out_path):
-        raise WaveSpeedError("code=400 Insufficient credits. Please top up your account")
+    async def fake_run(payload, out_path):
+        out_path.write_bytes(b"\xff\xfb" + b"\x00" * 2000)
+        return GenerationResult(file_path=out_path, gen_id="pred_fallback", raw_url="http://fake/audio.mp3")
 
     out = tmp_path / "voice_fallback.mp3"
-    with patch("app.bots.wavespeed_http.run_generation", side_effect=fail_run):
-        res = await ea.ElevenLabsApi().tts("Фоллбэк на AITunnel", out, voice_id="ymDCYd8puC7gYjxIamPt")
+    with patch("app.bots.wavespeed_http.run_generation", side_effect=fake_run) as mock_gen:
+        res = await ea.ElevenLabsApi().tts("Фоллбэк на WaveSpeed", out, voice_id="ymDCYd8puC7gYjxIamPt")
         assert res == out
         assert out.is_file()
         assert len(captured) == 1
-        assert captured[0].url == "https://api.aitunnel.ru/v1/audio/speech"
+        assert "text-to-speech" in str(captured[0].url)
+        mock_gen.assert_called_once()

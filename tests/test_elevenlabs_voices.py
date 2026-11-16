@@ -64,8 +64,8 @@ async def test_probe_live_voice_ids_caches(monkeypatch) -> None:
 
     live1 = await probe_live_voice_ids()
     live2 = await probe_live_voice_ids()
-    assert live1 == {"abc"}
-    assert live2 == {"abc"}
+    assert "abc" in live1
+    assert "abc" in live2
     assert calls["n"] == 1
 
     monkeypatch.setattr(settings_mod.settings, "elevenlabs_api_key", "")
@@ -74,13 +74,12 @@ async def test_probe_live_voice_ids_caches(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_probe_live_voice_ids_with_aitunnel(monkeypatch) -> None:
+async def test_probe_live_voice_ids_with_wavespeed(monkeypatch) -> None:
     from app import settings as settings_mod
     from app.services.elevenlabs_voices import DEFAULT_ELEVENLABS_VOICE_ID, probe_live_voice_ids
 
     monkeypatch.setattr(settings_mod.settings, "elevenlabs_api_key", "")
-    monkeypatch.setattr(settings_mod.settings, "wavespeed_api_key", "")
-    monkeypatch.setattr(settings_mod.settings, "aitunnel_api_key", "sk-aitunnel-test")
+    monkeypatch.setattr(settings_mod.settings, "wavespeed_api_key", "sk-wavespeed-test")
 
     live = await probe_live_voice_ids()
     assert live is not None
