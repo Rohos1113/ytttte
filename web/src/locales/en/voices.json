@@ -1,36 +1,80 @@
 {
-  "title": "Voice Library",
+  "title": "ElevenLabs Voices",
+  "subtitle": "Voice clones, Russian catalog, and standard ElevenLabs voices — unified picker for Create and Voiceover node",
   "tabs": {
     "all": "All",
     "clones": "My Clones",
-    "catalog": "Catalog (200)",
-    "standard": "Standard (9)",
+    "catalog": "Russian Catalog",
+    "standard": "Standard",
     "history": "History"
   },
   "buttons": {
     "cloneVoice": "Clone Voice",
     "selectVoice": "Select Voice",
-    "chooseOther": "Choose Other",
+    "selected": "Selected",
+    "chooseOther": "Choose Another",
     "chooseFromLib": "Choose from Library",
     "playSample": "Sample",
-    "pause": "Pause"
+    "pause": "Pause",
+    "rename": "Rename",
+    "delete": "Delete",
+    "back": "Back",
+    "backToVoices": "Back to voices",
+    "next": "Next",
+    "createClone": "Create Clone",
+    "creating": "Creating...",
+    "done": "Done",
+    "clearAll": "Clear all",
+    "removeFile": "Remove file",
+    "selectFiles": "Select files"
   },
   "badges": {
     "clone": "Voice Clone",
     "female": "Female",
     "male": "Male",
-    "standard": "Standard"
+    "standard": "Standard",
+    "builtin": "Built-in",
+    "custom": "Custom"
+  },
+  "statuses": {
+    "ready": "Ready",
+    "pending_provider": "Awaiting API Key",
+    "training": "Training",
+    "failed": "Failed",
+    "error": "Error"
   },
   "cloneDialog": {
     "title": "Voice Cloning Wizard",
     "step1": "Name & Language",
-    "step2": "Samples",
+    "step2": "Audio Samples",
     "step3": "Consent",
+    "stepProgress": "Step {step} of {total}",
     "voiceNameLabel": "Voice Name",
-    "voiceNamePlaceholder": "E.g.: My Voice",
-    "languageLabel": "Primary Language",
-    "samplesLabel": "Audio Samples",
-    "uploadHint": "Upload 1 to 25 files (up to 25 MB total)",
-    "limitWarning": "Used {used} of {limit} creations today"
+    "voiceNamePlaceholder": "e.g.: My Studio Voice",
+    "descLabel": "Description",
+    "descPlaceholder": "Tone, character, usage notes — optional",
+    "languageLabel": "Language",
+    "dragTitle": "Drag audio recordings here",
+    "dragHint": "mp3, wav, m4a, ogg, flac · up to 25 MB total · clean speech, single speaker",
+    "filesSummary": "Files: {count} · {size} of 25 MB",
+    "sampleTip": "One minute of speech is sufficient; quality improves up to three minutes. Background music or overlapping voices will hurt quality.",
+    "consentCheckbox": "This is my voice or I have written permission from the speaker to clone their voice.",
+    "paidWarning": "Voice creation consumes credits and cannot be reversed. Samples remain stored in the studio for retraining and are deleted with the voice. Limit: {used} of {limit} creations today.",
+    "providerSaved": "Samples saved, voice will become available when ElevenLabs key is configured: {error}",
+    "success": "Voice clone created successfully and ready for use."
+  },
+  "search": {
+    "placeholder": "Search by name or description...",
+    "noResults": "Nothing found",
+    "noClones": "No clones yet",
+    "noClonesHint": "Create your first custom voice clone using the button above"
+  },
+  "errors": {
+    "nameRequired": "Voice name is required",
+    "noFiles": "Add at least one audio recording",
+    "tooLarge": "Total file size exceeds 25 MB",
+    "consentRequired": "Consent confirmation is required",
+    "deleteFailed": "Failed to delete voice",
+    "voiceNotReady": "Voice «{name}» is not ready in ElevenLabs yet ({status}) — cannot select for voiceover."
   }
 }

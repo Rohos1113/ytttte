@@ -4,6 +4,7 @@
  */
 
 import type { NodeType } from "./types";
+import { getTranslation, useI18nStore, type Locale } from "./i18n.ts";
 
 export type NodeCategory =
   | "planning"
@@ -308,25 +309,82 @@ export const SD_AGENT_LABELS: Record<string, string> = {
   assemble: "сборка",
 };
 
-export function formatNodeTypeLabel(type: string): string {
+export function getSdAgentLabel(agent: string, localeOverride?: Locale): string {
+  const key = `canvas.sdAgents.${agent}`;
+  const translated = getTranslation(key, undefined, localeOverride);
+  if (translated !== key) {
+    return translated;
+  }
+  return SD_AGENT_LABELS[agent] ?? agent;
+}
+
+export function getNodeCategoryLabel(category: NodeCategory, localeOverride?: Locale): string {
+  const key = `canvas.categories.${category}`;
+  const translated = getTranslation(key, undefined, localeOverride);
+  if (translated !== key) {
+    return translated;
+  }
+  return NODE_CATEGORY_LABELS[category] ?? category;
+}
+
+export function formatNodeTypeLabel(type: string, localeOverride?: Locale): string {
+  const key = `canvas.nodes.${type}`;
+  const translated = getTranslation(key, undefined, localeOverride);
+  if (translated !== key) {
+    return translated;
+  }
   const spec = NODE_CATALOG[type];
   if (spec) return spec.label;
+  const locale = localeOverride || useI18nStore.getState().locale;
   return type
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/\bHitl\b/gi, "Проверка")
+    .replace(/\bHitl\b/gi, locale === "en" ? "Review" : "Проверка")
     .replace(/\bGpt\b/gi, "GPT");
 }
 
-export function getNodeSpec(type: string): NodeSpec {
-  return (
-    NODE_CATALOG[type] ?? {
-      type,
-      label: formatNodeTypeLabel(type),
-      description: "",
-      category: "planning",
-      accent: "0 0% 55%",
-      iconKey: "plan",
-    }
-  );
+export function isDefaultNodeLabel(type: string, label: string | undefined): boolean {
+  if (!label || !label.trim()) return true;
+  const trimmed = label.trim();
+  const ruLabel = getTranslation(`canvas.nodes.${type}`, undefined, "ru");
+  const enLabel = getTranslation(`canvas.nodes.${type}`, undefined, "en");
+  const catalogLabel = NODE_CATALOG[type]?.label;
+  return trimmed === ruLabel || trimmed === enLabel || trimmed === catalogLabel;
+}
+
+export function resolveDisplayNodeLabel(
+  type: string,
+  userLabel: string | undefined,
+  localeOverride?: Locale,
+): string {
+  if (userLabel && !isDefaultNodeLabel(type, userLabel)) {
+    return userLabel.trim();
+  }
+  return formatNodeTypeLabel(type, localeOverride);
+}
+
+export function getNodeSpec(type: string, localeOverride?: Locale): NodeSpec {
+  const base = NODE_CATALOG[type];
+  const label = formatNodeTypeLabel(type, localeOverride);
+  const descKey = `canvas.descriptions.${type}`;
+  const translatedDesc = getTranslation(descKey, undefined, localeOverride);
+  const description =
+    translatedDesc !== descKey ? translatedDesc : base?.description ?? "";
+
+  if (base) {
+    return {
+      ...base,
+      label,
+      description,
+    };
+  }
+
+  return {
+    type: type as NodeType,
+    label,
+    description: "",
+    category: "planning",
+    accent: "0 0% 55%",
+    iconKey: "plan",
+  };
 }

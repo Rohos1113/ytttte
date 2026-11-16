@@ -1,0 +1,37 @@
+{
+  "title": "Step Parameters",
+  "save": "Save parameters",
+  "saving": "Saving...",
+  "savedToast": "Step parameters saved",
+  "planScript": {
+    "planDuration": "Video duration, sec",
+    "scriptDuration": "Voiceover duration, sec",
+    "charCount": "Characters: ~{count} (at 14 chars/sec pace)",
+    "inheritedNotice": "Duration is not specified for voiceover — inherited from «Script Plan» ({duration}s)."
+  },
+  "audio": {
+    "voiceLabel": "Voiceover Voice",
+    "chooseVoice": "Choose from library",
+    "cloneVoice": "Clone voice",
+    "speed": "Speaking rate",
+    "stability": "Stability",
+    "similarity": "Similarity",
+    "style": "Style exaggeration",
+    "speakerBoost": "Speaker boost",
+    "sample": "Sample"
+  },
+  "assemble": {
+    "fps": "Frame rate (FPS)",
+    "resolution": "Video resolution",
+    "bgmVolume": "Music volume, %",
+    "sfxVolume": "Sound effects (SFX) volume, %",
+    "voiceVolume": "Voiceover volume, %",
+    "subtitles": "Subtitles",
+    "burnSubtitles": "Hardcode subtitles into video"
+  },
+  "split": {
+    "frameDuration": "Frame duration, sec",
+    "minDuration": "Minimum duration",
+    "maxDuration": "Maximum duration"
+  }
+}

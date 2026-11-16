@@ -2,8 +2,9 @@
 
 import type { ProjectStatus } from "./types";
 import type { NodeCategory } from "./node-catalog";
+import { useI18nStore, type Locale } from "./i18n.ts";
 
-const PROJECT_STATUS: Partial<Record<ProjectStatus, string>> = {
+const PROJECT_STATUS_RU: Partial<Record<ProjectStatus, string>> = {
   new: "новый",
   planning: "сценарий",
   plan_ready: "сценарий готов",
@@ -37,7 +38,41 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus, string>> = {
   failed: "ошибка",
 };
 
-const NODE_CATEGORY: Record<NodeCategory, string> = {
+const PROJECT_STATUS_EN: Partial<Record<ProjectStatus, string>> = {
+  new: "new",
+  planning: "script plan",
+  plan_ready: "script ready",
+  scripting: "voiceover script",
+  script_ready: "voiceover ready",
+  splitting: "storyboarding",
+  frames_ready: "frames ready",
+  scene_designing: "scene design (agents)",
+  scene_agents_ready: "scene agents ready",
+  scene_assembling: "scene assembly",
+  scene_design_ready: "scenes ready",
+  generating_hero: "characters",
+  hero_ready: "characters ready",
+  generating_items: "objects",
+  items_ready: "objects ready",
+  generating_image_prompts: "frame prompts",
+  image_prompts_ready: "frame prompts ready",
+  generating_images: "images",
+  images_ready: "images ready",
+  generating_animation_prompts: "video prompts",
+  animation_prompts_ready: "video prompts ready",
+  generating_videos: "video",
+  videos_ready: "video ready",
+  generating_audio: "voiceover",
+  audio_ready: "voiceover ready",
+  assembling: "assembly",
+  assembled: "assembled",
+  publishing: "publishing",
+  published: "published",
+  paused: "paused",
+  failed: "failed",
+};
+
+const NODE_CATEGORY_RU: Record<NodeCategory, string> = {
   planning: "планирование",
   objects: "объекты",
   enrich: "дополнение Excel",
@@ -48,8 +83,19 @@ const NODE_CATEGORY: Record<NodeCategory, string> = {
   hitl: "проверка",
 };
 
+const NODE_CATEGORY_EN: Record<NodeCategory, string> = {
+  planning: "planning",
+  objects: "characters & objects",
+  enrich: "scene enrich",
+  media: "media",
+  audio: "audio",
+  assembly: "assembly",
+  publish: "publishing",
+  hitl: "review",
+};
+
 /** WorkflowRunStatus и NodeRunStatus из app/models.py (+ старое completed). */
-const RUN_STATUS: Record<string, string> = {
+const RUN_STATUS_RU: Record<string, string> = {
   new: "новый",
   pending: "ожидает",
   queued: "в очереди",
@@ -63,70 +109,140 @@ const RUN_STATUS: Record<string, string> = {
   failed: "ошибка",
 };
 
-const HERO_MODE: Record<string, string> = {
+const RUN_STATUS_EN: Record<string, string> = {
+  new: "new",
+  pending: "pending",
+  queued: "queued",
+  running: "running",
+  paused: "paused",
+  waiting_hitl: "awaiting review",
+  done: "done",
+  completed: "completed",
+  skipped: "skipped",
+  cancelled: "cancelled",
+  failed: "failed",
+};
+
+const HERO_MODE_RU: Record<string, string> = {
   auto: "авто",
   hero: "с персонажем",
   no_hero: "без персонажа",
 };
 
-export function formatProjectStatus(status: string): string {
-  return PROJECT_STATUS[status as ProjectStatus] ?? humanizeSlug(status);
+const HERO_MODE_EN: Record<string, string> = {
+  auto: "auto",
+  hero: "with character",
+  no_hero: "without character",
+};
+
+function getActiveLocale(override?: Locale): Locale {
+  if (override === "ru" || override === "en") return override;
+  try {
+    return useI18nStore.getState().locale;
+  } catch {
+    return "ru";
+  }
 }
 
-export function formatNodeCategory(cat: string): string {
-  return NODE_CATEGORY[cat as NodeCategory] ?? humanizeSlug(cat);
+export function formatProjectStatus(status: string, localeOverride?: Locale): string {
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? PROJECT_STATUS_EN : PROJECT_STATUS_RU;
+  return dict[status as ProjectStatus] ?? humanizeSlug(status, loc);
 }
 
-export function formatRunStatus(status: string | null | undefined): string {
+export function formatNodeCategory(cat: string, localeOverride?: Locale): string {
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? NODE_CATEGORY_EN : NODE_CATEGORY_RU;
+  return dict[cat as NodeCategory] ?? humanizeSlug(cat, loc);
+}
+
+export function formatRunStatus(status: string | null | undefined, localeOverride?: Locale): string {
   if (typeof status !== "string" || status.length === 0) return "";
-  return RUN_STATUS[status] ?? humanizeSlug(status);
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? RUN_STATUS_EN : RUN_STATUS_RU;
+  return dict[status] ?? humanizeSlug(status, loc);
 }
 
-export function formatHeroMode(mode: string): string {
-  return HERO_MODE[mode] ?? humanizeSlug(mode);
+export function formatHeroMode(mode: string, localeOverride?: Locale): string {
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? HERO_MODE_EN : HERO_MODE_RU;
+  return dict[mode] ?? humanizeSlug(mode, loc);
 }
 
-export function formatStepCode(code: string): string {
-  const map: Record<string, string> = {
-    plan: "сценарий",
-    script: "закадровый текст",
-    split: "разбивка",
-    scene_d: "сцены (агенты)",
-    scene_asm: "сборка сцен",
-    sd_char: "агент: персонажи",
-    sd_world: "агент: мир",
-    sd_style: "агент: стиль",
-    sd_cam: "агент: камера",
-    sd_act: "агент: действие",
-    hero: "персонажи",
-    items: "предметы",
-    enrich_1: "дополнение 1",
-    enrich_2: "дополнение 2",
-    enrich_3: "дополнение 3",
-    enrich_4: "дополнение 4",
-    enrich_5: "дополнение 5",
-    img_pr: "промты картинок",
-    images: "картинки",
-    anim_pr: "промты анимации",
-    videos: "видео",
-    audio: "озвучка",
-    sfx_plan: "план звуков",
-    sfx_gen: "звуки (sfx)",
-    assemble: "сборка",
-    publish: "публикация",
-  };
-  return map[code] ?? humanizeSlug(code);
+const STEP_CODE_RU: Record<string, string> = {
+  plan: "сценарий",
+  script: "закадровый текст",
+  split: "разбивка",
+  scene_d: "сцены (агенты)",
+  scene_asm: "сборка сцен",
+  sd_char: "агент: персонажи",
+  sd_world: "агент: мир",
+  sd_style: "агент: стиль",
+  sd_cam: "агент: камера",
+  sd_act: "агент: действие",
+  hero: "персонажи",
+  items: "предметы",
+  enrich_1: "дополнение 1",
+  enrich_2: "дополнение 2",
+  enrich_3: "дополнение 3",
+  enrich_4: "дополнение 4",
+  enrich_5: "дополнение 5",
+  img_pr: "промты картинок",
+  images: "картинки",
+  anim_pr: "промты анимации",
+  videos: "видео",
+  audio: "озвучка",
+  sfx_plan: "план звуков",
+  sfx_gen: "звуки (sfx)",
+  assemble: "сборка",
+  publish: "публикация",
+};
+
+const STEP_CODE_EN: Record<string, string> = {
+  plan: "script plan",
+  script: "voiceover script",
+  split: "storyboard",
+  scene_d: "scenes (agents)",
+  scene_asm: "scene assembly",
+  sd_char: "agent: characters",
+  sd_world: "agent: world",
+  sd_style: "agent: style",
+  sd_cam: "agent: camera",
+  sd_act: "agent: action",
+  hero: "characters",
+  items: "objects",
+  enrich_1: "enrichment 1",
+  enrich_2: "enrichment 2",
+  enrich_3: "enrichment 3",
+  enrich_4: "enrichment 4",
+  enrich_5: "enrichment 5",
+  img_pr: "frame prompts",
+  images: "images",
+  anim_pr: "video prompts",
+  videos: "videos",
+  audio: "voiceover",
+  sfx_plan: "sfx plan",
+  sfx_gen: "sfx (audio)",
+  assemble: "assembly",
+  publish: "publishing",
+};
+
+export function formatStepCode(code: string, localeOverride?: Locale): string {
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? STEP_CODE_EN : STEP_CODE_RU;
+  return dict[code] ?? humanizeSlug(code, loc);
 }
 
 /** Заменяет _ на пробелы, убирает лишние технические префиксы. */
-export function humanizeSlug(value: string | null | undefined): string {
+export function humanizeSlug(value: string | null | undefined, localeOverride?: Locale): string {
   if (typeof value !== "string") return "";
+  const loc = getActiveLocale(localeOverride);
   return value
     .replace(/^n_/, "")
     .replace(/_/g, " ")
-    .replace(/\bhitl\b/gi, "проверка")
+    .replace(/\bhitl\b/gi, loc === "en" ? "review" : "проверка")
     .replace(/\bgpt\b/gi, "GPT")
-    .replace(/\boutsee\b/gi, "генератор")
+    .replace(/\boutsee\b/gi, loc === "en" ? "generator" : "генератор")
     .trim();
 }
 
@@ -135,7 +251,11 @@ export function humanizeSlug(value: string | null | undefined): string {
  * null — пустой ответ (`[]`, null) или объект без status-slug: оверлей
  * показывает «не запущен», а не вызывает humanizeSlug(undefined).
  */
-export function formatRunOverlayLabel(run: unknown, projectStatus?: string | null): string | null {
+export function formatRunOverlayLabel(
+  run: unknown,
+  projectStatus?: string | null,
+  localeOverride?: Locale,
+): string | null {
   if (run == null || typeof run !== "object" || Array.isArray(run)) return null;
   const rec = run as { id?: unknown; status?: unknown };
   if (typeof rec.status !== "string" || rec.status.trim() === "") return null;
@@ -143,7 +263,7 @@ export function formatRunOverlayLabel(run: unknown, projectStatus?: string | nul
   // Запись прогона остаётся running, когда проект встал на паузу (бюджет, стоп, сбой):
   // «работает» при стоящем проекте вводило в заблуждение.
   const status = rec.status === "running" && projectStatus === "paused" ? "paused" : rec.status;
-  const label = formatRunStatus(status);
+  const label = formatRunStatus(status, localeOverride);
   if (!label) return null;
   return `#${rec.id} · ${label}`;
 }
@@ -155,8 +275,8 @@ export function nodeRunsFromPayload<T>(run: unknown): T[] {
   return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
-export function formatNodeKeyLabel(key: string): string {
-  return humanizeSlug(key);
+export function formatNodeKeyLabel(key: string, localeOverride?: Locale): string {
+  return humanizeSlug(key, localeOverride);
 }
 
 const STYLE_PRESET_RU: Record<string, string> = {
@@ -164,9 +284,19 @@ const STYLE_PRESET_RU: Record<string, string> = {
   humans_documentary: "Документальный (люди)",
 };
 
-export function formatStylePresetLabel(preset: { id: string; label?: string }): string {
+const STYLE_PRESET_EN: Record<string, string> = {
+  cats_pixelart_short: "Pixel Art Cats (Shorts)",
+  humans_documentary: "Documentary (Humans)",
+};
+
+export function formatStylePresetLabel(
+  preset: { id: string; label?: string },
+  localeOverride?: Locale,
+): string {
   if (preset.label && !/^[A-Za-z][A-Za-z0-9 _-]+$/.test(preset.label.trim())) {
     return preset.label;
   }
-  return STYLE_PRESET_RU[preset.id] ?? humanizeSlug(preset.id);
+  const loc = getActiveLocale(localeOverride);
+  const dict = loc === "en" ? STYLE_PRESET_EN : STYLE_PRESET_RU;
+  return dict[preset.id] ?? humanizeSlug(preset.id, loc);
 }

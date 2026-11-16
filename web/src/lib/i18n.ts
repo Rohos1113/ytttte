@@ -10,6 +10,8 @@ import sfxRu from "../locales/ru/sfx.json" with { type: "json" };
 import sfxEn from "../locales/en/sfx.json" with { type: "json" };
 import voicesRu from "../locales/ru/voices.json" with { type: "json" };
 import voicesEn from "../locales/en/voices.json" with { type: "json" };
+import paramsRu from "../locales/ru/params.json" with { type: "json" };
+import paramsEn from "../locales/en/params.json" with { type: "json" };
 
 export type Locale = "ru" | "en";
 
@@ -23,12 +25,14 @@ const DICTIONARIES: Record<Locale, Record<string, unknown>> = {
     canvas: canvasRu,
     sfx: sfxRu,
     voices: voicesRu,
+    params: paramsRu,
   },
   en: {
     common: commonEn,
     canvas: canvasEn,
     sfx: sfxEn,
     voices: voicesEn,
+    params: paramsEn,
   },
 };
 

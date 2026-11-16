@@ -23,7 +23,14 @@ import {
   Clock,
 } from "lucide-react";
 import type { NodeRunStatus } from "@/lib/types";
-import { getNodeSpec, formatNodeTypeLabel, SD_AGENT_LABELS } from "@/lib/node-catalog";
+import {
+  getNodeSpec,
+  formatNodeTypeLabel,
+  SD_AGENT_LABELS,
+  getSdAgentLabel,
+  resolveDisplayNodeLabel,
+} from "@/lib/node-catalog";
+import { useTranslation, getTranslation } from "@/lib/i18n";
 import { getNodeIcon } from "@/lib/node-icons";
 import { groupHue } from "@/lib/group-color";
 import { cn, parseUtcDate } from "@/lib/utils";
@@ -223,7 +230,8 @@ function NodeProgressBadge({
 
 export function PipelineNode({ data, selected }: NodeProps) {
   const d = data as PipelineNodeData;
-  const spec = getNodeSpec(d.type);
+  const { t, locale } = useTranslation();
+  const spec = getNodeSpec(d.type, locale);
   const Icon = getNodeIcon(spec.iconKey);
   const actions = useCanvasActionsOptional();
   const qc = useQueryClient();
@@ -332,7 +340,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
 
   const title = showNii67
     ? "НИИ 67 · двери"
-    : (d.label && d.label.trim()) || spec.label || formatNodeTypeLabel(d.type);
+    : resolveDisplayNodeLabel(d.type, d.label, locale);
 
   return (
     <>
@@ -514,7 +522,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   : undefined
               }
               description={(d.description && d.description.trim()) || spec.description || fallbackDescription(d.type, title)}
-              settingsLines={isPublish ? [] : buildSettingsLines(d, slots, isExcelGpt, isSdAgent, agentName)}
+              settingsLines={isPublish ? [] : buildSettingsLines(d, slots, isExcelGpt, isSdAgent, agentName, locale)}
               nodeKey={d.nodeKey}
               onOpenSettings={openSettings}
             />
@@ -1020,6 +1028,7 @@ function PosterTile({
     if (flyTimer.current) window.clearTimeout(flyTimer.current);
     flyTimer.current = window.setTimeout(() => setFly(false), 280);
   };
+  const { t, locale } = useTranslation();
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
   const bgInputRef = useRef<HTMLInputElement>(null);
@@ -1035,6 +1044,7 @@ function PosterTile({
       )
     : "";
   const cfg = STATUS_CONFIG[status];
+  const statusLabel = t("canvas.statuses." + status) || cfg.label;
   const dot =
     status === "done" ? (
       <span className="h-2 w-2 bg-white" />
@@ -1153,9 +1163,9 @@ function PosterTile({
           >
             <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
                 {[
-                  { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", x: -40, y: 2, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
-                  { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", x: -30, y: 30, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
-                  { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", x: -2, y: 40, fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
+                  { k: "delete", t: t("canvas.flyout.deleteNode"), icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", x: -40, y: 2, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
+                  { k: "rename", t: t("canvas.flyout.rename"), icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", x: -30, y: 30, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
+                  { k: "bg", t: t("canvas.flyout.customBg"), icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", x: -2, y: 40, fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
                 ]
                   .filter((b) => b.show)
                   .map((b, i) => {
@@ -1201,7 +1211,7 @@ function PosterTile({
               </span>
             <span
               data-status-icon={isPublish ? "in_dev" : disabled ? "disabled" : status}
-              title={isPublish ? "В разработке" : disabled ? "Отключена" : cfg.label}
+              title={isPublish ? t("canvas.actions.inDevelopment") : disabled ? t("canvas.actions.disabled") : statusLabel}
               className="group/st nodrag nopan relative flex h-7 w-7 items-center justify-center"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
@@ -1221,7 +1231,7 @@ function PosterTile({
                   <button
                     type="button"
                     data-action="stop"
-                    title="Остановить весь проект"
+                    title={t("canvas.actions.stopEntireProject")}
                     className="absolute inset-0 flex items-center justify-center rounded-full bg-black/70 text-yellow-300 opacity-0 transition-opacity duration-150 group-hover/st:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1235,7 +1245,7 @@ function PosterTile({
                 <button
                   type="button"
                   data-action="run"
-                  title="Запустить"
+                  title={t("canvas.actions.run")}
                   className="absolute inset-0 flex items-center justify-center rounded-full bg-black/70 text-emerald-300 opacity-0 transition-opacity duration-150 group-hover/st:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1266,7 +1276,7 @@ function PosterTile({
                   onRetry();
                 }}
               >
-                Повторить
+                {t("canvas.actions.retry")}
               </button>
             ) : null}
           </div>
@@ -1279,14 +1289,14 @@ function PosterTile({
           <span
             className="inline-block h-2 w-2 shrink-0"
             style={{ background: `hsl(${groupHue(groupId)} 70% 65%)` }}
-            title={`Группа: ${groupTitle ?? groupId}`}
+            title={t("canvas.actions.groupTitle", { title: groupTitle ?? groupId })}
           />
         ) : null}
         <div className="nodrag min-w-0 flex-1 font-mono text-[14px] text-white/85 [&_*]:!rounded-none [&_*]:!font-mono [&_*]:!text-[14px] [&_button]:!mt-0 [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!px-0 [&_button]:!shadow-none [&_button:hover]:!text-white">
           {isPublish ? (
             <span className="inline-flex items-center gap-1.5 font-sans text-[11px] text-zinc-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400/70" />
-              В разработке
+              {t("canvas.actions.inDevelopment")}
             </span>
           ) : (
             <span className="vp-hl inline-block max-w-full">{model}</span>
@@ -1296,7 +1306,7 @@ function PosterTile({
         {onView ? (
           <button
             type="button"
-            title="Открыть полный просмотр результата"
+            title={t("canvas.actions.openFullView")}
             className="nodrag nopan flex h-7 shrink-0 items-center gap-1 rounded border border-white/15 px-2 text-[12px] text-white/80 hover:border-white/60"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -1305,7 +1315,7 @@ function PosterTile({
               onView();
             }}
           >
-            <Eye className="h-3.5 w-3.5" /> Полный просмотр
+            <Eye className="h-3.5 w-3.5" /> {t("canvas.actions.fullView")}
           </button>
         ) : null}
       </div>
@@ -1321,21 +1331,60 @@ function buildSettingsLines(
   isExcelGpt: boolean,
   isSdAgent: boolean,
   agentName?: string,
+  localeOverride?: import("@/lib/i18n").Locale,
 ): string[] {
   const out: string[] = [];
   if (isSdAgent) {
-    out.push(agentName && agentName !== "assemble" ? `Агент: ${SD_AGENT_LABELS[agentName] ?? agentName}` : "Сборщик сцен");
+    out.push(
+      agentName && agentName !== "assemble"
+        ? getTranslation(
+            "canvas.actions.agentPrefix",
+            { agent: getSdAgentLabel(agentName, localeOverride) },
+            localeOverride,
+          )
+        : getTranslation("canvas.actions.sceneAssembler", undefined, localeOverride),
+    );
   }
   if (isExcelGpt) {
-    out.push(`Режим: ${d.role ? roleChip(d.role) : workModeChip(d.workMode)}`);
-    out.push(`Вход: ${excelGptAttachmentChipTitle(d.inputSource ?? "project_xlsx")}`);
-    if (d.uploadedFileName) out.push(`Файл: ${d.uploadedFileName}`);
+    out.push(
+      getTranslation(
+        "canvas.actions.modePrefix",
+        { mode: d.role ? roleChip(d.role) : workModeChip(d.workMode) },
+        localeOverride,
+      ),
+    );
+    out.push(
+      getTranslation(
+        "canvas.actions.inputPrefix",
+        { input: excelGptAttachmentChipTitle(d.inputSource ?? "project_xlsx") },
+        localeOverride,
+      ),
+    );
+    if (d.uploadedFileName) {
+      out.push(
+        getTranslation(
+          "canvas.actions.filePrefix",
+          { file: d.uploadedFileName },
+          localeOverride,
+        ),
+      );
+    }
   }
   if (d.imageResolution || d.aspectRatio || d.imageQuality) {
     out.push([d.aspectRatio, d.imageResolution, d.imageQuality].filter(Boolean).join(" · "));
   }
   const main = slots.find((x) => x.title)?.title;
-  if (main) out.push(main.startsWith("Промт") ? main : `Промт: ${main}`);
-  if (d.slotIndex != null) out.push(`Слот: ${d.slotIndex}`);
+  if (main) {
+    out.push(
+      main.startsWith("Промт") || main.startsWith("Prompt")
+        ? main
+        : getTranslation("canvas.actions.promptPrefix", { prompt: main }, localeOverride),
+    );
+  }
+  if (d.slotIndex != null) {
+    out.push(
+      getTranslation("canvas.actions.slotPrefix", { slot: d.slotIndex }, localeOverride),
+    );
+  }
   return out;
 }

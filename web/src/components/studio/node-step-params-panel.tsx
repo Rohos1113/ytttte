@@ -29,6 +29,7 @@ import {
   type SplitStepParams,
 } from "@/lib/node-step-params";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 function NumField({
   label,
@@ -77,6 +78,7 @@ function PlanScriptFields({
   onSave: (patch: PlanScriptStepParams) => void;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const own = params[step]?.duration_seconds;
   const effective = effectiveDurationSeconds(params, step);
   const [durDraft, setDurDraft] = useState(
@@ -95,20 +97,18 @@ function PlanScriptFields({
         <h3 className="text-sm font-semibold text-foreground">{header}</h3>
         {inheritedFromPlan ? (
           <p className="mt-1 text-xs text-amber-400/90">
-            Длина не задана для закадрового текста — используются значения из «Сценарий» (
-            {effective} сек).
+            {t("params.planScript.inheritedNotice", { duration: effective ?? "" })}
           </p>
         ) : null}
       </div>
       <NumField
-        label="Длина, секунд"
+        label={step === "plan" ? t("params.planScript.planDuration") : t("params.planScript.scriptDuration")}
         value={durDraft}
         onChange={setDurDraft}
       />
       <div className="rounded-md border border-white/5 bg-black/20 px-3 py-2 text-sm">
-        <p className="text-muted-foreground">Количество символов (длина × 14)</p>
-        <p className="mt-1 font-mono text-foreground">
-          = {charCount != null ? charCount : "____"}
+        <p className="text-muted-foreground">
+          {t("params.planScript.charCount", { count: charCount != null ? charCount : "____" })}
         </p>
       </div>
       <Button
@@ -123,7 +123,7 @@ function PlanScriptFields({
         }}
       >
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        Сохранить
+        {t("common.save")}
       </Button>
     </section>
   );
@@ -138,6 +138,7 @@ function AudioFields({
   onSave: (patch: AudioStepParams) => void;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -236,7 +237,7 @@ function AudioFields({
             className="h-8 gap-1.5 border-cyan-500/30 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
           >
             <Mic className="h-3.5 w-3.5" />
-            Библиотека голосов
+            {t("voices.title")}
           </Button>
         </div>
       </div>
@@ -269,12 +270,12 @@ function AudioFields({
                   )}
                 >
                   {isClone
-                    ? "Клон голоса"
+                    ? t("voices.badges.clone")
                     : selected?.gender === "female" || ruVoice?.gender === "female"
-                      ? "Женский"
+                      ? t("voices.badges.female")
                       : selected?.gender === "male" || ruVoice?.gender === "male"
-                        ? "Мужской"
-                        : "Стандартный"}
+                        ? t("voices.badges.male")
+                        : t("voices.badges.standard")}
                   {selected?.index || ruVoice?.index ? ` #${selected?.index || ruVoice?.index}` : ""}
                 </span>
               </div>
@@ -292,7 +293,7 @@ function AudioFields({
               className="h-8 gap-1.5 text-xs text-foreground"
             >
               {isPlayingSample ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5 text-cyan-400" />}
-              {isPlayingSample ? "Пауза" : "Образец"}
+              {isPlayingSample ? t("voices.buttons.pause") : t("voices.buttons.playSample")}
             </Button>
             <Button
               type="button"
@@ -301,13 +302,13 @@ function AudioFields({
               onClick={() => setLibraryOpen(true)}
               className="h-8 text-xs text-muted-foreground hover:text-foreground"
             >
-              Выбрать другой
+              {t("voices.buttons.chooseOther")}
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-3">
-          <span className="text-xs text-muted-foreground">Голос не выбран</span>
+          <span className="text-xs text-muted-foreground">{t("voices.search.noResults")}</span>
           <Button
             type="button"
             variant="outline"
@@ -315,7 +316,7 @@ function AudioFields({
             onClick={() => setLibraryOpen(true)}
             className="h-8 text-xs text-muted-foreground hover:text-foreground"
           >
-            Выбрать из библиотеки
+            {t("voices.buttons.chooseFromLib")}
           </Button>
         </div>
       )}
@@ -331,7 +332,7 @@ function AudioFields({
         }
       >
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        Сохранить
+        {t("common.save")}
       </Button>
 
       <VoiceLibraryModal
@@ -841,6 +842,7 @@ export function NodeStepParamsPanel({
       ? nodeType
       : null;
 
+  const { t } = useTranslation();
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
@@ -854,7 +856,7 @@ export function NodeStepParamsPanel({
       meta: Record<string, unknown>;
     }) => api.patchProject(projectId, { meta }),
     onSuccess: () => {
-      toast.success("Параметры сохранены");
+      toast.success(t("params.savedToast"));
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["gpt-text", projectId] });
     },
@@ -881,7 +883,7 @@ export function NodeStepParamsPanel({
     <div className="flex flex-col gap-4" data-params-panel="true">
       {step === "plan" ? (
         <PlanScriptFields
-          header="Сценарий"
+          header={t("canvas.nodes.plan")}
           step="plan"
           params={params}
           inheritedFromPlan={false}
@@ -891,7 +893,7 @@ export function NodeStepParamsPanel({
       ) : null}
       {step === "script" ? (
         <PlanScriptFields
-          header="Закадровый текст"
+          header={t("canvas.nodes.script")}
           step="script"
           params={params}
           inheritedFromPlan={

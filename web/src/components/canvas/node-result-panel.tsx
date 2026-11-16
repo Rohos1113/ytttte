@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { NodeResultSnapshot } from "@/lib/node-result-resolver";
 import { getNodeSpec } from "@/lib/node-catalog";
+import { useTranslation } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +44,8 @@ export function NodeResultPanel({
   snapshot: NodeResultSnapshot;
 }) {
   const qc = useQueryClient();
-  const spec = getNodeSpec(nodeType);
+  const { t, locale } = useTranslation();
+  const spec = getNodeSpec(nodeType, locale);
   const wide = WIDE_MODES.has(snapshot.viewMode);
 
   return (
@@ -71,7 +73,7 @@ export function NodeResultPanel({
             snapshot.viewMode === "html_report" && "px-4 pt-4 pb-2",
           )}
         >
-          <DialogTitle>Результат — {spec.label}</DialogTitle>
+          <DialogTitle>{t("common.result")} — {spec.label}</DialogTitle>
           {snapshot.summary && snapshot.summary !== "Ответ GPT готов" && snapshot.summary !== "Ответ GPT на диске" ? (
             <DialogDescription>{snapshot.summary}</DialogDescription>
           ) : null}
@@ -79,7 +81,7 @@ export function NodeResultPanel({
 
         {!snapshot.hasResult && snapshot.viewMode === "default" ? (
           <p className="py-4 text-sm text-muted-foreground">
-            Результат этого шага ещё не готов. Запустите ноду или дождитесь завершения генерации.
+            {t("canvas.nodeResult.notReady")}
           </p>
         ) : (
           <div

@@ -61,3 +61,11 @@ test("running run of a paused project reads as paused", () => {
   assert.equal(formatRunOverlayLabel({ id: 30, status: "running" }, "scripting"), "#30 · работает");
   assert.equal(formatRunOverlayLabel({ id: 30, status: "done" }, "paused"), "#30 · готово");
 });
+
+test("workflow and node run statuses support English", () => {
+  assert.equal(formatRunOverlayLabel({ id: 26, status: "waiting_hitl" }, undefined, "en"), "#26 · awaiting review");
+  assert.equal(formatRunOverlayLabel({ id: 27, status: "done" }, undefined, "en"), "#27 · done");
+  assert.equal(formatRunOverlayLabel({ id: 28, status: "queued" }, undefined, "en"), "#28 · queued");
+  assert.equal(formatRunOverlayLabel({ id: 29, status: "skipped" }, undefined, "en"), "#29 · skipped");
+  assert.equal(formatRunOverlayLabel({ id: 30, status: "running" }, "paused", "en"), "#30 · paused");
+});

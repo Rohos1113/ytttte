@@ -22,8 +22,9 @@ import {
   sampleExtension,
   type VoiceLabVoice,
 } from "@/lib/voice-lab-api";
+import { useTranslation } from "@/lib/i18n";
 
-const LANGUAGES: Array<{ value: string; label: string }> = [
+const LANGUAGES_RU: Array<{ value: string; label: string }> = [
   { value: "ru", label: "Русский" },
   { value: "en", label: "Английский" },
   { value: "de", label: "Немецкий" },
@@ -36,10 +37,17 @@ const LANGUAGES: Array<{ value: string; label: string }> = [
   { value: "uk", label: "Украинский" },
 ];
 
-const STEPS: Array<{ n: number; label: string }> = [
-  { n: 1, label: "Имя и язык" },
-  { n: 2, label: "Сэмплы" },
-  { n: 3, label: "Согласие" },
+const LANGUAGES_EN: Array<{ value: string; label: string }> = [
+  { value: "ru", label: "Russian" },
+  { value: "en", label: "English" },
+  { value: "de", label: "German" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "it", label: "Italian" },
+  { value: "pl", label: "Polish" },
+  { value: "pt", label: "Portuguese" },
+  { value: "tr", label: "Turkish" },
+  { value: "uk", label: "Ukrainian" },
 ];
 
 const ACCEPT_ATTR = ".mp3,.wav,.m4a,.ogg,.flac,audio/*";
@@ -70,6 +78,13 @@ export function CloneVoiceDialog({
   dailyUsed,
   dailyLimit,
 }: Props) {
+  const { t, isEn } = useTranslation();
+  const languages = isEn ? LANGUAGES_EN : LANGUAGES_RU;
+  const steps = [
+    { n: 1, label: t("voices.cloneDialog.step1") },
+    { n: 2, label: t("voices.cloneDialog.step2") },
+    { n: 3, label: t("voices.cloneDialog.step3") },
+  ];
   const [mounted, setMounted] = useState(false);
   // Появление панели сдвигом справа: первый кадр за экраном, второй — на месте.
   const [entered, setEntered] = useState(false);
@@ -244,7 +259,9 @@ export function CloneVoiceDialog({
 
   if (!open || !mounted) return null;
 
-  const submitLabel = submitting ? "Создаём…" : "Создать голос";
+  const submitLabel = submitting
+    ? t("voices.buttons.creating")
+    : t("voices.buttons.createClone");
 
   return createPortal(
     <div
@@ -293,7 +310,7 @@ export function CloneVoiceDialog({
 
         {/* Шаги */}
         <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-white/[0.02] px-3 py-2">
-          {STEPS.map((s, i) => {
+          {steps.map((s, i) => {
             const done = step > s.n;
             const active = step === s.n;
             return (
@@ -318,7 +335,7 @@ export function CloneVoiceDialog({
                     {s.label}
                   </span>
                 </div>
-                {i < STEPS.length - 1 ? (
+                {i < steps.length - 1 ? (
                   <div className={`h-px flex-1 ${step > s.n ? "bg-emerald-500/40" : "bg-white/10"}`} />
                 ) : null}
               </div>
@@ -331,42 +348,39 @@ export function CloneVoiceDialog({
           {success ? (
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
               <CheckCircle2 className="h-10 w-10 text-emerald-400" />
-              <p className="text-[14px] font-semibold text-white">Голос создан</p>
-              <p className="max-w-sm text-[12px] text-white/55">
-                Он уже в табе «Мои клоны» — можно выбрать его для озвучки.
-              </p>
+              <p className="text-[14px] font-semibold text-white">{t("voices.cloneDialog.success")}</p>
             </div>
           ) : step === 1 ? (
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-medium text-white">Название голоса</span>
+                <span className="text-[13px] font-medium text-white">{t("voices.cloneDialog.voiceNameLabel")}</span>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Например: Диктор Алексей"
+                  placeholder={t("voices.cloneDialog.voiceNamePlaceholder")}
                   className="w-full rounded-xl border border-white/10 bg-[#161720] px-3 py-2 text-[13px] text-white placeholder-white/35 outline-none transition focus:border-[#22d3ee]/50 focus:ring-1 focus:ring-[#22d3ee]/30"
                   autoFocus
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-medium text-white">Описание</span>
+                <span className="text-[13px] font-medium text-white">{t("voices.cloneDialog.descLabel")}</span>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  placeholder="Тембр, характер, где использовать — необязательно"
+                  placeholder={t("voices.cloneDialog.descPlaceholder")}
                   className="w-full resize-none rounded-xl border border-white/10 bg-[#161720] px-3 py-2 text-[13px] text-white placeholder-white/35 outline-none transition focus:border-[#22d3ee]/50 focus:ring-1 focus:ring-[#22d3ee]/30"
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-medium text-white">Язык</span>
+                <span className="text-[13px] font-medium text-white">{t("voices.cloneDialog.languageLabel")}</span>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
                   className="h-9 w-full max-w-[260px] rounded-xl border border-white/10 bg-[#161720] px-2 text-[13px] text-white outline-none focus:border-[#22d3ee]/50"
                 >
-                  {LANGUAGES.map((l) => (
+                  {languages.map((l) => (
                     <option key={l.value} value={l.value}>
                       {l.label}
                     </option>
@@ -396,16 +410,16 @@ export function CloneVoiceDialog({
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#22d3ee]/10 text-[#22d3ee]">
                   <Upload className="h-5 w-5" />
                 </div>
-                <p className="text-[13px] font-medium text-white">Перетащите записи сюда</p>
+                <p className="text-[13px] font-medium text-white">{t("voices.cloneDialog.dragTitle")}</p>
                 <p className="text-[11px] text-white/45">
-                  mp3, wav, m4a, ogg, flac · суммарно до 25 МБ · чистая речь, один диктор
+                  {t("voices.cloneDialog.dragHint")}
                 </p>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="mt-1 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-white/10"
                 >
-                  Выбрать файлы
+                  {t("voices.buttons.selectFiles")}
                 </button>
                 <input
                   ref={fileInputRef}
@@ -422,7 +436,7 @@ export function CloneVoiceDialog({
 
               <div className="flex items-center justify-between text-[11px] text-white/45">
                 <span>
-                  Файлов: {files.length} · {formatBytes(totalBytes)} из 25 МБ
+                  {t("voices.cloneDialog.filesSummary", { count: files.length, size: formatBytes(totalBytes) })}
                 </span>
                 {files.length > 0 ? (
                   <button
@@ -430,7 +444,7 @@ export function CloneVoiceDialog({
                     onClick={() => setFiles([])}
                     className="text-[11px] text-white/40 transition hover:text-white"
                   >
-                    Очистить всё
+                    {t("voices.buttons.clearAll")}
                   </button>
                 ) : null}
               </div>
@@ -450,7 +464,7 @@ export function CloneVoiceDialog({
                       <button
                         type="button"
                         onClick={() => removeFile(index)}
-                        title="Удалить файл"
+                        title={t("voices.buttons.removeFile")}
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/35 transition hover:bg-white/10 hover:text-white"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -460,8 +474,7 @@ export function CloneVoiceDialog({
                 </div>
               ) : (
                 <p className="text-[11px] text-white/35">
-                  Хватает минуты речи; качество растёт до трёх минут. Файлы с музыкой и посторонними
-                  голосами не подойдут.
+                  {t("voices.cloneDialog.sampleTip")}
                 </p>
               )}
             </div>
@@ -469,16 +482,16 @@ export function CloneVoiceDialog({
             <div className="flex flex-col gap-3">
               <div className="rounded-xl border border-white/10 bg-[#161720]/70 p-4">
                 <p className="text-[13px] font-medium text-white">
-                  {name.trim() || "Без названия"}
+                  {name.trim() || (isEn ? "Untitled" : "Без названия")}
                   <span className="ml-2 text-[11px] font-normal text-white/40">
-                    {LANGUAGES.find((l) => l.value === language)?.label ?? language}
+                    {languages.find((l) => l.value === language)?.label ?? language}
                   </span>
                 </p>
                 {description.trim() ? (
                   <p className="mt-1 text-[12px] text-white/55">{description.trim()}</p>
                 ) : null}
                 <p className="mt-2 text-[11px] text-white/40">
-                  Файлов: {files.length} · {formatBytes(totalBytes)}
+                  {t("voices.cloneDialog.filesSummary", { count: files.length, size: formatBytes(totalBytes) })}
                 </p>
               </div>
 
@@ -490,22 +503,20 @@ export function CloneVoiceDialog({
                   className="mt-0.5 h-4 w-4 shrink-0 accent-[#22d3ee]"
                 />
                 <span className="text-[12px] text-white/75">
-                  Это мой голос или у меня есть письменное разрешение диктора на клонирование.
+                  {t("voices.cloneDialog.consentCheckbox")}
                 </span>
               </label>
 
               <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-[12px] text-amber-200/90">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
                 <div>
-                  Создание платное и необратимое. Сэмплы остаются в студии — они нужны для повторного
-                  создания — и стираются вместе с голосом. Лимит: {used} из {limit} созданий сегодня.
+                  {t("voices.cloneDialog.paidWarning", { used, limit })}
                 </div>
               </div>
 
               {providerError ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] text-amber-200">
-                  Сэмплы сохранены, голос появится, когда в студии будет ключ ElevenLabs:{" "}
-                  {providerError}
+                  {t("voices.cloneDialog.providerSaved", { error: providerError })}
                 </div>
               ) : null}
 
@@ -531,12 +542,12 @@ export function CloneVoiceDialog({
             className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-white/10 disabled:opacity-40"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
-            {step === 1 ? "Назад к голосам" : "Назад"}
+            {step === 1 ? t("voices.buttons.backToVoices") : t("voices.buttons.back")}
           </button>
 
           <div className="flex items-center gap-2">
             <span className="hidden text-[11px] text-white/35 sm:block">
-              Шаг {step} из {STEPS.length}
+              {t("voices.cloneDialog.stepProgress", { step, total: steps.length })}
             </span>
             {success ? null : providerError ? (
               <button
@@ -544,7 +555,7 @@ export function CloneVoiceDialog({
                 onClick={() => onOpenChange(false)}
                 className="rounded-lg bg-[#22d3ee] px-4 py-1.5 text-[12px] font-semibold text-black transition hover:bg-[#67e8f9]"
               >
-                Готово
+                {t("voices.buttons.done")}
               </button>
             ) : step < 3 ? (
               <button
@@ -553,7 +564,7 @@ export function CloneVoiceDialog({
                 disabled={!canGoNext}
                 className="flex items-center gap-1 rounded-lg bg-[#22d3ee] px-4 py-1.5 text-[12px] font-semibold text-black transition hover:bg-[#67e8f9] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Далее
+                {t("voices.buttons.next")}
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             ) : (

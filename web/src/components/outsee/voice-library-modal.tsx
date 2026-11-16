@@ -30,6 +30,7 @@ import {
   type VoiceLabVoice,
 } from "@/lib/voice-lab-api";
 import { CloneVoiceDialog } from "@/components/voices/clone-voice-dialog";
+import { useTranslation } from "@/lib/i18n";
 
 export type RuVoice = {
   id: string;
@@ -431,12 +432,14 @@ export function VoiceLibraryModal({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const { t } = useTranslation();
+
   if (!open || !mounted) return null;
 
   const sourceTabs: Array<{ value: VoiceSource; label: string; count: number }> = [
-    { value: "clones", label: "Мои клоны", count: clones.length },
-    { value: "catalog", label: "Каталог RU", count: ALL_VOICES.length },
-    { value: "standard", label: "Стандартные", count: STANDARD_ELEVENLABS_VOICES.length },
+    { value: "clones", label: t("voices.tabs.clones"), count: clones.length },
+    { value: "catalog", label: t("voices.tabs.catalog"), count: ALL_VOICES.length },
+    { value: "standard", label: t("voices.tabs.standard"), count: STANDARD_ELEVENLABS_VOICES.length },
   ];
 
   const visibleSourceTabs = showClonesTab
@@ -469,15 +472,14 @@ export function VoiceLibraryModal({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-lg font-semibold tracking-wide text-white">
-                  Голоса ElevenLabs
+                  {t("voices.title")}
                 </h2>
                 <span className="shrink-0 rounded-full bg-[#22d3ee]/20 px-2 py-0.5 text-[11px] font-medium text-[#22d3ee]">
                   v4
                 </span>
               </div>
               <p className="truncate text-[12px] text-white/50">
-                Клоны, каталог русских голосов и стандартные ElevenLabs — один выбор для Create и ноды
-                «Озвучка»
+                {t("voices.subtitle")}
               </p>
             </div>
           </div>
@@ -489,7 +491,7 @@ export function VoiceLibraryModal({
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-[#22d3ee] px-3 text-[12px] font-semibold text-black transition hover:bg-[#67e8f9]"
               >
                 <Plus className="h-4 w-4" />
-                Клонировать голос
+                {t("voices.buttons.cloneVoice")}
               </button>
             ) : null}
             <button
@@ -512,7 +514,7 @@ export function VoiceLibraryModal({
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Поиск по имени, тембру, характеру..."
+                placeholder={t("voices.search.placeholder")}
                 className="w-full rounded-xl border border-white/10 bg-[#161720] py-2 pl-9 pr-3 text-[13px] text-white placeholder-white/35 outline-none transition focus:border-[#22d3ee]/50 focus:ring-1 focus:ring-[#22d3ee]/30"
                 autoFocus
               />
@@ -538,7 +540,7 @@ export function VoiceLibraryModal({
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Все ({tabEntries.length})
+                {t("voices.tabs.all")} ({tabEntries.length})
               </button>
               <button
                 type="button"
@@ -549,7 +551,7 @@ export function VoiceLibraryModal({
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Женские{countSuffix(femaleCount)}
+                {t("voices.badges.female")}{countSuffix(femaleCount)}
               </button>
               <button
                 type="button"
@@ -560,7 +562,7 @@ export function VoiceLibraryModal({
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Мужские{countSuffix(maleCount)}
+                {t("voices.badges.male")}{countSuffix(maleCount)}
               </button>
             </div>
           </div>
@@ -604,11 +606,10 @@ export function VoiceLibraryModal({
             <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
               <Volume2 className="h-10 w-10 text-white/20" />
               <p className="text-[14px] text-white/60">
-                Клонов пока нет — загрузите записи, чтобы создать голос
+                {t("voices.search.noClones")}
               </p>
               <p className="max-w-md text-[12px] text-white/35">
-                Мгновенное клонирование ElevenLabs: минуты чистой речи одного диктора достаточно, чтобы
-                голос зазвучал в озвучке.
+                {t("voices.search.noClonesHint")}
               </p>
               {canUseClones ? (
                 <button
@@ -617,15 +618,14 @@ export function VoiceLibraryModal({
                   className="mt-2 flex h-9 items-center gap-1.5 rounded-xl bg-[#22d3ee] px-3 text-[12px] font-semibold text-black transition hover:bg-[#67e8f9]"
                 >
                   <Plus className="h-4 w-4" />
-                  Клонировать голос
+                  {t("voices.buttons.cloneVoice")}
                 </button>
               ) : null}
             </div>
           ) : !showGrid ? (
             <div className="flex h-64 flex-col items-center justify-center text-center">
               <Volume2 className="h-10 w-10 text-white/20 mb-2" />
-              <p className="text-[14px] text-white/60">Ничего не найдено</p>
-              <p className="text-[12px] text-white/35">Попробуйте изменить поисковый запрос</p>
+              <p className="text-[14px] text-white/60">{t("voices.search.noResults")}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-2">
@@ -647,7 +647,10 @@ export function VoiceLibraryModal({
                     }}
                     title={
                       clone && !ready
-                        ? "Голос ещё не создан в ElevenLabs — выбрать его для озвучки нельзя"
+                        ? t("voices.errors.voiceNotReady", {
+                            name: clone.name,
+                            status: voiceLabStatusLabel(clone.status),
+                          })
                         : undefined
                     }
                     className={`group relative flex items-center justify-between rounded-xl border p-3 transition duration-150 ${
@@ -664,7 +667,7 @@ export function VoiceLibraryModal({
                       <button
                         type="button"
                         onClick={(e) => togglePlay(entry, e)}
-                        title={isPlaying ? "Пауза" : "Прослушать образец"}
+                        title={isPlaying ? t("voices.buttons.pause") : t("voices.buttons.playSample")}
                         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${
                           isPlaying
                             ? "bg-[#22d3ee] text-black shadow-lg shadow-[#22d3ee]/30 animate-pulse"
@@ -708,14 +711,14 @@ export function VoiceLibraryModal({
                                 disabled={busy}
                                 className="rounded-md bg-[#22d3ee] px-2 py-0.5 text-[11px] font-semibold text-black disabled:opacity-50"
                               >
-                                Сохранить
+                                {t("common.save")}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setRenamingId(null)}
                                 className="rounded-md border border-white/10 px-2 py-0.5 text-[11px] text-white/60 hover:text-white"
                               >
-                                Отмена
+                                {t("common.cancel")}
                               </button>
                             </div>
                           </div>
@@ -727,7 +730,7 @@ export function VoiceLibraryModal({
                               </span>
                               {clone ? (
                                 <span className="shrink-0 rounded bg-[#22d3ee]/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#22d3ee]">
-                                  Клон
+                                  {t("voices.badges.clone")}
                                 </span>
                               ) : null}
                               {clone ? (
@@ -736,7 +739,7 @@ export function VoiceLibraryModal({
                                     clone.status,
                                   )}`}
                                 >
-                                  {voiceLabStatusLabel(clone.status)}
+                                  {t("voices.statuses." + clone.status) || voiceLabStatusLabel(clone.status)}
                                 </span>
                               ) : null}
                               {!clone && entry.gender ? (
@@ -772,7 +775,7 @@ export function VoiceLibraryModal({
                                   className="flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
                                 >
                                   <Pencil className="h-3 w-3" />
-                                  Переименовать
+                                  {t("voices.buttons.rename")}
                                 </button>
                                 <button
                                   type="button"
@@ -780,7 +783,7 @@ export function VoiceLibraryModal({
                                   className="flex items-center gap-1 rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-300 transition hover:bg-rose-500/20"
                                 >
                                   <Trash2 className="h-3 w-3" />
-                                  Удалить
+                                  {t("voices.buttons.delete")}
                                 </button>
                               </div>
                             ) : null}
@@ -821,7 +824,7 @@ export function VoiceLibraryModal({
                           type="button"
                           className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-medium text-white/50 opacity-0 transition group-hover:opacity-100 hover:border-white/30 hover:text-white"
                         >
-                          Выбрать
+                          {t("voices.buttons.selectVoice")}
                         </button>
                       )}
                     </div>
