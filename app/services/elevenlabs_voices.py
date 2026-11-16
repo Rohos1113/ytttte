@@ -97,8 +97,10 @@ def resolve_elevenlabs_voice_id(project: Project) -> str:
                 )
                 if rid == vid_clean or ext_id == vid_clean:
                     if ext_id:
-                        return ext_id
-                    return rid
+                        return str(ext_id)
+                    if rid:
+                        return str(rid)
+                    return vid_clean
         except Exception:
             pass
         if len(vid_clean) >= 15:
