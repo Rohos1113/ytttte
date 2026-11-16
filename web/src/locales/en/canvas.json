@@ -1,0 +1,37 @@
+{
+  "nodes": {
+    "topic": "Topic",
+    "plan": "Script Plan",
+    "script": "Voiceover Script",
+    "split": "Storyboards",
+    "hero": "Key Character",
+    "items": "Key Objects",
+    "excel_gpt": "Scene Table",
+    "image_prompts": "Frame Prompts",
+    "images": "Image Generation",
+    "animation_prompts": "Video Prompts",
+    "videos": "Video Generation",
+    "audio": "Voiceover",
+    "music": "Music",
+    "sfx_plan": "SFX Plan",
+    "sfx_gen": "SFX Generation",
+    "assemble": "Assembly",
+    "publish": "Publish"
+  },
+  "statuses": {
+    "idle": "Idle",
+    "running": "In progress...",
+    "done": "Done",
+    "failed": "Failed",
+    "paused": "Paused",
+    "pending": "Pending"
+  },
+  "actions": {
+    "settings": "Settings",
+    "result": "Result",
+    "runStep": "Run Step",
+    "restartStep": "Restart Step",
+    "fullView": "Full View",
+    "stop": "Stop"
+  }
+}

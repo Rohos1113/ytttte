@@ -11,6 +11,7 @@ import { UserPrefsApplier } from "@/components/panels/top/user-panel";
 import { StoragePanel } from "@/components/panels/left-top/storage-panel";
 import { PaymentsPanel } from "@/components/panels/left-bottom/payments-panel";
 import { PayoutsPanel } from "@/components/panels/left-bottom/payouts-panel";
+import { LanguageSwitcher } from "@/components/ui/language-switcher";
 
 interface UiState {
   framesProjectId: number | null;
@@ -126,6 +127,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <button type="button" onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title="Пользователь" aria-label="Пользователь">
           <User className="h-5 w-5" strokeWidth={1.6} />
         </button>
+        <LanguageSwitcher variant="compact" className="my-0.5" />
         <div className="relative">
           <button type="button" onClick={() => setSettingsOpen((v) => !v)} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (settingsOpen ? "text-white" : "text-zinc-400")} title="Настройки" aria-label="Настройки">
             <Settings className="h-5 w-5" strokeWidth={1.6} />
@@ -136,7 +138,11 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
                 <span className="text-[13px] font-medium uppercase tracking-[0.12em] text-zinc-300">Настройки</span>
                 <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
               </div>
-              <div className="mb-3 text-[13px] text-zinc-500">Текстовая модель</div>
+              <div className="mb-1.5 text-[13px] text-zinc-500">Язык интерфейса / Language</div>
+              <div className="mb-3">
+                <LanguageSwitcher className="w-full justify-center" />
+              </div>
+              <div className="mb-2 text-[13px] text-zinc-500">Текстовая модель</div>
               <TextLlmPicker className="w-full h-8" side="bottom" align="start" />
               <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">Версия <StudioVersionBadge /></div>
             </div>

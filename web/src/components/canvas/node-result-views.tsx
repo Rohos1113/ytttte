@@ -38,6 +38,7 @@ import type { ProjectDetail } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { MediaFrameGallery } from "@/components/hitl/media-frame-gallery";
+import { getTranslation } from "@/lib/i18n";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import {
   ROW_VOICEOVER_V8,
@@ -2463,15 +2464,20 @@ export const SFX_KIND_META: Record<
 
 export function getSfxMeta(kind: string) {
   const k = (kind || "").toLowerCase().trim();
-  return (
-    SFX_KIND_META[k] || {
-      label: "Эффект",
-      desc: "Звуковой эффект саунд-дизайна",
-      bg: "bg-white/5",
-      text: "text-zinc-300",
-      border: "border-white/10",
-    }
-  );
+  const base = SFX_KIND_META[k] || {
+    label: "Эффект",
+    desc: "Звуковой эффект саунд-дизайна",
+    bg: "bg-white/5",
+    text: "text-zinc-300",
+    border: "border-white/10",
+  };
+  const label = getTranslation(`sfx.categories.${k}.label`);
+  const desc = getTranslation(`sfx.categories.${k}.desc`);
+  return {
+    ...base,
+    label: label !== `sfx.categories.${k}.label` ? label : base.label,
+    desc: desc !== `sfx.categories.${k}.desc` ? desc : base.desc,
+  };
 }
 
 function SfxPlanView({

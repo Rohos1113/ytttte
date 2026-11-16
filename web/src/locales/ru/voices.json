@@ -1,0 +1,36 @@
+{
+  "title": "Библиотека голосов",
+  "tabs": {
+    "all": "Все",
+    "clones": "Мои клоны",
+    "catalog": "Каталог (200)",
+    "standard": "Стандартные (9)",
+    "history": "История"
+  },
+  "buttons": {
+    "cloneVoice": "Клонировать голос",
+    "selectVoice": "Выбрать голос",
+    "chooseOther": "Выбрать другой",
+    "chooseFromLib": "Выбрать из библиотеки",
+    "playSample": "Образец",
+    "pause": "Пауза"
+  },
+  "badges": {
+    "clone": "Клон голоса",
+    "female": "Женский",
+    "male": "Мужской",
+    "standard": "Стандартный"
+  },
+  "cloneDialog": {
+    "title": "Мастер клонирования голоса",
+    "step1": "Имя и язык",
+    "step2": "Сэмплы",
+    "step3": "Согласие",
+    "voiceNameLabel": "Имя голоса",
+    "voiceNamePlaceholder": "Например: Мой рабочий голос",
+    "languageLabel": "Основной язык",
+    "samplesLabel": "Аудиозаписи (сэмплы)",
+    "uploadHint": "Загрузите от 1 до 25 файлов (до 25 МБ суммарно)",
+    "limitWarning": "Использовано {used} из {limit} созданий сегодня"
+  }
+}

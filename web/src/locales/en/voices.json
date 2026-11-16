@@ -1,0 +1,36 @@
+{
+  "title": "Voice Library",
+  "tabs": {
+    "all": "All",
+    "clones": "My Clones",
+    "catalog": "Catalog (200)",
+    "standard": "Standard (9)",
+    "history": "History"
+  },
+  "buttons": {
+    "cloneVoice": "Clone Voice",
+    "selectVoice": "Select Voice",
+    "chooseOther": "Choose Other",
+    "chooseFromLib": "Choose from Library",
+    "playSample": "Sample",
+    "pause": "Pause"
+  },
+  "badges": {
+    "clone": "Voice Clone",
+    "female": "Female",
+    "male": "Male",
+    "standard": "Standard"
+  },
+  "cloneDialog": {
+    "title": "Voice Cloning Wizard",
+    "step1": "Name & Language",
+    "step2": "Samples",
+    "step3": "Consent",
+    "voiceNameLabel": "Voice Name",
+    "voiceNamePlaceholder": "E.g.: My Voice",
+    "languageLabel": "Primary Language",
+    "samplesLabel": "Audio Samples",
+    "uploadHint": "Upload 1 to 25 files (up to 25 MB total)",
+    "limitWarning": "Used {used} of {limit} creations today"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "title": "Sound Effects (SFX)",
+  "planTitle": "SFX Plan",
+  "legend": "Sound categories:",
+  "notGenerated": "Sounds have not been generated yet",
+  "planEmpty": "Sound plan has not been created yet",
+  "queue": "Generation queue by plan ({count} events):",
+  "readyEvents": "Ready · {count} events",
+  "readyFiles": "Ready · {count} file(s)",
+  "categories": {
+    "foley": {
+      "label": "Foley",
+      "desc": "Sync sounds and actions: footsteps, rustling, clicks, object interactions"
+    },
+    "ambience": {
+      "label": "Ambience",
+      "desc": "Background environment: wind, nature, room tone, background drone"
+    },
+    "whoosh": {
+      "label": "Whoosh",
+      "desc": "Fast motion sound: swoosh, whip, camera flyby, or moving object"
+    },
+    "hit": {
+      "label": "Hit",
+      "desc": "Sharp sound accent: impact, hit, gunshot, fall, or explosion"
+    },
+    "stinger": {
+      "label": "Stinger",
+      "desc": "Dramatic swell, narrative or thematic audio accent"
+    },
+    "riser": {
+      "label": "Riser",
+      "desc": "Gradual audio tension build-up before the climax"
+    },
+    "transition": {
+      "label": "Transition",
+      "desc": "Sound transition effect between scenes, shots, or moods"
+    },
+    "default": {
+      "label": "Effect",
+      "desc": "Sound design effect"
+    }
+  }
+}
