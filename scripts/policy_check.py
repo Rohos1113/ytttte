@@ -66,7 +66,10 @@ def git(*args: str) -> str:
 
 
 def changed_files(base: str) -> list[str]:
-    return [p for p in git("diff", "--name-only", f"{base}...HEAD").splitlines() if p]
+    try:
+        return [p for p in git("diff", "--name-only", f"{base}...HEAD").splitlines() if p]
+    except subprocess.CalledProcessError:
+        return []
 
 
 def collect_debt() -> dict[str, list[str]]:
@@ -293,8 +296,9 @@ def main(argv: list[str] | None = None) -> int:
     base_ref = args.base or "origin/main"
     try:
         git("rev-parse", "--verify", base_ref)
+        git("merge-base", base_ref, "HEAD")
     except subprocess.CalledProcessError:
-        print(f"policy-check: нет ссылки {base_ref} — сверку диффа пропускаю", file=sys.stderr)
+        print(f"policy-check: нет ссылки {base_ref} или общего предка — сверку диффа пропускаю", file=sys.stderr)
         base_ref = ""
 
     problems: list[str] = []

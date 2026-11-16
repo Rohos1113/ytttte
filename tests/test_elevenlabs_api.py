@@ -217,6 +217,7 @@ async def test_tts_fallback_from_elevenlabs_to_wavespeed_on_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from unittest.mock import patch
+
     from app.bots.wavespeed_http import GenerationResult
 
     monkeypatch.setattr(settings, "elevenlabs_api_key", "sk-el-test")

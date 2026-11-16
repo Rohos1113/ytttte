@@ -160,10 +160,10 @@ from app.web.routers import (
     text_llm as text_llm_router,
 )
 from app.web.routers import (
-    voices as voices_router,
+    voice_lab as voice_lab_router,
 )
 from app.web.routers import (
-    voice_lab as voice_lab_router,
+    voices as voices_router,
 )
 from app.web.routers import (
     workflows as workflows_router,
