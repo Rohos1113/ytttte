@@ -11,10 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
-  FEMALE_RU_VOICES,
-  MALE_RU_VOICES,
-  RU_VOICES,
-  elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
 import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
@@ -260,36 +256,20 @@ function AudioFields({
             </Button>
           </div>
         </div>
-      ) : null}
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-foreground">Выбрать из списка</span>
-        <select
-          className="h-9 w-full max-w-xl rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
-          value={voiceDraft}
-          onChange={(e) => setVoiceDraft(e.target.value)}
-        >
-          {voiceDraft && !RU_VOICES.some((v) => v.id === voiceDraft) ? (
-            <option value={voiceDraft}>
-              {findElevenLabsVoice(voiceDraft)?.name || voiceDraft} (ранее выбранный)
-            </option>
-          ) : null}
-          <optgroup label="Женские голоса (100)">
-            {FEMALE_RU_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                #{v.index} {v.name} — {v.description}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Мужские голоса (100)">
-            {MALE_RU_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                #{v.index} {v.name} — {v.description}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-      </label>
+      ) : (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-3">
+          <span className="text-xs text-muted-foreground">Голос не выбран</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setLibraryOpen(true)}
+            className="h-8 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Выбрать из 200
+          </Button>
+        </div>
+      )}
 
       <Button
         size="sm"
