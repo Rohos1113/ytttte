@@ -1107,9 +1107,11 @@ export function NodeStudio({
                       <p className="mt-1.5 max-w-md text-[13px] text-zinc-300">
                         {inlineResult?.summary || "Шаг выполняется ИИ-воркером. Пожалуйста, подождите."}
                       </p>
-                      <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/40 px-4 py-2.5 text-[12px] text-zinc-400">
-                        💡 Анализ и расстановка шотов для больших проектов занимает от 4 до 10 минут. Результат появится здесь автоматически.
-                      </div>
+                      {(nodeType === "scene_design" || nodeType === "sd_agent" || nodeType === "sd_assemble") && (
+                        <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/40 px-4 py-2.5 text-[12px] text-zinc-400">
+                          💡 Анализ и расстановка шотов для больших проектов занимает от 4 до 10 минут. Результат появится здесь автоматически.
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
