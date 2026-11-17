@@ -84,12 +84,13 @@ import { estimateCreatePrice } from "@/lib/create-pricing";
 import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
 import { inspirationPromptSuffix, inspirationStyle } from "@/lib/inspiration-styles";
 import { InspirationMenu } from "./inspiration-menu";
-import { VoiceLibraryModal, getVoiceById, resolveVoiceName } from "./voice-library-modal";
-import { AudioTagsBar } from "./audio-tags-bar";
+import { getVoiceById, resolveVoiceName } from "./voice-library-modal";
+import { CloneVoiceDialog } from "@/components/voices/clone-voice-dialog";
 import {
   MentionMenu,
   RefCategory,
   SeedanceDock,
+  ElevenLabsDock,
   framesFromKieValues,
   refToken,
   refsFromKieFields,
@@ -119,6 +120,9 @@ function isSeedanceModel(m: KieModelSpec | null): boolean {
 
 /** Поля Seedance, которые рисует SeedanceDock, — из общего списка чипов их убираем. */
 const SEEDANCE_DOCK_FIELDS = new Set(["aspect_ratio", "resolution", "duration", "generate_audio"]);
+
+/** Поля ElevenLabs, которые рисует ElevenLabsDock (голос + слайдеры), — из чипов убираем. */
+const ELEVENLABS_DOCK_FIELDS = new Set(["voice_id", "stability", "similarity"]);
 
 /**
  * Крупные PNG Kie рвёт на загрузке (ReadError). Перед отправкой ужимаем фото
@@ -981,7 +985,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const multiRefInputRef = useRef<HTMLInputElement>(null);
-  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  const [cloneVoiceOpen, setCloneVoiceOpen] = useState(false);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleInsertAudioTag = (tag: string) => {
@@ -1004,6 +1008,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const newPos = start + inserted.length;
       textarea.setSelectionRange(newPos, newPos);
     });
+  };
+
+  /** Выбор голоса из выпадающего меню ElevenLabsDock (вместо старого модала). */
+  const handleVoiceChange = (voiceId: string, name: string) => {
+    setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
+    toast.success(`Выбран голос: ${name}`);
   };
   const referenceImagesRef = useRef<RefImage[]>([]);
 
@@ -1422,6 +1432,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
   };
 
+  /** Сброс панели «Параметры» озвучки ElevenLabs к дефолтам модели. */
+  const resetElevenLabsParams = () => {
+    const defaults: [string, unknown][] = [];
+    for (const name of ELEVENLABS_DOCK_FIELDS) {
+      const f = kieModel?.fields.find((x) => x.name === name);
+      if (f?.default !== undefined) defaults.push([name, f.default]);
+    }
+    if (defaults.length === 0) return;
+    setKieValues((prev) => {
+      const next = { ...prev };
+      for (const [name, value] of defaults) next[name] = value;
+      return next;
+    });
+  };
+
   const switchSeedanceMode = (mode: "omni" | "frames") => {
     setSeedanceMode(mode);
     // Поля взаимоисключающие (валидатор KIE не даёт смешивать кадры и референсы),
@@ -1734,6 +1759,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     kieModel?.id === "elevenlabs-v4" ||
     activeSlug === "elevenlabs-v4" ||
     activeSlug === "kie:elevenlabs-v4";
+
+  /** Имя выбранного голоса для чипа дока и панели («Marina (Ж)»). */
+  const voiceChipName = useMemo(() => {
+    const vStr = String(kieValues["voice_id"] ?? "");
+    const ru = getVoiceById(vStr);
+    if (ru) return `${ru.name} (${ru.gender === "female" ? "Ж" : "М"})`;
+    return resolveVoiceName(vStr) || vStr || "Голос";
+  }, [kieValues]);
 
   const autoProvider: "outsee" | null = useMemo(() => {
     if (kieActive) return null;
@@ -4118,12 +4151,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     />
                   </div>
                 )}
-                {mediaType === "audio" &&
-                  (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")) && (
-                    <div className="px-3 pt-3 lg:px-4">
-                      <AudioTagsBar onInsertTag={handleInsertAudioTag} />
-                    </div>
-                  )}
                 {(!kieActive || kieTextField) && (
                   <div className="relative px-3 pt-3 lg:px-4">
                     <MentionMenu
@@ -4416,11 +4443,26 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     />
                   )}
 
+                  {/* ElevenLabs: док «Параметры» озвучки — голос, слайдеры, теги, клонирование */}
+                  {kieActive && isElevenLabsActive && kieModel && (
+                    <ElevenLabsDock
+                      voiceName={voiceChipName}
+                      values={kieValues}
+                      onChange={handleKieValueChange}
+                      onVoice={handleVoiceChange}
+                      onClone={() => setCloneVoiceOpen(true)}
+                      onInsertTag={handleInsertAudioTag}
+                      onReset={resetElevenLabsParams}
+                      priceLabel={priceLabel}
+                    />
+                  )}
+
                   {/* KIE: динамические настройки модели из каталога */}
                   {kieActive &&
                     kieModel &&
                     kieChipFields(kieModel)
                       .filter((f) => !(seedanceIsKie && SEEDANCE_DOCK_FIELDS.has(f.name)))
+                      .filter((f) => !(isElevenLabsActive && ELEVENLABS_DOCK_FIELDS.has(f.name)))
                       .filter((f) => kieFieldVisible(f, kieValues))
                       .map((f) => (
                         <KieFieldChip
@@ -4430,7 +4472,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           openChip={openChip}
                           setOpenChip={setOpenChip}
                           setModelOpen={setModelOpen}
-                          onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
                           onChange={handleKieValueChange}
                         />
                       ))}
@@ -4809,14 +4850,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         </div>
       )}
 
-      {/* Voice Library Modal */}
-      <VoiceLibraryModal
-        open={voiceLibraryOpen}
-        onOpenChange={setVoiceLibraryOpen}
-        selectedVoiceId={String(kieValues["voice_id"] || "ymDCYd8puC7gYjxIamPt")}
-        onSelectVoice={(voiceId, voiceName) => {
-          setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
-          toast.success(`Выбран голос: ${voiceName}`);
+      {/* Визард клонирования голоса («Новый голос», 3 шага) — встаёт справа от панели «Параметры» */}
+      <CloneVoiceDialog
+        open={cloneVoiceOpen}
+        onOpenChange={setCloneVoiceOpen}
+        onCreated={(voice) => {
+          const vid = voice.external_voice_id || voice.id;
+          handleVoiceChange(vid, voice.name);
         }}
       />
     </div>

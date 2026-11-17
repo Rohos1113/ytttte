@@ -22,9 +22,11 @@ import {
   Layers,
   Loader2,
   Maximize2,
+  Mic,
   Music,
   Plus,
   RotateCcw,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
   X,
@@ -32,6 +34,8 @@ import {
 } from "lucide-react";
 import type { KieField } from "@/lib/api";
 import { REF_KIND_LABEL, refToken, type GenRef, type RefKind } from "@/lib/gen-dock-refs";
+import { VoicePickerRow } from "@/components/voices/voice-picker-row";
+import { AudioTagsRow } from "@/components/voices/audio-tags-row";
 import { cn } from "@/lib/utils";
 
 /** Изумрудный акцент студии; им помечены активные элементы окна генерации. */
@@ -795,6 +799,208 @@ export function SeedanceDock({
         value={preset}
         onChange={onPreset}
       />
+    </div>
+  );
+}
+
+/** Слайдер 0–1 для панели «Параметры» (стабильность/схожесть ElevenLabs). */
+function PaneSlider({
+  title,
+  value,
+  onChange,
+}: {
+  title: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <PaneSection title={title}>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
+        />
+        <span className="w-10 text-right font-mono text-[11px] font-semibold tabular-nums text-[#2dd4bf]">
+          {value.toFixed(2)}
+        </span>
+      </div>
+    </PaneSection>
+  );
+}
+
+/**
+ * Док «Озвучка ElevenLabs v4» во вкладке «Генерация» (новый дизайн).
+ *
+ * Чипы дока открывают ОДНУ панель «Параметры» (data-params-panel — по ней
+ * выравниваются меню выбора голоса и визард клонирования), внутри панели:
+ * выбор голоса (VoicePickerRow), слайдеры стабильность/схожесть, строка
+ * аудио-тегов (AudioTagsRow) и кнопка «Клонировать голос».
+ */
+export function ElevenLabsDock({
+  voiceName,
+  values,
+  onChange,
+  onVoice,
+  onClone,
+  onInsertTag,
+  onReset,
+  priceLabel,
+}: {
+  /** Человекочитаемое имя выбранного голоса для чипа дока («Marina (Ж)»). */
+  voiceName: string;
+  values: Record<string, unknown>;
+  onChange: (name: string, v: unknown) => void;
+  /** Выбор голоса из меню: (voice_id, человекочитаемое имя). */
+  onVoice: (voiceId: string, name: string) => void;
+  /** Открыть визард клонирования голоса. */
+  onClone: () => void;
+  /** Вставить аудио-тег в позицию курсора промта. */
+  onInsertTag: (tag: string) => void;
+  /** Сброс голоса и слайдеров к дефолтам модели. */
+  onReset: () => void;
+  /** Цена одной генерации — бейдж в шапке панели. */
+  priceLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const num = (raw: unknown, fallback: number): number => {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const stability = num(values.stability, 0.5);
+  const similarity = num(values.similarity, 0.75);
+
+  const togglePanel = () => setOpen((v) => !v);
+
+  return (
+    <div className="inline-flex flex-wrap items-center gap-1.5">
+      <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
+        <span data-chip="params">
+          <ParamChip
+            icon={<Layers className="h-3 w-3" />}
+            value="Параметры"
+            title="Параметры озвучки"
+            active={open}
+            chevron={false}
+            onClick={togglePanel}
+          />
+        </span>
+        <span data-chip="voice">
+          <ParamChip
+            icon={<Mic className="h-3 w-3" />}
+            value={voiceName}
+            title="Голос"
+            active={open}
+            onClick={togglePanel}
+          />
+        </span>
+        <span data-chip="stability">
+          <ParamChip
+            icon={<SlidersHorizontal className="h-3 w-3" />}
+            value={stability.toFixed(2)}
+            title="Стабильность (0–1)"
+            active={open}
+            onClick={togglePanel}
+          />
+        </span>
+        <span data-chip="similarity">
+          <ParamChip
+            icon={<SlidersHorizontal className="h-3 w-3" />}
+            value={similarity.toFixed(2)}
+            title="Схожесть (0–1)"
+            active={open}
+            onClick={togglePanel}
+          />
+        </span>
+
+        {open && (
+          <div
+            data-params-panel="true"
+            className="absolute bottom-full left-0 z-[1000] mb-2 w-[300px] rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
+                Параметры
+              </p>
+              {priceLabel && (
+                <span className="font-mono text-[10px] font-semibold text-[#2dd4bf]">{priceLabel}</span>
+              )}
+            </div>
+
+            <PaneSection title="Голос (Voice ID)">
+              <VoicePickerRow value={String(values.voice_id ?? "")} onChange={onVoice} onClone={onClone} />
+            </PaneSection>
+
+            <PaneSlider
+              title="Стабильность (0–1)"
+              value={stability}
+              onChange={(v) => onChange("stability", v)}
+            />
+            <PaneSlider
+              title="Схожесть (0–1)"
+              value={similarity}
+              onChange={(v) => onChange("similarity", v)}
+            />
+
+            <PaneSection title="Аудио-теги">
+              <AudioTagsRow onInsertTag={onInsertTag} />
+            </PaneSection>
+
+            <button
+              type="button"
+              onClick={onClone}
+              className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Клонировать голос
+            </button>
+
+            <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2">
+              <button
+                type="button"
+                data-action="reset-params"
+                onClick={() => {
+                  onReset();
+                  setOpen(false);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Сбросить
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg bg-[#2dd4bf]/15 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25"
+              >
+                Готово
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
