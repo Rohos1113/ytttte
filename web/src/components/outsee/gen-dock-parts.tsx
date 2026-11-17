@@ -843,6 +843,7 @@ function PaneSlider({
  */
 export function ElevenLabsDock({
   voiceName,
+  voiceId,
   values,
   onChange,
   onVoice,
@@ -853,6 +854,8 @@ export function ElevenLabsDock({
 }: {
   /** Человекочитаемое имя выбранного голоса для чипа дока («Marina (Ж)»). */
   voiceName: string;
+  /** voice_id для строки выбора голоса (с дефолтом модели, если в состоянии пусто). */
+  voiceId: string;
   values: Record<string, unknown>;
   onChange: (name: string, v: unknown) => void;
   /** Выбор голоса из меню: (voice_id, человекочитаемое имя). */
@@ -866,16 +869,27 @@ export function ElevenLabsDock({
   /** Цена одной генерации — бейдж в шапке панели. */
   priceLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  const num = (raw: unknown, fallback: number): number => {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const stability = num(values.stability, 0.5);
+  const similarity = num(values.similarity, 0.75);
+
+  const [openChip, setOpenChip] = useState<
+    "params" | "voice" | "stability" | "similarity" | null
+  >(null);
+  const open = openChip !== null;
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpenChip(null);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setOpenChip(null);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -885,14 +899,8 @@ export function ElevenLabsDock({
     };
   }, [open]);
 
-  const num = (raw: unknown, fallback: number): number => {
-    const n = typeof raw === "number" ? raw : Number(raw);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const stability = num(values.stability, 0.5);
-  const similarity = num(values.similarity, 0.75);
-
-  const togglePanel = () => setOpen((v) => !v);
+  const togglePanel = (chip: "params" | "voice" | "stability" | "similarity") =>
+    setOpenChip((prev) => (prev === chip ? null : chip));
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
@@ -902,9 +910,9 @@ export function ElevenLabsDock({
             icon={<Layers className="h-3 w-3" />}
             value="Параметры"
             title="Параметры озвучки"
-            active={open}
+            active={openChip === "params"}
             chevron={false}
-            onClick={togglePanel}
+            onClick={() => togglePanel("params")}
           />
         </span>
         <span data-chip="voice">
@@ -912,8 +920,8 @@ export function ElevenLabsDock({
             icon={<Mic className="h-3 w-3" />}
             value={voiceName}
             title="Голос"
-            active={open}
-            onClick={togglePanel}
+            active={openChip === "voice"}
+            onClick={() => togglePanel("voice")}
           />
         </span>
         <span data-chip="stability">
@@ -921,8 +929,8 @@ export function ElevenLabsDock({
             icon={<SlidersHorizontal className="h-3 w-3" />}
             value={stability.toFixed(2)}
             title="Стабильность (0–1)"
-            active={open}
-            onClick={togglePanel}
+            active={openChip === "stability"}
+            onClick={() => togglePanel("stability")}
           />
         </span>
         <span data-chip="similarity">
@@ -930,8 +938,8 @@ export function ElevenLabsDock({
             icon={<SlidersHorizontal className="h-3 w-3" />}
             value={similarity.toFixed(2)}
             title="Схожесть (0–1)"
-            active={open}
-            onClick={togglePanel}
+            active={openChip === "similarity"}
+            onClick={() => togglePanel("similarity")}
           />
         </span>
 
@@ -950,7 +958,7 @@ export function ElevenLabsDock({
             </div>
 
             <PaneSection title="Голос (Voice ID)">
-              <VoicePickerRow value={String(values.voice_id ?? "")} onChange={onVoice} onClone={onClone} />
+              <VoicePickerRow value={voiceId} onChange={onVoice} onClone={onClone} />
             </PaneSection>
 
             <PaneSlider
@@ -983,7 +991,7 @@ export function ElevenLabsDock({
                 data-action="reset-params"
                 onClick={() => {
                   onReset();
-                  setOpen(false);
+                  setOpenChip(null);
                 }}
                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
               >
@@ -992,7 +1000,7 @@ export function ElevenLabsDock({
               </button>
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={() => setOpenChip(null)}
                 className="rounded-lg bg-[#2dd4bf]/15 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25"
               >
                 Готово

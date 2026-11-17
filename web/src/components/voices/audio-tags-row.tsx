@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { AUDIO_TAG_CATEGORIES } from "@/lib/audio-tags";
 import { useTranslation } from "@/lib/i18n";
 
@@ -100,11 +100,10 @@ export function AudioTagsRow({ onInsertTag }: Props) {
         aria-haspopup="dialog"
         className="flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 text-[12px] text-white/80 transition hover:border-white/15 hover:bg-white/[0.06]"
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#2dd4bf]" />
-          <span className="shrink-0 text-white/55">{t("voices.tags.title")}</span>
+        <span className="shrink-0 whitespace-nowrap text-white/55">
+          {t("voices.tags.title")}
         </span>
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <span className="truncate">{t("voices.tags.subtitle")}</span>
           <ChevronDown
             className={`h-3.5 w-3.5 shrink-0 text-white/40 transition ${open ? "rotate-180" : ""}`}

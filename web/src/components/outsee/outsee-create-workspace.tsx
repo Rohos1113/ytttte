@@ -1760,13 +1760,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     activeSlug === "elevenlabs-v4" ||
     activeSlug === "kie:elevenlabs-v4";
 
+  /** Дефолтный voice_id из каталога — показываем «Marina», даже если в состоянии пусто. */
+  const elevenLabsVoiceId = useMemo(() => {
+    const raw = String(kieValues["voice_id"] ?? "").trim();
+    if (raw) return raw;
+    const def = kieModel?.fields.find((f) => f.name === "voice_id")?.default;
+    return def == null ? "" : String(def);
+  }, [kieValues, kieModel]);
+
   /** Имя выбранного голоса для чипа дока и панели («Marina (Ж)»). */
   const voiceChipName = useMemo(() => {
-    const vStr = String(kieValues["voice_id"] ?? "");
-    const ru = getVoiceById(vStr);
+    const ru = getVoiceById(elevenLabsVoiceId);
     if (ru) return `${ru.name} (${ru.gender === "female" ? "Ж" : "М"})`;
-    return resolveVoiceName(vStr) || vStr || "Голос";
-  }, [kieValues]);
+    return resolveVoiceName(elevenLabsVoiceId) || elevenLabsVoiceId || "Голос";
+  }, [elevenLabsVoiceId]);
 
   const autoProvider: "outsee" | null = useMemo(() => {
     if (kieActive) return null;
@@ -4447,6 +4454,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   {kieActive && isElevenLabsActive && kieModel && (
                     <ElevenLabsDock
                       voiceName={voiceChipName}
+                      voiceId={elevenLabsVoiceId}
                       values={kieValues}
                       onChange={handleKieValueChange}
                       onVoice={handleVoiceChange}
