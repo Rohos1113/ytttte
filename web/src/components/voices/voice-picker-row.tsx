@@ -509,7 +509,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                 width: pos.width,
                 height: pos.height,
               }}
-              className="z-[1200] flex flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216]/[0.98] shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+              className="nowheel z-[1200] flex flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216]/[0.98] shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
             >
               {/* Шапка */}
               <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2.5">
@@ -593,7 +593,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
               </div>
 
               {/* Список */}
-              <div className="mt-1.5 flex-1 overflow-y-auto px-2 pb-2" role="listbox">
+              <div className="nowheel mt-1.5 flex-1 overflow-y-auto px-2 pb-2" role="listbox">
                 {activeTab === "history" ? (
                   historyFiltered.length === 0 ? (
                     <p className="px-2 py-8 text-center text-[11px] text-white/40">

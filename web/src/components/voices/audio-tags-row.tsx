@@ -52,14 +52,21 @@ export function AudioTagsRow({ onInsertTag }: Props) {
   }, [open]);
 
   // Прокрутка/ресайз сдвигают строку — fixed-координаты устаревают, закрываем.
+  // При этом скролл внутри САМОЙ панели тегов не должен закрывать окно!
   useEffect(() => {
     if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    const onScroll = (e: Event) => {
+      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
     return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
@@ -68,14 +75,14 @@ export function AudioTagsRow({ onInsertTag }: Props) {
 
   const toggle = () => {
     if (!open) {
-      // Низ меню — ровно по низу «Параметров».
+      // Низ меню — ровно по низу «Параметров», высота достаточна для скролла
       const panel = rowRef.current?.closest("[data-params-panel]");
       const rect = (panel instanceof HTMLElement ? panel : rowRef.current)?.getBoundingClientRect();
       if (rect) {
         const gap = 8;
-        const width = 300;
-        const height = Math.max(300, Math.min(rect.height * 1.5, rect.bottom - 8));
-        const top = Math.max(8, rect.bottom - height);
+        const width = 320;
+        const height = Math.max(340, Math.min(rect.height * 1.5, window.innerHeight - 32));
+        const top = Math.max(16, Math.min(rect.bottom - height, window.innerHeight - height - 16));
         const left = Math.max(8, Math.min(rect.right + gap, window.innerWidth - width - 12));
         setPos({ top, left, height });
       }
@@ -111,7 +118,7 @@ export function AudioTagsRow({ onInsertTag }: Props) {
           ref={panelRef}
           data-params-flyout="true"
           style={{ position: "fixed", top: pos.top, left: pos.left, height: pos.height }}
-          className="z-[1200] flex w-[300px] flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216]/[0.97] p-2 shadow-xl backdrop-blur"
+          className="nowheel z-[1200] flex w-[320px] flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216]/[0.98] p-2.5 shadow-2xl backdrop-blur-2xl ring-1 ring-white/10"
         >
           <div className="mb-2">
             <p className="text-[12px] font-semibold text-white/85">{t("voices.tags.title")}</p>
@@ -138,7 +145,7 @@ export function AudioTagsRow({ onInsertTag }: Props) {
           </div>
 
           {/* Теги активной категории */}
-          <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-y-auto">
+          <div className="nowheel flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto overscroll-contain pr-1">
             {(activeCategory?.tags ?? []).map((tag) => (
               <button
                 key={tag}
