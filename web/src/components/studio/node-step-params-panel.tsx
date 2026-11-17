@@ -958,6 +958,7 @@ export function NodeStepParamsPanel({
 
 /** Compact streams selector (project meta outsee_streams/img_streams, read by generate_images/videos/hero). */
 export function StreamsPicker({ projectId }: { projectId: number }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId), enabled: projectId > 0 });
   const meta = (project.data?.meta || {}) as Record<string, unknown>;
@@ -970,7 +971,7 @@ export function StreamsPicker({ projectId }: { projectId: number }) {
   });
   return (
     <div data-vp-streams className="flex items-center gap-2">
-      <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Потоки</span>
+      <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">{t("params.streams")}</span>
       <div className="flex">
         {[1, 2, 3, 4].map((n) => (
           <button

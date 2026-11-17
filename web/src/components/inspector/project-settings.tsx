@@ -7,22 +7,23 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
+import { useTranslation } from "@/lib/i18n";
 import { MassFactoryPanel } from "@/components/inspector/mass-factory-panel";
 import { StreamsPanel } from "@/components/inspector/streams-panel";
 
 /** Настройки проекта в инспекторе (без «Контроль пайплайна» — только ИИ). */
 export function ProjectSettingsPanel({ project }: { project: ProjectDetail }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-3">
       <StreamsPanel project={project} />
       <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <GitBranch className="h-3.5 w-3.5" />
-          Настройки пайплайна
+          {t("canvas.pipelineSettings.title")}
         </div>
         <p className="text-[10px] text-muted-foreground">
-          Контроль шагов — только ИИ. Автопродвижение — тумблер сверху справа, рядом с
-          генерацией. Потоки — блок выше.
+          {t("canvas.pipelineSettings.desc")}
         </p>
         <MassFactoryPanel project={project} />
       </div>
@@ -38,6 +39,7 @@ export function AutoAdvanceToggle({
   project: ProjectDetail;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   /** Мгновенный отклик: пока PATCH ждёт SQLite/воркер, UI уже переключён. */
   const [optimistic, setOptimistic] = useState<boolean | null>(null);
@@ -64,7 +66,7 @@ export function AutoAdvanceToggle({
       return { prev };
     },
     onSuccess: (_data, next) => {
-      toast.success(next ? "Автопродвижение вкл" : "Автопродвижение выкл");
+      toast.success(next ? t("canvas.autoAdvance.toastOn") : t("canvas.autoAdvance.toastOff"));
     },
     onError: (e, _next, ctx) => {
       setOptimistic(null);
@@ -93,9 +95,9 @@ export function AutoAdvanceToggle({
       }
     >
       <span className="flex flex-col gap-0.5">
-        <span className="text-xs sm:text-[13px] font-bold text-zinc-100">Автозапуск шагов</span>
+        <span className="text-xs sm:text-[13px] font-bold text-zinc-100">{t("canvas.autoAdvance.title")}</span>
         <span className="text-xs text-zinc-400 font-medium leading-tight">
-          {autoOn ? "Авто-переход к следующей ноде" : "Остановка после завершения шага"}
+          {autoOn ? t("canvas.autoAdvance.autoAdvanceNext") : t("canvas.autoAdvance.pauseAfterStep")}
         </span>
       </span>
       <span

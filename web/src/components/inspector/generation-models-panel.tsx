@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
+import { useTranslation } from "@/lib/i18n";
 
 type GenChoice = { id: string; label: string; description?: string };
 
@@ -32,6 +33,7 @@ function ModelSelect({
   disabled?: boolean;
   onPick: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const current = choiceById(choices, currentId);
   const options = current || !currentId
     ? choices
@@ -44,7 +46,7 @@ function ModelSelect({
         {label}
       </div>
       <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
-        Сейчас:{" "}
+        {t("canvas.generationModels.current")}{" "}
         <span className="font-medium text-foreground/80">
           {current?.label?.replace(/^\+\s*/, "") || currentId}
         </span>
@@ -68,6 +70,7 @@ function ModelSelect({
 
 /** Выбор моделей картинок/видео для текущего проекта — сразу под «Потоки». */
 export function GenerationModelsPanel({ project }: { project: ProjectDetail }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const catalog = useQuery({
     queryKey: ["wizard-catalog"],
@@ -96,12 +99,12 @@ export function GenerationModelsPanel({ project }: { project: ProjectDetail }) {
       if (vars.image_generator) {
         const lab = choiceById(imageChoices, vars.image_generator)?.label?.replace(/^\+\s*/, "")
           || vars.image_generator;
-        toast.success(`Картинки: ${lab}`);
+        toast.success(t("canvas.generationModels.toastImage", { label: lab }));
       }
       if (vars.video_generator) {
         const lab = choiceById(videoChoices, vars.video_generator)?.label?.replace(/^\+\s*/, "")
           || vars.video_generator;
-        toast.success(`Видео: ${lab}`);
+        toast.success(t("canvas.generationModels.toastVideo", { label: lab }));
       }
     },
     onError: (e, _vars, ctx) => {
@@ -116,17 +119,16 @@ export function GenerationModelsPanel({ project }: { project: ProjectDetail }) {
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
       <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Модели генерации
+        {t("canvas.generationModels.title")}
         {patch.isPending || catalog.isLoading ? (
           <Loader2 className="h-3 w-3 animate-spin opacity-70" />
         ) : null}
       </div>
       <p className="text-[10px] leading-snug text-muted-foreground">
-        Шаги картинок и видео этого проекта берут модель отсюда. Смена сразу
-        пишется в проект.
+        {t("canvas.generationModels.desc")}
       </p>
       <ModelSelect
-        label="Картинки"
+        label={t("canvas.generationModels.images")}
         icon={<ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />}
         currentId={imageId}
         choices={imageChoices}
@@ -136,7 +138,7 @@ export function GenerationModelsPanel({ project }: { project: ProjectDetail }) {
         }}
       />
       <ModelSelect
-        label="Видео"
+        label={t("canvas.generationModels.videos")}
         icon={<Video className="h-3.5 w-3.5 text-muted-foreground" />}
         currentId={videoId}
         choices={videoChoices}

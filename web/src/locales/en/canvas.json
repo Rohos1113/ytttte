@@ -278,5 +278,97 @@
     "notReady": "The result of this step is not ready yet. Run the node or wait for generation to finish.",
     "planSaved": "Script plan saved successfully",
     "copied": "Script plan copied to clipboard"
+  },
+  "autoAdvance": {
+    "title": "Step autostart",
+    "pauseAfterStep": "Stop after step completes",
+    "autoAdvanceNext": "Auto-advance to next node",
+    "toastOn": "Autostart enabled",
+    "toastOff": "Autostart disabled"
+  },
+  "streams": {
+    "title": "Generation streams",
+    "subtitle": "Projects — global queue, images and review — current project.",
+    "parallelProjects": "Parallel projects",
+    "busy": "in use {busy}/{total}",
+    "parallelProjectsDesc": "How many projects from the queue run concurrently.",
+    "imagesAndVideo": "Images + Video",
+    "imagesAndVideoDesc": "0 — off, 1 — sequential, 2–4 — parallel.",
+    "textModels": "Text models",
+    "textModelsDesc": "Parallel frame reviews (0–10).",
+    "selectProjectPrompt": "Select a project on the left to configure generation streams.",
+    "toastWorkerParallel": "Parallel projects: {count}",
+    "toastDefaultOutsee": "Default streams: {count}",
+    "toastDefaultCheck": "Default check: {count}",
+    "toastProjectGenZero": "Generation streams: 0 (no generation)",
+    "toastProjectGenCount": "Generation streams (project): {count}",
+    "toastProjectCheckZero": "Review streams: 0",
+    "toastProjectCheckCount": "Review streams (project): {count}",
+    "noProjectError": "No project"
+  },
+  "pipelineSettings": {
+    "title": "Pipeline settings",
+    "desc": "Step control — AI only. Autostart — toggle top-right next to generation. Streams — block above."
+  },
+  "massFactory": {
+    "title": "Video factory",
+    "desc": "1) Topic Excel → 2) Start queue. Restart backend after git pull (stop-backend.cmd → STUDIO.cmd).",
+    "excelBtn": "Topic Excel",
+    "startQueueBtn": "Start queue",
+    "fileInfo": "File: {file} · {count} topics",
+    "activeQueue": " · queue active",
+    "moreTopics": "…and {count} more",
+    "childProjects": "Child projects: {count} · ready: {ready}",
+    "toastStarted": "Started video #{id}. In queue: {queue}, remaining: {remaining}",
+    "toastExcelSummary": "Excel: {count} topics. {hint}",
+    "hintQueuedAfterCurrent": "New list ({count} topics) will apply after current video",
+    "hintUpdated": "List updated: {count} topics",
+    "hintQueue": "Queue: {count} topics"
+  },
+  "generationModels": {
+    "title": "Generation models",
+    "desc": "Image and video steps for this project take models from here. Changes apply immediately.",
+    "current": "Current:",
+    "images": "Images",
+    "videos": "Videos",
+    "toastImage": "Images: {label}",
+    "toastVideo": "Videos: {label}"
+  },
+  "inspector": {
+    "title": "Inspector",
+    "node": "Node",
+    "topicNode": "Video Topic",
+    "selectProject": "Select a project on the left to view details.",
+    "openNode": "Open node",
+    "project": "Project",
+    "topicLabel": "Topic:",
+    "slugCopied": "Slug copied to clipboard",
+    "copySlugTitle": "Click to copy slug",
+    "status": "Status",
+    "heroMode": "Main hero",
+    "created": "Created",
+    "updated": "Updated",
+    "scenario": "Script plan",
+    "frames": "Frames ({count})",
+    "openFrames": "Open",
+    "openAllFrames": "+{count} more — open all",
+    "type": "Type",
+    "category": "Category",
+    "key": "Key"
+  },
+  "topicEditor": {
+    "title": "The topic sets the direction, meaning, and plot of the entire video.",
+    "examplePrefix": "For example:",
+    "exampleText": "\"Space flight: from the first satellite to Martian bases\" or a detailed description of your idea.",
+    "placeholder": "For example: Space flight",
+    "saveBtn": "Save topic",
+    "toastSaved": "Video topic saved"
+  },
+  "outseeGen": {
+    "title": "VIA · Create",
+    "subtitle": "global · Photo / Video / Audio",
+    "siteLink": "site",
+    "description": "Settings and history are shared across Studio (not tied to project). Currently in project:",
+    "openBtn": "Open generation"
   }
 }

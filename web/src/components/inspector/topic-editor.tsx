@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 
 export function TopicEditor({
   projectId,
@@ -16,6 +17,7 @@ export function TopicEditor({
   /** Если не передано — читаем из API. */
   initialTopic?: string;
 }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -37,7 +39,7 @@ export function TopicEditor({
       return api.patchProject(projectId, { topic: val });
     },
     onSuccess: (updated) => {
-      toast.success("Тема ролика сохранена");
+      toast.success(t("canvas.topicEditor.toastSaved"));
       qc.setQueryData(["project", projectId], updated);
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["projects"] });
@@ -49,10 +51,10 @@ export function TopicEditor({
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-[13.5px] font-bold text-zinc-100 leading-snug">
-          Тема задаёт направление, смысл и сюжет всего ролика.
+          {t("canvas.topicEditor.title")}
         </p>
         <p className="mt-1.5 text-[12.5px] text-zinc-300 leading-relaxed">
-          💡 <span className="font-semibold text-zinc-200">Например:</span> «Полет в космос: от первого спутника до марсианских баз» или подробное описание вашей идеи.
+          💡 <span className="font-semibold text-zinc-200">{t("canvas.topicEditor.examplePrefix")}</span> {t("canvas.topicEditor.exampleText")}
         </p>
       </div>
 
@@ -65,7 +67,7 @@ export function TopicEditor({
           }
         }}
         rows={6}
-        placeholder="Например: Полет в космос"
+        placeholder={t("canvas.topicEditor.placeholder")}
         className="flex w-full rounded-xl border border-white/10 bg-black/50 p-3.5 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-500 transition-all duration-150 focus:border-white/30 focus:bg-black/70 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
         autoFocus
       />
@@ -77,7 +79,7 @@ export function TopicEditor({
         onClick={() => save.mutate(topic.trim())}
       >
         {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        Сохранить тему
+        {t("canvas.topicEditor.saveBtn")}
       </Button>
     </div>
   );

@@ -3,6 +3,7 @@
   "save": "Save parameters",
   "saving": "Saving...",
   "savedToast": "Step parameters saved",
+  "streams": "Streams",
   "planScript": {
     "planDuration": "Video duration, sec",
     "scriptDuration": "Voiceover duration, sec",

@@ -17,6 +17,7 @@ import { OutseeGenPanel } from "@/components/inspector/outsee-gen-panel";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { useUi } from "@/components/shell/topbar";
+import { useTranslation } from "@/lib/i18n";
 
 export function Inspector({
   projectId,
@@ -27,6 +28,7 @@ export function Inspector({
   selectedNodeKey: string | null;
   onOpenNodeStudio?: () => void;
 }) {
+  const { t } = useTranslation();
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId!),
@@ -46,16 +48,16 @@ export function Inspector({
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {selectedNodeKey
             ? nodeTypeFromKey(selectedNodeKey) === "topic"
-              ? "Тема ролика"
-              : "Нода"
-            : "Инспектор"}
+              ? t("canvas.inspector.topicNode")
+              : t("canvas.inspector.node")
+            : t("canvas.inspector.title")}
         </span>
       </div>
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-5 p-4 text-sm">
           {projectId == null && (
             <p className="text-xs text-muted-foreground">
-              Выбери проект слева, чтобы увидеть детали.
+              {t("canvas.inspector.selectProject")}
             </p>
           )}
           {selectedNodeKey && (
@@ -72,7 +74,7 @@ export function Inspector({
                   className="w-full h-10 text-xs font-semibold text-white bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:via-purple-500 hover:to-indigo-500 active:scale-[0.98] border border-purple-400/40 shadow-lg shadow-purple-600/30 rounded-xl backdrop-blur-md transition-all duration-200"
                   onClick={onOpenNodeStudio}
                 >
-                  Открыть ноду
+                  {t("canvas.inspector.openNode")}
                 </Button>
               )}
             </div>
@@ -82,14 +84,14 @@ export function Inspector({
               <OutseeGenPanel project={project.data} />
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5 shadow-sm">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Проект
+                  {t("canvas.inspector.project")}
                 </div>
                 <div className="mt-1 text-sm font-semibold leading-snug text-foreground">
                   {projectDisplayName(project.data)}
                 </div>
                 {project.data.topic && project.data.title && project.data.topic.trim() !== project.data.title.trim() && (
                   <div className="mt-1.5 text-[11px] text-muted-foreground">
-                    <span className="text-zinc-500">Тема: </span>{project.data.topic.trim()}
+                    <span className="text-zinc-500">{t("canvas.inspector.topicLabel")} </span>{project.data.topic.trim()}
                   </div>
                 )}
                 <div className="mt-2.5 flex items-center justify-between border-t border-white/5 pt-2">
@@ -101,28 +103,28 @@ export function Inspector({
                     onClick={() => {
                       if (project.data?.slug) {
                         void navigator.clipboard.writeText(project.data.slug);
-                        toast.success("Slug скопирован в буфер");
+                        toast.success(t("canvas.inspector.slugCopied"));
                       }
                     }}
                     className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                    title="Кликните, чтобы скопировать slug"
+                    title={t("canvas.inspector.copySlugTitle")}
                   >
                     <span className="truncate max-w-[170px]">{project.data.slug}</span>
                     <Copy className="h-3 w-3 shrink-0 opacity-60" />
                   </button>
                 </div>
               </div>
-              <Row icon={<Folder className="h-3.5 w-3.5 text-zinc-400" />} label="Статус">
+              <Row icon={<Folder className="h-3.5 w-3.5 text-zinc-400" />} label={t("canvas.inspector.status")}>
                 <Badge variant="default" className="text-xs font-semibold px-2 py-0.5">{formatProjectStatus(project.data.status)}</Badge>
               </Row>
-              <Row label="Главный герой">{formatHeroMode(project.data.hero_mode)}</Row>
-              <Row label="Создан">{formatRelativeTime(project.data.created_at)}</Row>
-              <Row label="Обновлён">{formatRelativeTime(project.data.updated_at)}</Row>
+              <Row label={t("canvas.inspector.heroMode")}>{formatHeroMode(project.data.hero_mode)}</Row>
+              <Row label={t("canvas.inspector.created")}>{formatRelativeTime(project.data.created_at)}</Row>
+              <Row label={t("canvas.inspector.updated")}>{formatRelativeTime(project.data.updated_at)}</Row>
               <ProjectSettingsPanel project={project.data} />
               {project.data.general_plan && (
                 <div className="mt-3">
                   <div className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                    Сценарий
+                    {t("canvas.inspector.scenario")}
                   </div>
                   <div className="mt-2 whitespace-pre-wrap rounded-xl border border-zinc-800 bg-zinc-950/80 p-3.5 font-sans text-[13.5px] leading-relaxed text-zinc-100 shadow-inner">
                     {project.data.general_plan}
@@ -149,6 +151,7 @@ function FramesPreview({
   count: number;
   preview: { id: number; number: number; voiceover_text: string }[];
 }) {
+  const { t } = useTranslation();
   const ui = useUi();
   return (
     <div>
@@ -156,7 +159,7 @@ function FramesPreview({
         <div className="flex items-center gap-2">
           <FileText className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Кадры ({count})
+            {t("canvas.inspector.frames", { count })}
           </span>
         </div>
         <Button
@@ -166,7 +169,7 @@ function FramesPreview({
           onClick={() => ui.openFrames(projectId)}
         >
           <ExternalLink className="h-3 w-3" />
-          Открыть
+          {t("canvas.inspector.openFrames")}
         </Button>
       </div>
       <div className="mt-2 flex flex-col gap-1">
@@ -189,7 +192,7 @@ function FramesPreview({
             onClick={() => ui.openFrames(projectId)}
             className="px-2 py-1 text-left text-[10px] text-primary hover:underline"
           >
-            +{count - preview.length} ещё — открыть все
+            {t("canvas.inspector.openAllFrames", { count: count - preview.length })}
           </button>
         )}
       </div>
@@ -204,6 +207,7 @@ function NodeInspector({
   nodeKey: string;
   projectId: number | null;
 }) {
+  const { t } = useTranslation();
   const type = nodeTypeFromKey(nodeKey);
   const spec = getNodeSpec(type);
   if (type === "topic" && projectId != null) {
@@ -212,13 +216,13 @@ function NodeInspector({
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Нода</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("canvas.inspector.node")}</div>
         <div className="mt-1 text-base font-semibold">{spec.label}</div>
         <div className="mt-1 text-[12px] text-muted-foreground">{spec.description}</div>
       </div>
-      <Row label="Тип">{humanizeSlug(spec.type)}</Row>
-      <Row label="Категория">{formatNodeCategory(spec.category)}</Row>
-      <Row label="Ключ">{formatNodeKeyLabel(nodeKey)}</Row>
+      <Row label={t("canvas.inspector.type")}>{humanizeSlug(spec.type)}</Row>
+      <Row label={t("canvas.inspector.category")}>{formatNodeCategory(spec.category)}</Row>
+      <Row label={t("canvas.inspector.key")}>{formatNodeKeyLabel(nodeKey)}</Row>
     </div>
   );
 }

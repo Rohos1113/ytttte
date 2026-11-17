@@ -30,6 +30,11 @@ test("getTranslation returns correct Russian translations", () => {
   assert.equal(getTranslation("sfx.readyFiles", { count: 5 }, "ru"), "Готово · 5 файл(ов)");
   assert.equal(getTranslation("projects.title", undefined, "ru"), "Проекты");
   assert.equal(getTranslation("projects.wizard.v1Title", undefined, "ru"), "Классика (v1)");
+  assert.equal(getTranslation("canvas.autoAdvance.title", undefined, "ru"), "Автозапуск шагов");
+  assert.equal(getTranslation("canvas.streams.title", undefined, "ru"), "Потоки генерации");
+  assert.equal(getTranslation("canvas.streams.parallelProjects", undefined, "ru"), "Параллель проектов");
+  assert.equal(getTranslation("canvas.streams.busy", { busy: 0, total: 4 }, "ru"), "занято 0/4");
+  assert.equal(getTranslation("params.streams", undefined, "ru"), "Потоки");
 });
 
 test("getTranslation returns correct English translations", () => {
@@ -40,6 +45,11 @@ test("getTranslation returns correct English translations", () => {
   assert.equal(getTranslation("sfx.readyFiles", { count: 5 }, "en"), "Ready · 5 file(s)");
   assert.equal(getTranslation("projects.title", undefined, "en"), "Projects");
   assert.equal(getTranslation("projects.wizard.v1Title", undefined, "en"), "Classic (v1)");
+  assert.equal(getTranslation("canvas.autoAdvance.title", undefined, "en"), "Step autostart");
+  assert.equal(getTranslation("canvas.streams.title", undefined, "en"), "Generation streams");
+  assert.equal(getTranslation("canvas.streams.parallelProjects", undefined, "en"), "Parallel projects");
+  assert.equal(getTranslation("canvas.streams.busy", { busy: 0, total: 4 }, "en"), "in use 0/4");
+  assert.equal(getTranslation("params.streams", undefined, "en"), "Streams");
 });
 
 test("getTranslation falls back to Russian when key is missing in English", () => {

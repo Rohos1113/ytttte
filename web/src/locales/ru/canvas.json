@@ -278,5 +278,97 @@
     "notReady": "Результат этого шага ещё не готов. Запустите ноду или дождитесь завершения генерации.",
     "planSaved": "Сценарий успешно сохранён",
     "copied": "Сценарий скопирован в буфер обмена"
+  },
+  "autoAdvance": {
+    "title": "Автозапуск шагов",
+    "pauseAfterStep": "Остановка после завершения шага",
+    "autoAdvanceNext": "Авто-переход к следующей ноде",
+    "toastOn": "Автопродвижение вкл",
+    "toastOff": "Автопродвижение выкл"
+  },
+  "streams": {
+    "title": "Потоки генерации",
+    "subtitle": "Проекты — для всех, картинки и проверка — для текущего.",
+    "parallelProjects": "Параллель проектов",
+    "busy": "занято {busy}/{total}",
+    "parallelProjectsDesc": "Сколько проектов из очереди идут одновременно.",
+    "imagesAndVideo": "Картинки + Видео",
+    "imagesAndVideoDesc": "0 — выкл., 1 — по одному, 2–4 — параллельно.",
+    "textModels": "Текстовые модели",
+    "textModelsDesc": "Параллельных проверок кадров (0–10).",
+    "selectProjectPrompt": "Выберите проект слева, чтобы настроить потоки генерации.",
+    "toastWorkerParallel": "Параллель проектов: {count}",
+    "toastDefaultOutsee": "Потоки по умолчанию: {count}",
+    "toastDefaultCheck": "Default check: {count}",
+    "toastProjectGenZero": "Потоки генерации: 0 (без генерации)",
+    "toastProjectGenCount": "Потоки генерации (проект): {count}",
+    "toastProjectCheckZero": "Потоки проверки: 0",
+    "toastProjectCheckCount": "Потоки проверки (проект): {count}",
+    "noProjectError": "Нет проекта"
+  },
+  "pipelineSettings": {
+    "title": "Настройки пайплайна",
+    "desc": "Контроль шагов — только ИИ. Автопродвижение — тумблер сверху справа, рядом с генерацией. Потоки — блок выше."
+  },
+  "massFactory": {
+    "title": "Фабрика видео",
+    "desc": "1) Excel тем → 2) Запустить очередь. После git pull перезапустите backend (stop-backend.cmd → STUDIO.cmd).",
+    "excelBtn": "Excel тем",
+    "startQueueBtn": "Запустить очередь",
+    "fileInfo": "Файл: {file} · {count} тем",
+    "activeQueue": " · очередь активна",
+    "moreTopics": "…ещё {count}",
+    "childProjects": "Дочерних проектов: {count} · готово: {ready}",
+    "toastStarted": "Запущено видео #{id}. В очереди: {queue}, осталось: {remaining}",
+    "toastExcelSummary": "Excel: {count} тем. {hint}",
+    "hintQueuedAfterCurrent": "Новый список ({count} тем) применится после текущего видео",
+    "hintUpdated": "Список обновлён: {count} тем",
+    "hintQueue": "Очередь: {count} тем"
+  },
+  "generationModels": {
+    "title": "Модели генерации",
+    "desc": "Шаги картинок и видео этого проекта берут модель отсюда. Смена сразу пишется в проект.",
+    "current": "Сейчас:",
+    "images": "Картинки",
+    "videos": "Видео",
+    "toastImage": "Картинки: {label}",
+    "toastVideo": "Видео: {label}"
+  },
+  "inspector": {
+    "title": "Инспектор",
+    "node": "Нода",
+    "topicNode": "Тема ролика",
+    "selectProject": "Выбери проект слева, чтобы увидеть детали.",
+    "openNode": "Открыть ноду",
+    "project": "Проект",
+    "topicLabel": "Тема:",
+    "slugCopied": "Slug скопирован в буфер",
+    "copySlugTitle": "Кликните, чтобы скопировать slug",
+    "status": "Статус",
+    "heroMode": "Главный герой",
+    "created": "Создан",
+    "updated": "Обновлён",
+    "scenario": "Сценарий",
+    "frames": "Кадры ({count})",
+    "openFrames": "Открыть",
+    "openAllFrames": "+{count} ещё — открыть все",
+    "type": "Тип",
+    "category": "Категория",
+    "key": "Ключ"
+  },
+  "topicEditor": {
+    "title": "Тема задаёт направление, смысл и сюжет всего ролика.",
+    "examplePrefix": "Например:",
+    "exampleText": "«Полет в космос: от первого спутника до марсианских баз» или подробное описание вашей идеи.",
+    "placeholder": "Например: Полет в космос",
+    "saveBtn": "Сохранить тему",
+    "toastSaved": "Тема ролика сохранена"
+  },
+  "outseeGen": {
+    "title": "VIA · Create",
+    "subtitle": "глобально · Фото / Видео / Аудио",
+    "siteLink": "сайт",
+    "description": "Настройки и история общие для Studio (не привязаны к проекту). В проекте сейчас:",
+    "openBtn": "Открыть генерацию"
   }
 }

@@ -10,8 +10,10 @@ import type { ProjectDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useUi } from "@/components/shell/topbar";
 import { studioIdToSlug, outseeCreateUrl } from "@/lib/outsee-catalog";
+import { useTranslation } from "@/lib/i18n";
 
 export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
+  const { t } = useTranslation();
   const { openOutsee } = useUi();
   const slug = studioIdToSlug(project.image_generator, "image");
 
@@ -22,9 +24,9 @@ export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
           <Wand2 className="h-3.5 w-3.5 text-cyan-400" />
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-white/90">
-              VIA · Create
+              {t("canvas.outseeGen.title")}
             </div>
-            <div className="text-[10px] text-white/40">глобально · Фото / Видео / Аудио</div>
+            <div className="text-[10px] text-white/40">{t("canvas.outseeGen.subtitle")}</div>
           </div>
         </div>
         <a
@@ -33,13 +35,13 @@ export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
           rel="noreferrer"
           className="inline-flex items-center gap-1 text-[10px] text-white/45 hover:text-cyan-400 transition-colors"
         >
-          сайт
+          {t("canvas.outseeGen.siteLink")}
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>
       <div className="flex flex-col gap-2.5 p-3.5">
         <p className="text-xs leading-relaxed text-zinc-300">
-          Настройки и история общие для Studio (не привязаны к проекту). В проекте сейчас:{" "}
+          {t("canvas.outseeGen.description")}{" "}
           <span className="font-mono text-cyan-300 font-semibold">{slug}</span>
           {project.aspect_ratio ? (
             <>
@@ -57,7 +59,7 @@ export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
           className="h-10 w-full text-xs font-semibold text-white bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:via-purple-500 hover:to-indigo-500 active:scale-[0.98] border border-purple-400/40 shadow-lg shadow-purple-600/30 rounded-xl backdrop-blur-md transition-all duration-200"
           onClick={() => openOutsee(project.id)}
         >
-          Открыть генерацию
+          {t("canvas.outseeGen.openBtn")}
         </Button>
       </div>
     </div>

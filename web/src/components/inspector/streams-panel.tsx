@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
+import { useTranslation } from "@/lib/i18n";
 
 type RuntimeStreams = {
   worker_max_parallel: number;
@@ -51,6 +52,7 @@ function StreamButtons({
 
 /** Отдельный блок потоков: глобальная параллель проектов + per-project Outsee/check. */
 export function StreamsPanel({ project, hideTextModels = false, bare = false }: { project: ProjectDetail | null; hideTextModels?: boolean; bare?: boolean }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const runtime = useQuery({
     queryKey: ["runtime-streams"],
@@ -70,11 +72,11 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
     mutationFn: (body: Partial<RuntimeStreams>) => api.patchRuntimeStreams(body),
     onSuccess: (data, vars) => {
       if (vars.worker_max_parallel != null) {
-        toast.success(`Параллель проектов: ${vars.worker_max_parallel}`);
+        toast.success(t("canvas.streams.toastWorkerParallel", { count: vars.worker_max_parallel }));
       } else if (vars.default_outsee_streams != null) {
-        toast.success(`Потоки по умолчанию: ${vars.default_outsee_streams}`);
+        toast.success(t("canvas.streams.toastDefaultOutsee", { count: vars.default_outsee_streams }));
       } else if (vars.default_check_streams != null) {
-        toast.success(`Default check: ${vars.default_check_streams}`);
+        toast.success(t("canvas.streams.toastDefaultCheck", { count: vars.default_check_streams }));
       }
       void qc.invalidateQueries({ queryKey: ["runtime-streams"] });
       void qc.setQueryData(["runtime-streams"], data);
@@ -108,7 +110,7 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
 
   const patchProject = useMutation({
     mutationFn: (body: { meta: Record<string, number> }) => {
-      if (!project) throw new Error("Нет проекта");
+      if (!project) throw new Error(t("canvas.streams.noProjectError"));
       return api.patchProject(project.id, body);
     },
     onSuccess: (data, vars) => {
@@ -117,16 +119,16 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
         const n = Number(m.img_streams ?? m.outsee_streams);
         toast.success(
           n === 0
-            ? "Потоки генерации: 0 (без генерации)"
-            : `Потоки генерации (проект): ${n}`,
+            ? t("canvas.streams.toastProjectGenZero")
+            : t("canvas.streams.toastProjectGenCount", { count: n }),
         );
         outseeHoldUntilRef.current = Date.now() + 8000;
       }
       if (m.check_streams != null) {
         toast.success(
           m.check_streams === 0
-            ? "Потоки проверки: 0"
-            : `Потоки проверки (проект): ${m.check_streams}`,
+            ? t("canvas.streams.toastProjectCheckZero")
+            : t("canvas.streams.toastProjectCheckCount", { count: m.check_streams }),
         );
         checkHoldUntilRef.current = Date.now() + 8000;
       }
@@ -157,22 +159,22 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
     <div className={bare ? "flex flex-col gap-3" : "flex flex-col gap-3 rounded-2xl border border-sky-500/25 bg-zinc-900/80 p-3.5 shadow-lg"}>
       <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-sky-300">
         <Layers className="h-4 w-4" />
-        Потоки генерации
+        {t("canvas.streams.title")}
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin opacity-70" /> : null}
       </div>
       <p className="text-sm leading-relaxed text-zinc-400">
-        Проекты — для всех, картинки и проверка — для текущего.
+        {t("canvas.streams.subtitle")}
       </p>
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-zinc-100">Параллель проектов</div>
+          <div className="text-sm font-semibold text-zinc-100">{t("canvas.streams.parallelProjects")}</div>
           <span className="text-sm font-mono font-medium text-sky-400">
-            занято {busy}/{workerLocal}
+            {t("canvas.streams.busy", { busy, total: workerLocal })}
           </span>
         </div>
         <p className="mb-2.5 text-sm leading-relaxed text-zinc-400">
-          Сколько проектов из очереди идут одновременно.
+          {t("canvas.streams.parallelProjectsDesc")}
         </p>
         <StreamButtons
           values={[1, 2, 3, 4]}
@@ -189,13 +191,16 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
         <>
           <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <div className="mb-1 text-sm font-semibold text-zinc-100">Картинки + Видео</div>
+              <div className="mb-1 text-sm font-semibold text-zinc-100">{t("canvas.streams.imagesAndVideo")}</div>
               <span className="text-sm font-mono font-medium text-sky-400">
-                занято {Number((cfg as Record<string, unknown>).outsee_busy ?? 0)}/{Number(cfg.create_max_parallel_outsee ?? 4)}
+                {t("canvas.streams.busy", {
+                  busy: Number((cfg as Record<string, unknown>).outsee_busy ?? 0),
+                  total: Number(cfg.create_max_parallel_outsee ?? 4),
+                })}
               </span>
             </div>
             <p className="mb-2.5 text-sm leading-relaxed text-zinc-400">
-              0 — выкл., 1 — по одному, 2–4 — параллельно.
+              {t("canvas.streams.imagesAndVideoDesc")}
             </p>
             <StreamButtons
               values={[0, 1, 2, 3, 4]}
@@ -212,9 +217,9 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
 
           {!hideTextModels && (
           <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="mb-1 text-sm font-semibold text-zinc-100">Текстовые модели</div>
+            <div className="mb-1 text-sm font-semibold text-zinc-100">{t("canvas.streams.textModels")}</div>
             <p className="mb-2.5 text-sm leading-relaxed text-zinc-400">
-              Параллельных проверок кадров (0–10).
+              {t("canvas.streams.textModelsDesc")}
             </p>
             <StreamButtons
               values={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
@@ -230,7 +235,7 @@ export function StreamsPanel({ project, hideTextModels = false, bare = false }: 
         </>
       ) : (
         <p className="text-sm text-zinc-400">
-          Выберите проект слева, чтобы настроить потоки генерации.
+          {t("canvas.streams.selectProjectPrompt")}
         </p>
       )}
     </div>
