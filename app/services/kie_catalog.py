@@ -1092,7 +1092,7 @@ MODELS: list[dict[str, Any]] = [
     # ============================ ГОЛОС / TTS ============================
     {
         "id": "elevenlabs-v4",
-        "hint": "Новейшая модель озвучки ElevenLabs v4 через WaveSpeed. 200 русских голосов, аудио-теги эмоций и эффектов.",
+        "hint": "Официальный ElevenLabs API: 200 русских голосов, собственные клоны и аудио-теги эмоций.",
         "label": "Озвучка ElevenLabs v4",
         "category": "voice",
         "api": "wavespeed",

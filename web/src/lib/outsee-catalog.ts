@@ -363,8 +363,8 @@ export const OUTSEE_AUDIO_MODELS: OutseeAudioModel[] = [
   {
     slug: "elevenlabs-v4",
     studioId: null,
-    displayName: "Озвучка ElevenLabs v4",
-    description: "Сверхреалистичная озвучка ElevenLabs v4 через WaveSpeed. 200 русских голосов, аудио-теги эмоций.",
+    displayName: "Озвучка ElevenLabs",
+    description: "Официальный ElevenLabs API. 200 русских премиум-голосов, клонирование и аудио-теги эмоций.",
     icon: "/icons/elevenlabs.svg",
     price: "от 0.015",
     isNew: true,

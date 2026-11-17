@@ -193,6 +193,7 @@ async def test_tts_routed_to_wavespeed_when_configured(
 
     from app.bots.outsee import GenerationResult
 
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "")
     monkeypatch.setattr(settings, "wavespeed_api_key", "test-wsk-key")
     out = tmp_path / "voice_ws.mp3"
 

@@ -84,7 +84,7 @@ import { estimateCreatePrice } from "@/lib/create-pricing";
 import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
 import { inspirationPromptSuffix, inspirationStyle } from "@/lib/inspiration-styles";
 import { InspirationMenu } from "./inspiration-menu";
-import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
+import { VoiceLibraryModal, getVoiceById, resolveVoiceName } from "./voice-library-modal";
 import { AudioTagsBar } from "./audio-tags-bar";
 import {
   MentionMenu,
@@ -1726,6 +1726,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const currentWired = false;
   const outseeConfigured = Boolean(outseeStatusQ.data?.configured);
   const kieConfigured = Boolean(kieCatalogQ.data?.configured);
+  const elevenlabsConfigured = Boolean(
+    (kieCatalogQ.data as Record<string, unknown> | undefined)?.elevenlabs_configured ??
+    (kieCatalogQ.data as Record<string, unknown> | undefined)?.wavespeed_configured,
+  );
+  const isElevenLabsActive =
+    kieModel?.id === "elevenlabs-v4" ||
+    activeSlug === "elevenlabs-v4" ||
+    activeSlug === "kie:elevenlabs-v4";
 
   const autoProvider: "outsee" | null = useMemo(() => {
     if (kieActive) return null;
@@ -1739,7 +1747,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       ? (createQueueQ.data?.max_parallel_outsee ?? 5)
       : (createQueueQ.data?.max_parallel ?? 5);
 
-  const canApiDirect = kieActive ? kieConfigured : autoProvider != null;
+  const canApiDirect = kieActive
+    ? (isElevenLabsActive ? elevenlabsConfigured : kieConfigured)
+    : autoProvider != null;
   const currentIcon = kieActive && kieModel
     ? modelIconForId(kieModel.id)
     : modelIconForId(
@@ -2246,9 +2256,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           retry?.project_slug === "kie" ||
           (Boolean(kieActive && kieModel) && !retry);
         if (isKie) {
-          if (!kieConfigured) {
-            throw new Error("KIE_API_KEY не задан в .env");
-          }
           const effectiveKieModel =
             matchedKie ??
             (normalizedModel.startsWith("kie:") ? kieModels.find((m) => m.id === normalizedModel.slice(4)) : null) ??
@@ -2262,6 +2269,18 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             (targetMediaType === "audio" ? "suno-music" : null);
           if (!modelId) {
             throw new Error("Не удалось определить модель KIE");
+          }
+
+          const isElevenLabs =
+            modelId === "elevenlabs-v4" ||
+            normalizedModel === "kie:elevenlabs-v4" ||
+            effectiveKieModel?.id === "elevenlabs-v4";
+          if (isElevenLabs) {
+            if (!elevenlabsConfigured) {
+              throw new Error("ELEVENLABS_API_KEY не задан в Настройках или .env");
+            }
+          } else if (!kieConfigured) {
+            throw new Error("KIE_API_KEY не задан в .env");
           }
           const storedVals = (retryParams.values && typeof retryParams.values === "object"
             ? retryParams.values
@@ -4506,7 +4525,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       disabled={
                         createGenerate.isPending ||
                         (kieActive
-                          ? (kieTextField && !prompt.trim()) || !kieConfigured
+                          ? (kieTextField && !prompt.trim()) ||
+                            (isElevenLabsActive ? !elevenlabsConfigured : !kieConfigured)
                           : !prompt.trim() || !canApiDirect)
                       }
                       onClick={() => {
@@ -4527,8 +4547,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           ? "Уже ставится в очередь…"
                           : isVideoConflict
                             ? "Нельзя совмещать кадры (старт/финиш) и референсы — выберите один режим"
-                            : !canApiDirect
-                              ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
+                            : isElevenLabsActive && !elevenlabsConfigured
+                              ? "Нужен ELEVENLABS_API_KEY в Настройках или .env"
+                              : !canApiDirect
+                                ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
                               : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
                     >
@@ -4834,16 +4856,18 @@ function KieFieldChip({
   const v = values[field.name] ?? field.default;
 
   if (field.name === "voice_id" || field.name === "voice") {
-    const voice = getVoiceById(String(v || ""));
+    const vStr = String(v || "");
+    const voice = getVoiceById(vStr);
+    const resolved = resolveVoiceName(vStr);
     const displayName = voice
       ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
-      : String(v || "Выбрать голос");
+      : resolved || vStr || "Выбрать голос";
     return (
       <button
         type="button"
         onClick={onOpenVoiceModal}
         className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/60"
-        title="Открыть библиотеку русских голосов (200)"
+        title="Открыть библиотеку русских голосов и клонов"
       >
         <Mic className="h-3.5 w-3.5 text-[#2dd4bf]" />
         <span className="text-white/60">Голос:</span>
@@ -5350,8 +5374,8 @@ const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
   {
     id: "elevenlabs-v4",
     slug: "kie:elevenlabs-v4",
-    name: "Озвучка ElevenLabs v4 (WaveSpeed)",
-    desc: "Новейшая модель v4, библиотека 200 русских голосов, аудио-теги эмоций",
+    name: "Озвучка ElevenLabs",
+    desc: "Официальный ElevenLabs API: 200 русских премиум-голосов, клонирование и аудио-теги",
     iconType: "speech",
   },
 ];

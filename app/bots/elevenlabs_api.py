@@ -177,7 +177,13 @@ class ElevenLabsApi:
             "Accept": "audio/mpeg",
         }
 
-    def _body(self, text: str) -> dict[str, object]:
+    def _body(
+        self,
+        text: str,
+        *,
+        stability: float | None = None,
+        similarity: float | None = None,
+    ) -> dict[str, object]:
         from app.settings import settings
 
         body: dict[str, object] = {
@@ -185,10 +191,12 @@ class ElevenLabsApi:
             "model_id": settings.elevenlabs_tts_model,
         }
         voice_settings: dict[str, float | bool] = {}
-        if settings.elevenlabs_stability is not None:
-            voice_settings["stability"] = float(settings.elevenlabs_stability)
-        if settings.elevenlabs_similarity_boost is not None:
-            voice_settings["similarity_boost"] = float(settings.elevenlabs_similarity_boost)
+        stab = stability if stability is not None else settings.elevenlabs_stability
+        if stab is not None:
+            voice_settings["stability"] = float(stab)
+        sim = similarity if similarity is not None else settings.elevenlabs_similarity_boost
+        if sim is not None:
+            voice_settings["similarity_boost"] = float(sim)
         if voice_settings:
             body["voice_settings"] = voice_settings
         return body
@@ -199,6 +207,9 @@ class ElevenLabsApi:
         text: str,
         voice_id: str,
         out_path: Path,
+        *,
+        stability: float | None = None,
+        similarity: float | None = None,
     ) -> Path:
         from app.bots.wavespeed_http import (
             WaveSpeedError,
@@ -216,7 +227,7 @@ class ElevenLabsApi:
                 url,
                 headers=self._headers(),
                 params={"output_format": settings.elevenlabs_output_format},
-                json=self._body(text),
+                json=self._body(text, stability=stability, similarity=similarity),
             )
             if resp.status_code == 200:
                 data = resp.content or b""
@@ -238,10 +249,12 @@ class ElevenLabsApi:
         # 2. Fallback провайдер: WaveSpeed (ElevenLabs v4)
         if wavespeed_configured():
             payload: dict[str, Any] = {"text": text, "voice_id": voice_id}
-            if settings.elevenlabs_stability is not None:
-                payload["stability"] = float(settings.elevenlabs_stability)
-            if settings.elevenlabs_similarity_boost is not None:
-                payload["similarity"] = float(settings.elevenlabs_similarity_boost)
+            stab = stability if stability is not None else settings.elevenlabs_stability
+            if stab is not None:
+                payload["stability"] = float(stab)
+            sim = similarity if similarity is not None else settings.elevenlabs_similarity_boost
+            if sim is not None:
+                payload["similarity"] = float(sim)
             try:
                 res = await wavespeed_run_generation(payload, out_path)
                 return res.file_path
@@ -260,6 +273,8 @@ class ElevenLabsApi:
         timeout: float = 300,
         voice_id: str | None = None,
         project_id: int | None = None,
+        stability: float | None = None,
+        similarity: float | None = None,
     ) -> Path:
         """Озвучить текст в `out_path` (mp3). Возвращает путь к файлу."""
         from app.bots.wavespeed_http import wavespeed_configured
@@ -303,12 +318,26 @@ class ElevenLabsApi:
         ):
             async with httpx.AsyncClient(timeout=float(timeout)) as client:
                 if len(chunks) == 1:
-                    await self._one_request(client, chunks[0], vid, out_path)
+                    await self._one_request(
+                        client,
+                        chunks[0],
+                        vid,
+                        out_path,
+                        stability=stability,
+                        similarity=similarity,
+                    )
                 else:
                     parts: list[Path] = []
                     for i, chunk in enumerate(chunks, start=1):
                         part = out_path.parent / f"{out_path.stem}_part{i:02d}.mp3"
-                        await self._one_request(client, chunk, vid, part)
+                        await self._one_request(
+                            client,
+                            chunk,
+                            vid,
+                            part,
+                            stability=stability,
+                            similarity=similarity,
+                        )
                         parts.append(part)
                     await _concat_mp3(parts, out_path)
                     for part in parts:
