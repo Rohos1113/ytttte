@@ -18,6 +18,7 @@ import {
   type VoiceLabVoice,
 } from "@/lib/voice-lab-api";
 import { rememberCloneVoices, resolveVoiceName } from "@/components/outsee/voice-library-modal";
+import { useTranslation } from "@/lib/i18n";
 
 type VoiceSource = "clone" | "catalog" | "standard";
 
@@ -212,6 +213,7 @@ type PanelPos = { top: number; left: number; width: number; height: number };
  * окно «Параметры» понимает, что клик внутри не должен его закрывать.
  */
 export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<VoiceTab>("all");
   const [search, setSearch] = useState("");
@@ -407,27 +409,27 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
   const tabs: Array<{ value: VoiceTab; label: string; count: number; visible: boolean }> = [
     {
       value: "all",
-      label: "Все",
+      label: t("voices.tabs.all"),
       count: showClonesTab
         ? cloneOptions.length + catalogOptions.length + standardOptions.length
         : catalogOptions.length + standardOptions.length,
       visible: true,
     },
-    { value: "clones", label: "Мои клоны", count: cloneOptions.length, visible: showClonesTab },
-    { value: "catalog", label: "Каталог", count: catalogOptions.length, visible: true },
-    { value: "standard", label: "Стандартные", count: standardOptions.length, visible: true },
-    { value: "history", label: "История", count: history.length, visible: true },
+    { value: "clones", label: t("voices.tabs.clones"), count: cloneOptions.length, visible: showClonesTab },
+    { value: "catalog", label: t("voices.tabs.catalog"), count: catalogOptions.length, visible: true },
+    { value: "standard", label: t("voices.tabs.standard"), count: standardOptions.length, visible: true },
+    { value: "history", label: t("voices.tabs.history"), count: history.length, visible: true },
   ];
 
   // В проект уходит external_voice_id, а кэш resolveVoiceName ключуется по
   // внутреннему id — поэтому сначала смотрим клона по id в ElevenLabs.
   const currentName = useMemo(() => {
     const clean = value.trim();
-    if (!clean) return "Выбрать голос";
+    if (!clean) return t("voices.picker.selectVoice");
     const byExternal = clones.find((clone) => clone.external_voice_id && clone.external_voice_id === clean);
     if (byExternal) return byExternal.name;
     return resolveVoiceName(clean) || clean;
-  }, [value, clones]);
+  }, [value, clones, t]);
 
   const selectOption = (option: VoiceOption) => {
     if (option.disabled) return;
@@ -483,7 +485,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <Mic className="h-3.5 w-3.5 shrink-0 text-[#2dd4bf]" />
-          <span className="shrink-0 text-white/55">Голос</span>
+          <span className="shrink-0 text-white/55">{t("voices.picker.voice")}</span>
         </span>
         <span className="flex min-w-0 items-center gap-1">
           <span className="truncate">{currentName}</span>
@@ -499,7 +501,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
               ref={panelRef}
               data-params-flyout="true"
               role="dialog"
-              aria-label="Выбор голоса"
+              aria-label={t("voices.picker.title")}
               style={{
                 position: "fixed",
                 top: pos.top,
@@ -513,12 +515,12 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
               <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2.5">
                 <div className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-[#2dd4bf]" />
-                  <span className="text-[13px] font-semibold text-white">Выбор голоса</span>
+                  <span className="text-[13px] font-semibold text-white">{t("voices.picker.title")}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  title="Закрыть"
+                  title={t("common.close")}
                   className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
                 >
                   <X className="h-4 w-4" />
@@ -534,7 +536,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                     value={search}
                     autoFocus
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Поиск по имени, тембру, характеру"
+                    placeholder={t("voices.picker.searchPlaceholder")}
                     className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-1.5 pl-8 pr-2 text-[12px] text-white placeholder-white/35 outline-none transition focus:border-[#2dd4bf]/50"
                   />
                 </div>
@@ -543,29 +545,29 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
               {/* Фильтры */}
               <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pt-2">
                 <label className="flex items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wide text-white/35">Язык</span>
+                  <span className="text-[10px] uppercase tracking-wide text-white/35">{t("voices.picker.language")}</span>
                   <select
                     value={language}
                     onChange={(e) => setLanguage(e.target.value as LanguageFilter)}
                     className="h-7 rounded-lg border border-white/[0.08] bg-[#161720] px-1.5 text-[11px] text-white outline-none transition focus:border-[#2dd4bf]/50"
                   >
-                    <option value="all">Все</option>
-                    <option value="ru">Русский</option>
-                    <option value="en">Английский</option>
+                    <option value="all">{t("voices.picker.all")}</option>
+                    <option value="ru">{t("voices.picker.russian")}</option>
+                    <option value="en">{t("voices.picker.english")}</option>
                   </select>
                 </label>
                 <label className="flex items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wide text-white/35">Сортировка</span>
+                  <span className="text-[10px] uppercase tracking-wide text-white/35">{t("voices.picker.sort")}</span>
                   <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value as SortMode)}
                     className="h-7 rounded-lg border border-white/[0.08] bg-[#161720] px-1.5 text-[11px] text-white outline-none transition focus:border-[#2dd4bf]/50"
                   >
-                    <option value="name">По имени</option>
-                    <option value="female">Женские сначала</option>
-                    <option value="male">Мужские сначала</option>
-                    <option value="index">По номеру</option>
-                    <option value="newest">Сначала новые</option>
+                    <option value="name">{t("voices.picker.byName")}</option>
+                    <option value="female">{t("voices.picker.femaleFirst")}</option>
+                    <option value="male">{t("voices.picker.maleFirst")}</option>
+                    <option value="index">{t("voices.picker.byNumber")}</option>
+                    <option value="newest">{t("voices.picker.newestFirst")}</option>
                   </select>
                 </label>
               </div>
@@ -595,13 +597,13 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                 {activeTab === "history" ? (
                   historyFiltered.length === 0 ? (
                     <p className="px-2 py-8 text-center text-[11px] text-white/40">
-                      Пока пусто: выбранные голоса появятся здесь
+                      {t("voices.picker.emptyHistory")}
                     </p>
                   ) : (
                     <>
                       <div className="flex items-center justify-between px-1 pb-1">
                         <span className="text-[10px] uppercase tracking-wide text-white/30">
-                          Последние выбранные
+                          {t("voices.tabs.history")}
                         </span>
                         <button
                           type="button"
@@ -611,7 +613,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                           }}
                           className="rounded-md px-1.5 py-0.5 text-[10px] text-white/40 transition hover:bg-white/10 hover:text-white"
                         >
-                          Очистить историю
+                          {t("voices.buttons.clearAll")}
                         </button>
                       </div>
                       {historyFiltered.map((entry) => (
@@ -637,9 +639,9 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                     </>
                   )
                 ) : activeTab === "clones" && clonesLoading && cloneOptions.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-[11px] text-white/40">Загружаем клоны…</p>
+                  <p className="px-2 py-8 text-center text-[11px] text-white/40">{t("voices.buttons.creating")}</p>
                 ) : filtered.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-[11px] text-white/40">Ничего не найдено</p>
+                  <p className="px-2 py-8 text-center text-[11px] text-white/40">{t("voices.search.noResults")}</p>
                 ) : (
                   filtered.map((option) => {
                     const selected = value === option.id;
@@ -697,9 +699,9 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                           title={
                             hasSample
                               ? playing
-                                ? "Пауза"
-                                : "Прослушать образец"
-                              : "Образца нет"
+                                ? t("voices.buttons.pause")
+                                : t("voices.buttons.playSample")
+                              : t("voices.search.noResults")
                           }
                           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/60 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
                         >
@@ -728,7 +730,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
                     className="flex items-center gap-1 rounded-lg border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Клонировать голос
+                    {t("voices.buttons.cloneVoice")}
                   </button>
                 ) : null}
               </div>

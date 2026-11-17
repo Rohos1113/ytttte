@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Sparkles } from "lucide-react";
 import { AUDIO_TAG_CATEGORIES } from "@/lib/audio-tags";
+import { useTranslation } from "@/lib/i18n";
 
 type Props = {
   onInsertTag: (tag: string) => void;
@@ -16,6 +17,7 @@ type Props = {
  * позицию курсора делает тот, кто его встраивает.
  */
 export function AudioTagsRow({ onInsertTag }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(AUDIO_TAG_CATEGORIES[0]?.id ?? "mood");
   /**
@@ -93,10 +95,10 @@ export function AudioTagsRow({ onInsertTag }: Props) {
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#2dd4bf]" />
-          <span className="shrink-0 text-white/55">Аудио-теги</span>
+          <span className="shrink-0 text-white/55">{t("voices.tags.title")}</span>
         </span>
         <span className="flex min-w-0 items-center gap-1">
-          <span className="truncate">Эмоции и звуки</span>
+          <span className="truncate">{t("voices.tags.subtitle")}</span>
           <ChevronDown
             className={`h-3.5 w-3.5 shrink-0 text-white/40 transition ${open ? "rotate-180" : ""}`}
           />
@@ -112,8 +114,8 @@ export function AudioTagsRow({ onInsertTag }: Props) {
           className="z-[1200] flex w-[300px] flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216]/[0.97] p-2 shadow-xl backdrop-blur"
         >
           <div className="mb-2">
-            <p className="text-[12px] font-semibold text-white/85">Аудио-теги</p>
-            <p className="text-[10px] text-white/40">Вставляется в позицию курсора</p>
+            <p className="text-[12px] font-semibold text-white/85">{t("voices.tags.title")}</p>
+            <p className="text-[10px] text-white/40">{t("voices.tags.subtitle")}</p>
           </div>
 
           {/* Категории */}

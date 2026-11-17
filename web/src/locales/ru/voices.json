@@ -76,5 +76,29 @@
     "consentRequired": "Подтвердите согласие на клонирование",
     "deleteFailed": "Не удалось удалить голос",
     "voiceNotReady": "Голос «{name}» пока не создан в ElevenLabs ({status}) — выбрать его для озвучки нельзя."
+  },
+  "picker": {
+    "title": "Выбор голоса",
+    "voice": "Голос",
+    "selectVoice": "Выбрать голос",
+    "searchPlaceholder": "Поиск по имени, тембру, характеру",
+    "language": "Язык",
+    "all": "Все",
+    "russian": "Русский",
+    "english": "Английский",
+    "sort": "Сортировка",
+    "byName": "По имени",
+    "femaleFirst": "Женские сначала",
+    "maleFirst": "Мужские сначала",
+    "byNumber": "По номеру",
+    "newestFirst": "Сначала новые",
+    "emptyHistory": "Пока пусто: выбранные голоса появятся здесь",
+    "cloneVoice": "Клонировать свой голос"
+  },
+  "tags": {
+    "title": "Аудио-теги",
+    "subtitle": "Эмоции, звуки и подача ElevenLabs v4",
+    "inserted": "Тег {tag} вставлен",
+    "copied": "Тег {tag} скопирован в буфер обмена"
   }
 }

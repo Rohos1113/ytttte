@@ -15,6 +15,8 @@ import {
 } from "@/lib/elevenlabs-voices";
 import { VoiceLibraryModal, getVoiceById, resolveVoiceName } from "@/components/outsee/voice-library-modal";
 import { CloneVoiceDialog } from "@/components/voices/clone-voice-dialog";
+import { VoicePickerRow } from "@/components/voices/voice-picker-row";
+import { AudioTagsRow } from "@/components/voices/audio-tags-row";
 import { voiceLabSampleUrl } from "@/lib/voice-lab-api";
 import {
   charCountFromDuration,
@@ -240,6 +242,30 @@ function AudioFields({
             {t("voices.title")}
           </Button>
         </div>
+      </div>
+
+      {/* Меню выбора голоса и эмоциональных аудио-тегов ElevenLabs */}
+      <div className="flex flex-col gap-2">
+        <VoicePickerRow
+          value={voiceDraft}
+          onChange={handleSelectVoiceFromModal}
+          onClone={() => setCloneOpen(true)}
+        />
+        <AudioTagsRow
+          onInsertTag={(tag) => {
+            const activeEl = document.activeElement;
+            if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) {
+              const start = activeEl.selectionStart ?? activeEl.value.length;
+              const end = activeEl.selectionEnd ?? activeEl.value.length;
+              activeEl.setRangeText(` ${tag} `, start, end, "end");
+              activeEl.dispatchEvent(new Event("input", { bubbles: true }));
+              toast.success(t("voices.tags.inserted", { tag }));
+            } else {
+              navigator.clipboard.writeText(tag).catch(() => {});
+              toast.success(t("voices.tags.copied", { tag }));
+            }
+          }}
+        />
       </div>
 
       {/* Карточка выбранного голоса */}

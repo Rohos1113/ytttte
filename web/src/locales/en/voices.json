@@ -76,5 +76,29 @@
     "consentRequired": "Consent confirmation is required",
     "deleteFailed": "Failed to delete voice",
     "voiceNotReady": "Voice «{name}» is not ready in ElevenLabs yet ({status}) — cannot select for voiceover."
+  },
+  "picker": {
+    "title": "Select Voice",
+    "voice": "Voice",
+    "selectVoice": "Select voice",
+    "searchPlaceholder": "Search by name, timbre, character",
+    "language": "Language",
+    "all": "All",
+    "russian": "Russian",
+    "english": "English",
+    "sort": "Sort",
+    "byName": "By Name",
+    "femaleFirst": "Female First",
+    "maleFirst": "Male First",
+    "byNumber": "By Number",
+    "newestFirst": "Newest First",
+    "emptyHistory": "No history yet: selected voices will appear here",
+    "cloneVoice": "Clone Your Voice"
+  },
+  "tags": {
+    "title": "Audio Tags",
+    "subtitle": "ElevenLabs v4 emotions, sounds and speech delivery",
+    "inserted": "Tag {tag} inserted",
+    "copied": "Tag {tag} copied to clipboard"
   }
 }
