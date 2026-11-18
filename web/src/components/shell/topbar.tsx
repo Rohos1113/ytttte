@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
-import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck } from "lucide-react";
+import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
@@ -37,6 +37,29 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [orchestratorOpen, setOrchestratorOpen] = useState(false);
+  const [gptActive, setGptActive] = useState(false);
+  const [outseeActive, setOutseeActive] = useState(false);
+
+  useEffect(() => {
+    const onGptState = (e: Event) => {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail;
+      if (detail && typeof detail.open === "boolean") {
+        setGptActive(detail.open);
+      }
+    };
+    const onOutseeState = (e: Event) => {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail;
+      if (detail && typeof detail.open === "boolean") {
+        setOutseeActive(detail.open);
+      }
+    };
+    window.addEventListener("studio-gpt-state-changed", onGptState);
+    window.addEventListener("studio-outsee-state-changed", onOutseeState);
+    return () => {
+      window.removeEventListener("studio-gpt-state-changed", onGptState);
+      window.removeEventListener("studio-outsee-state-changed", onOutseeState);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -80,10 +103,10 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
     setFramesOpen(true);
   };
 
-  const openOutsee = (projectId?: number | null) => {
+  const openOutsee = (projectId?: number | null, toggle = false) => {
     window.dispatchEvent(
       new CustomEvent("studio-open-outsee", {
-        detail: { projectId: projectId ?? null },
+        detail: { projectId: projectId ?? null, toggle },
       }),
     );
   };
@@ -95,9 +118,27 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
       <nav className="relative z-[20000] flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <a href="/home" title={t("common.nav.home")}><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
-        <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label={t("common.nav.generation")} title={t("common.nav.generationTitle")} onClick={() => openOutsee()} />
-        <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label={t("common.nav.projects")} title={t("common.nav.projectsTitle")} onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
-        <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label={t("common.nav.chat")} title={t("common.nav.chatTitle")} onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
+        <RailBtn
+          icon={<Film className="h-[18px] w-[18px]" />}
+          label={t("common.nav.generation")}
+          title={t("common.nav.generationTitle")}
+          active={outseeActive && !gptActive}
+          onClick={() => openOutsee(null, true)}
+        />
+        <RailBtn
+          icon={<FolderOpen className="h-[18px] w-[18px]" />}
+          label={t("common.nav.projects")}
+          title={t("common.nav.projectsTitle")}
+          active={!outseeActive && !gptActive}
+          onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))}
+        />
+        <RailBtn
+          icon={<Sparkles className="h-[18px] w-[18px]" />}
+          label={t("common.nav.chat")}
+          title={t("common.nav.chatTitle")}
+          active={gptActive}
+          onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-gpt"))}
+        />
         <BugReportButton />
         {isAdmin ? (
           <RailBtn

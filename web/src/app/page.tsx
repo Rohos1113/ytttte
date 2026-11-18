@@ -30,31 +30,86 @@ function HomePageInner() {
 
   useGlobalEvents();
 
+  // Синхронизация состояния модалок/экранов со студийной шиной событий (Topbar и др.)
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("studio-gpt-state-changed", { detail: { open: gptOpen } }),
+    );
+  }, [gptOpen]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("studio-outsee-state-changed", { detail: { open: outseeOpen } }),
+    );
+  }, [outseeOpen]);
+
   useEffect(() => {
     const openSidebar = () => setSidebarCollapsed(false);
     window.addEventListener("studio-open-projects-sidebar", openSidebar);
-    const toggleSidebar = () => setSidebarCollapsed((v) => !v);
+
+    const toggleSidebar = () => {
+      // Если открыт Чат или экран Генерации — клик по «Проекты» возвращает пользователя к проектам/холсту
+      if (gptOpen || outseeOpen) {
+        setGptOpen(false);
+        setOutseeOpen(false);
+        setSidebarCollapsed(false);
+      } else {
+        setSidebarCollapsed((v) => !v);
+      }
+    };
     window.addEventListener("studio-toggle-projects-sidebar", toggleSidebar);
+
+    const closeModals = () => {
+      setGptOpen(false);
+      setOutseeOpen(false);
+    };
+    window.addEventListener("studio-close-modals", closeModals);
+
     return () => {
       window.removeEventListener("studio-open-projects-sidebar", openSidebar);
       window.removeEventListener("studio-toggle-projects-sidebar", toggleSidebar);
+      window.removeEventListener("studio-close-modals", closeModals);
     };
-  }, []);
+  }, [gptOpen, outseeOpen, setSidebarCollapsed]);
 
   useEffect(() => {
     const openOutsee = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ projectId?: number | null }>).detail;
+      const detail = (ev as CustomEvent<{ projectId?: number | null; toggle?: boolean }>).detail;
       if (detail?.projectId != null) setSelectedProjectId(detail.projectId);
-      setOutseeOpen(true);
+      if (detail?.toggle && outseeOpen && !gptOpen) {
+        setOutseeOpen(false);
+      } else {
+        setGptOpen(false);
+        setOutseeOpen(true);
+      }
     };
     window.addEventListener("studio-open-outsee", openOutsee);
     return () => window.removeEventListener("studio-open-outsee", openOutsee);
-  }, [setSelectedProjectId]);
+  }, [setSelectedProjectId, outseeOpen, gptOpen]);
 
   useEffect(() => {
-    const openGpt = () => setGptOpen(true);
+    const openGpt = () => {
+      setOutseeOpen(false);
+      setGptOpen(true);
+    };
+    const toggleGpt = () => {
+      setGptOpen((prev) => {
+        const next = !prev;
+        if (next) setOutseeOpen(false);
+        return next;
+      });
+    };
+    const closeGpt = () => setGptOpen(false);
+
     window.addEventListener("studio-open-gpt", openGpt);
-    return () => window.removeEventListener("studio-open-gpt", openGpt);
+    window.addEventListener("studio-toggle-gpt", toggleGpt);
+    window.addEventListener("studio-close-gpt", closeGpt);
+
+    return () => {
+      window.removeEventListener("studio-open-gpt", openGpt);
+      window.removeEventListener("studio-toggle-gpt", toggleGpt);
+      window.removeEventListener("studio-close-gpt", closeGpt);
+    };
   }, []);
 
   // Оркестратор создал проект → выделяем его в пайплайне.

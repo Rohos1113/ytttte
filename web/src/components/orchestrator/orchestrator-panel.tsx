@@ -1849,7 +1849,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             }
       }
       className={cn(
-        "fixed z-50 transition-none",
+        "fixed z-[90] transition-none",
         isMaximized
           ? "pointer-events-auto flex flex-row overflow-hidden bg-[#0c0c0e]/95 backdrop-blur-2xl border-l border-white/[0.14]"
           : "pointer-events-none",
