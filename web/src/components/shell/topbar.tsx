@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
-import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, Sparkles } from "lucide-react";
+import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, NotebookText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
@@ -133,7 +133,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))}
         />
         <RailBtn
-          icon={<Sparkles className="h-[18px] w-[18px]" />}
+          icon={<NotebookText className="h-[18px] w-[18px]" />}
           label={t("common.nav.chat")}
           title={t("common.nav.chatTitle")}
           active={gptActive}

@@ -29,6 +29,7 @@ import {
   Loader2,
   Maximize2,
   MessageSquare,
+  NotebookText,
   Paperclip,
   Plus,
   RotateCcw,
@@ -678,7 +679,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         <div className="flex items-center justify-between border-b border-white/[0.08] p-3.5">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2dd4bf]/15 border border-[#2dd4bf]/30 text-[#2dd4bf] shadow-[0_0_10px_rgba(45,212,191,0.2)]">
-              <Sparkles className="h-4 w-4" />
+              <NotebookText className="h-4 w-4" />
             </div>
             <span className="text-sm font-bold tracking-tight text-white">ИИ Чат</span>
           </div>
