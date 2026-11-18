@@ -287,16 +287,9 @@ async def stop_project_running(
             if done_slots:
                 rollback_to = ready_status_for_slot(max(done_slots))
             else:
-                from sqlalchemy import func, select
+                from app.services.db_v2 import count_live_frames
 
-                from app.models import Frame
-
-                has_frames = (
-                    await session.scalar(
-                        select(func.count(Frame.id)).where(Frame.project_id == project.id)
-                    )
-                    or 0
-                ) > 0
+                has_frames = await count_live_frames(session, project.id) > 0
                 rollback_to = ProjectStatus.frames_ready if has_frames else ProjectStatus.script_ready
         rollback_to_val = rollback_to.value
         await stop_active_running_node(session, project)

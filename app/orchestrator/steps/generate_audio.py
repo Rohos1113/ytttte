@@ -212,7 +212,10 @@ async def run(
     else:
         await recover_whisper_from_disk(session, project)
 
-    frames = list(
+    from app.services.db_v2 import live_frames
+
+    # Архив прежнего разбиения по плану (1000xx) не озвучиваем.
+    frames = live_frames(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()

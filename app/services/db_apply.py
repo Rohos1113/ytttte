@@ -891,6 +891,13 @@ def _normalize_character_card(raw: dict[str, Any]) -> dict[str, Any]:
     clothes = str(raw.get("одежда") or raw.get("clothes") or "").strip()
     char = str(raw.get("характер") or raw.get("char") or "").strip()
     rules = str(raw.get("правила") or raw.get("rules") or "").strip()
+    # Голос персонажа: промт plan_cast.md просит voice_prompt, модель его отдаёт,
+    # а карточка его теряла — в attrs уходили только look/clothes/char/rules, и
+    # plan_cinema.apply.load_characters читал пустоту. Без тембра и темпа озвучка
+    # («кино с озвучкой») теряет голосовую идентичность персонажа.
+    voice = str(
+        raw.get("voice_prompt") or raw.get("голос") or raw.get("voice") or ""
+    ).strip()
     return {
         "code": code,
         "name": name,
@@ -899,10 +906,12 @@ def _normalize_character_card(raw: dict[str, Any]) -> dict[str, Any]:
             "clothes": clothes,
             "char": char,
             "rules": rules,
+            "voice_prompt": voice,
             "внешность": look,
             "одежда": clothes,
             "характер": char,
             "правила": rules,
+            "голос": voice,
         },
     }
 

@@ -94,6 +94,8 @@ import { defaultModelIdForNodeType, isTextNodeType } from "@/lib/node-model-cata
 import { applyGlobalTextModel, applyNodeDataPatch } from "@/lib/node-model-patch";
 import { EdgeKindControls } from "./edge-kind-controls";
 import { SoftThreadEdge } from "./soft-thread-edge";
+import { AssembleMontageTrigger } from "./assemble-montage-board";
+import { useCanvasActionsOptional } from "./canvas-actions-context";
 import { edgeKindLabel } from "@/lib/gpt-operator";
 import { useRunEvents } from "@/hooks/use-bus";
 import { Button } from "@/components/ui/button";
@@ -243,6 +245,11 @@ export function FlowCanvas({
 
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState<Node<PipelineNodeData>>([]);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState<Edge>([]);
+  /** «Монтаж» на общей панели — только когда в графе есть нода «Сборка». */
+  const hasAssembleNode = useMemo(
+    () => nodes.some((n) => (n.data as PipelineNodeData | undefined)?.type === "assemble"),
+    [nodes],
+  );
   const [graphVersion, setGraphVersion] = useState<string>("");
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -1264,6 +1271,7 @@ export function FlowCanvas({
       <WorkflowToolbar
         workflowId={workflow.data?.id}
         projectId={projectId}
+        hasAssembleNode={hasAssembleNode}
         onSave={persistWorkflow}
         saving={saving}
         onAddNode={addNode}
@@ -1382,6 +1390,7 @@ export function FlowCanvas({
 function WorkflowToolbar({
   workflowId,
   projectId,
+  hasAssembleNode,
   onSave,
   saving,
   onAddNode,
@@ -1396,6 +1405,8 @@ function WorkflowToolbar({
 }: {
   workflowId?: number;
   projectId?: number | null;
+  /** В графе есть нода «Сборка» — тогда на панели живёт «Монтаж». */
+  hasAssembleNode?: boolean;
   onSave: () => Promise<void> | void;
   saving: boolean;
   onAddNode: (type: string) => void;
@@ -1409,6 +1420,7 @@ function WorkflowToolbar({
   onAddExcelFeed: () => void;
 }) {
   const qc = useQueryClient();
+  const canvasActions = useCanvasActionsOptional();
 
   const duplicateWf = async () => {
     if (!workflowId) return;
@@ -1424,6 +1436,22 @@ function WorkflowToolbar({
   return (
     <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap gap-2">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-card/90 p-1 backdrop-blur-md shadow-md">
+        {canvasActions?.projectId && hasAssembleNode ? (
+          <>
+            <AssembleMontageTrigger
+              active={canvasActions.montageBoardOpen}
+              busy={canvasActions.montageBusy}
+              onClick={() => {
+                if (canvasActions.montageBoardOpen) {
+                  canvasActions.onCloseMontageBoard();
+                } else {
+                  canvasActions.onOpenMontageBoard();
+                }
+              }}
+            />
+            <div className="h-4 w-px bg-white/10" />
+          </>
+        ) : null}
         <NodePalette
           projectId={projectId ?? null}
           onAddNode={onAddNode}

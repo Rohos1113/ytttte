@@ -71,7 +71,9 @@ def _frames_with_image_prompt(frames: list[Frame]) -> list[Frame]:
 
 
 async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
-    return list(
+    from app.services.db_v2 import live_frames
+
+    return live_frames(
         (
             await session.execute(
                 select(Frame)

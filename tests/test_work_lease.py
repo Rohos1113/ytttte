@@ -197,3 +197,24 @@ async def test_release_with_caller_session(lease_db, monkeypatch):
         assert await wl.release(2, "step:plan", owner="me", session=session) is True
     assert calls == []
     assert await wl.is_held(2, "step:plan") is False
+
+
+@pytest.mark.asyncio
+async def test_expire_dead_local_lease_on_windows_oserror(lease_db, monkeypatch):
+    """BUG-011: Windows отвечает OSError [WinError 87] на мёртвый pid.
+
+    Раньше любой OSError считался «процесс жив», и lease убитого pid (после
+    рестарта студии) держал проект до конца TTL — час для шага.
+    """
+    import os
+
+    await wl.acquire(1, "step:enrich_1", owner=f"{wl._HOST}:{os.getpid() + 100000}:x", ttl_s=3600)
+
+    def _kill(pid: int, sig: int) -> None:
+        exc = OSError(22, "Параметр задан неверно")
+        exc.winerror = 87  # type: ignore[attr-defined]
+        raise exc
+
+    monkeypatch.setattr(wl.os, "kill", _kill)
+    assert await wl.expire_dead_local_leases() == 1
+    assert await wl.is_held(1, "step:enrich_1") is False

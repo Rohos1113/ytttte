@@ -66,6 +66,13 @@ WORK_NODES: dict[str, WorkNodeSpec] = {
     ),
     "hero": WorkNodeSpec("hero", "hero", ProjectStatus.generating_hero, ProjectStatus.hero_ready),
     "items": WorkNodeSpec("items", "items", ProjectStatus.generating_items, ProjectStatus.items_ready),
+    # Фоны локаций: PNG по карточкам pk_backgrounds, стоят перед «Картинками».
+    "backgrounds": WorkNodeSpec(
+        "backgrounds",
+        "bg",
+        ProjectStatus.generating_backgrounds,
+        ProjectStatus.backgrounds_ready,
+    ),
     "enrich_1": WorkNodeSpec("enrich_1", "enrich_1", ProjectStatus.enriching_1, ProjectStatus.enrich_1_ready),
     "enrich_2": WorkNodeSpec("enrich_2", "enrich_2", ProjectStatus.enriching_2, ProjectStatus.enrich_2_ready),
     "enrich_3": WorkNodeSpec("enrich_3", "enrich_3", ProjectStatus.enriching_3, ProjectStatus.enrich_3_ready),
@@ -136,6 +143,7 @@ LINEAR_NODE_TYPES: list[str] = [
     "sd_assemble",
     "hero",
     "items",
+    "backgrounds",
     "enrich_1",
     "enrich_2",
     "enrich_3",

@@ -146,16 +146,23 @@ def _build_transitions() -> dict[ProjectStatus, StepTransition]:
     transitions[ProjectStatus.items_ready] = StepTransition(
         ProjectStatus.items_ready, ProjectStatus.enriching_1, HITLKind.approve_hero
     )
-    # enrich_1..5_ready → enriching_<n+1> или generating_image_prompts
+    # enrich_1..5_ready → enriching_<n+1> или generating_backgrounds
     enrich_chain = [
         (ProjectStatus.enrich_1_ready, ProjectStatus.enriching_2),
         (ProjectStatus.enrich_2_ready, ProjectStatus.enriching_3),
         (ProjectStatus.enrich_3_ready, ProjectStatus.enriching_4),
         (ProjectStatus.enrich_4_ready, ProjectStatus.enriching_5),
-        (ProjectStatus.enrich_5_ready, ProjectStatus.generating_image_prompts),
+        (ProjectStatus.enrich_5_ready, ProjectStatus.generating_backgrounds),
     ]
     for ready, nxt in enrich_chain:
         transitions[ready] = StepTransition(ready, nxt, HITLKind.approve_hero)
+
+    # backgrounds_ready → generating_image_prompts
+    transitions[ProjectStatus.backgrounds_ready] = StepTransition(
+        ProjectStatus.backgrounds_ready,
+        ProjectStatus.generating_image_prompts,
+        HITLKind.approve_hero,
+    )
 
     # image_prompts_ready → generating_images
     transitions[ProjectStatus.image_prompts_ready] = StepTransition(
@@ -326,6 +333,7 @@ READY_VERDICT_STEP: dict[ProjectStatus, str] = {
     ProjectStatus.frames_ready: "split",
     ProjectStatus.hero_ready: "hero",
     ProjectStatus.items_ready: "items",
+    ProjectStatus.backgrounds_ready: "bg",
     ProjectStatus.enrich_1_ready: "enrich_1",
     ProjectStatus.enrich_2_ready: "enrich_2",
     ProjectStatus.enrich_3_ready: "enrich_3",
@@ -382,6 +390,7 @@ def _running_for_ready(ready: ProjectStatus) -> ProjectStatus | None:
         ProjectStatus.scene_design_ready: ProjectStatus.scene_assembling,
         ProjectStatus.hero_ready: ProjectStatus.generating_hero,
         ProjectStatus.items_ready: ProjectStatus.generating_items,
+        ProjectStatus.backgrounds_ready: ProjectStatus.generating_backgrounds,
         ProjectStatus.enrich_1_ready: ProjectStatus.enriching_1,
         ProjectStatus.enrich_2_ready: ProjectStatus.enriching_2,
         ProjectStatus.enrich_3_ready: ProjectStatus.enriching_3,

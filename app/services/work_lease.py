@@ -42,11 +42,16 @@ from sqlalchemy import delete, text, update
 from app.db import session_scope
 from app.models import WorkLease
 
+# TTL шага. `pipeline._renew_loop` продлевает lease каждые 10 минут, поэтому
+# часовой запас не нужен: 30 минут — и живой шаг не отбирается (renew успевает
+# трижды), и lease упавшего процесса не морозит проект целый час (BUG-011).
+STEP_LEASE_TTL_S = 30 * 60
+
 # TTL по типу единицы (сек); переопределяется параметром.
 DEFAULT_TTL_S = {
     "img": 15 * 60,
     "video": 30 * 60,
-    "step": 60 * 60,
+    "step": STEP_LEASE_TTL_S,
 }
 
 
@@ -291,13 +296,37 @@ async def release(
         _live_owners.discard(me)
 
 
+#: WinError'ы, которыми Windows отвечает `os.kill(pid, 0)` на мёртвый pid:
+#: 87 ERROR_INVALID_PARAMETER (так отвечает живой процесс-обёртка CPython),
+#: 1168 ERROR_NOT_FOUND (на части сборок). Отдельного ProcessLookupError там нет.
+_WIN_DEAD_PID_ERRORS = frozenset({87, 1168})
+#: POSIX-errno «такого процесса нет»: ESRCH, ENOENT, EINVAL.
+_DEAD_PID_ERRNOS = frozenset({2, 3, 22})
+
+
 def _pid_alive(pid: int) -> bool:
+    """Жив ли процесс с этим pid в НАШЕМ пространстве pid.
+
+    POSIX отвечает ``ProcessLookupError`` на мёртвый pid и ``PermissionError``
+    на чужой живой. Windows на мёртвый pid кидает ``OSError`` [WinError 87]
+    «Параметр задан неверно» — отдельного исключения нет. Раньше любой
+    ``OSError`` считался «процесс есть», поэтому lease убитого процесса (после
+    рестарта студии) жил до конца TTL — час для шага, — и проект стоял:
+    «advance: … занят живым step-lease» при мёртвом владельце (BUG-011).
+    """
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except OSError:
-        return True  # PermissionError и т.п. — процесс есть
+    except PermissionError:
+        return True  # процесс есть, но не наш
+    except OSError as exc:
+        winerror = getattr(exc, "winerror", None)
+        if winerror is not None:
+            return winerror not in _WIN_DEAD_PID_ERRORS
+        return getattr(exc, "errno", None) not in _DEAD_PID_ERRNOS
     return True
 
 

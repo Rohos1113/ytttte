@@ -389,17 +389,24 @@ def _refresh_shots_in_beat(frames: list[Frame], parent: Frame) -> None:
 
 
 async def _load_frames(session: AsyncSession, project_id: int) -> list[Frame]:
-    return list(
-        (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project_id)
-                .order_by(Frame.sort_key, Frame.number)
+    """Живые кадры проекта; архив прежнего разбиения по плану не берём."""
+    from app.services.db_v2 import frame_is_archived
+
+    return [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame)
+                    .where(Frame.project_id == project_id)
+                    .order_by(Frame.sort_key, Frame.number)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+        if not frame_is_archived(fr)
+    ]
 
 
 def _apply_shot_fields(

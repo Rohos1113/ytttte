@@ -75,7 +75,7 @@ except ImportError:  # pragma: no cover - срабатывает только б
     )
     PLAN_RANK = {name: rank for rank, name in enumerate(PLAN_CANON)}
     ANGLE_CANON = ("фронт", "3/4", "с плеча", "сверху", "снизу", "макро")
-    HEIGHT_CANON = ("уровень глаз", "выше", "ниже", "сверху", "снизу", "—")
+    HEIGHT_CANON = ("уровень глаз", "снизу вверх", "сверху вниз", "—")
     OBJECT_CANON = ("место", "тело", "двое", "предмет", "лицо", "взгляд")
     TEMPLATE_CANON = ("T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "X1", "X2")
     FORBIDDEN_ADJACENT = frozenset({(1, 2), (2, 1), (2, 3), (3, 2)})

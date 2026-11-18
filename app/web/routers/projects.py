@@ -612,6 +612,71 @@ async def media_review(
                 "preview_url": (f"/api/files?path={art.path}" if art and art.path else None),
             }
         )
+    if kind == "images" and out:
+        # Картинки по кадрам-шотам (S1-K1…): на сцену их несколько, поэтому
+        # одна плитка на сцену не показывает работу шага. Если такие PNG есть —
+        # отдаём их вместо сцен, с подписью кода кадра.
+        shot_rows = await _shot_image_rows(session, project_id, frames, kind)
+        if shot_rows:
+            return shot_rows
+    return out
+
+
+async def _shot_image_rows(
+    session: AsyncSession,
+    project_id: int,
+    frames: list[Frame],
+    kind: str,
+) -> list[dict]:
+    from app.models import Artifact
+
+    rows = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == ArtifactKind.scene_image,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_number: dict[int, Frame] = {fr.number: fr for fr in frames}
+    out: list[dict] = []
+    for art in rows:
+        meta = dict(art.meta or {})
+        shot_id = str(meta.get("shot_id") or "").strip()
+        if not shot_id or not art.path:
+            continue
+        frame = by_number.get(int(meta.get("frame_number") or 0))
+        version = meta.get("mtime")
+        preview = (
+            f"/api/artifacts/{art.uuid}/file?v={version}"
+            if art.uuid and isinstance(version, int)
+            else f"/api/files?path={art.path}"
+        )
+        out.append(
+            {
+                "frame_id": frame.id if frame is not None else 0,
+                "number": frame.number if frame is not None else 0,
+                "label": shot_id,
+                "voiceover_text": "",
+                "image_prompt": "",
+                "animation_prompt": "",
+                "status": "generated",
+                "artifact_uuid": art.uuid,
+                "file_path": art.path,
+                "preview_url": preview,
+                "kind": kind,
+            }
+        )
+    out.sort(
+        key=lambda r: (
+            int(r["number"] or 0),
+            int("".join(ch for ch in str(r["label"]) if ch.isdigit()) or 0),
+        )
+    )
     return out
 
 

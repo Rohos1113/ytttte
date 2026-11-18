@@ -6,6 +6,7 @@ import hashlib
 import json
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -36,6 +37,75 @@ from app.services.montage_coverage_ops import (
     delete_coverage_child,
 )
 from app.services.vo_shot_expand import _cs, _flag_attrs, _set_cs, is_shot_child
+
+
+async def _renumber_and_rename_media(
+    session: AsyncSession, project: Project
+) -> list[Frame]:
+    """number = 1..N по sort_key и переименовать файлы кадров под новые номера.
+
+    ``number`` — публичный номер кадра на доске, но он же зашит в имена файлов
+    (``frame_003_*.png``, ``clip_003_*.mp4``). Если просто переставить номера,
+    картинки и клипы «оторвутся» от своих кадров: доска их не найдёт. Поэтому
+    вместе с номером двигаем и файлы, двумя фазами (через временные имена),
+    чтобы обмен номерами между кадрами не затирал файлы.
+    """
+    frames = await _load_frames(session, int(project.id))
+    before = {int(fr.id): int(fr.number) for fr in frames}
+    from app.services.scene_design.camera_expand import renumber_frames_by_sort_key
+
+    ordered = await renumber_frames_by_sort_key(session, project)
+    renames: dict[int, int] = {}
+    for fr in ordered:
+        old = before.get(int(fr.id))
+        if old is not None and int(fr.number) != old:
+            renames[old] = int(fr.number)
+    if renames:
+        _rename_frame_media(project, renames)
+        logger.info(
+            "montage renumber #{}: {} кадров переименовано в медиа",
+            project.id,
+            len(renames),
+        )
+    return ordered
+
+
+_MEDIA_SUBDIRS = ("scenes", "images", "videos")
+_MEDIA_PREFIXES = ("frame", "clip")
+
+
+def _rename_frame_media(project: Project, renames: dict[int, int]) -> None:
+    """Переименовать ``frame_NNN_*`` и ``clip_NNN_*`` под новые номера кадров."""
+    data_dir = getattr(project, "data_dir", None)
+    if data_dir is None:
+        return
+    moves: list[tuple[Path, Path]] = []
+    for old, new in renames.items():
+        if old == new:
+            continue
+        for sub in _MEDIA_SUBDIRS:
+            folder = Path(data_dir) / sub
+            if not folder.is_dir():
+                continue
+            for prefix in _MEDIA_PREFIXES:
+                for path in folder.glob(f"{prefix}_{old:03d}_*"):
+                    if not path.is_file():
+                        continue
+                    tail = path.name[len(f"{prefix}_{old:03d}_") :]
+                    moves.append((path, folder / f"{prefix}_{new:03d}_{tail}"))
+    if not moves:
+        return
+    # Фаза 1: во временные имена (обмен номерами 2↔3 не затрёт файлы).
+    staged: list[tuple[Path, Path]] = []
+    for src, dst in moves:
+        tmp = src.with_name(
+            f".__numtmp_{hashlib.md5(src.name.encode()).hexdigest()[:12]}__{src.name}"
+        )
+        src.rename(tmp)
+        staged.append((tmp, dst))
+    # Фаза 2: временные → финальные.
+    for tmp, dst in staged:
+        tmp.rename(dst)
 
 
 async def upsert_frame_voiceover(session: AsyncSession, frame: Frame, text: str) -> None:
@@ -121,6 +191,9 @@ async def insert_montage_frame(
         fr.voiceover_text = ""
         _new_shot_from_parent(parent, fr)
         await session.flush()
+        # number = 1..N по sort_key: иначе новый шот получает max+1 и на доске
+        # номера кадров идут не по порядку (жалоба «строки не там»).
+        await _renumber_and_rename_media(session, project)
         await upsert_frame_voiceover(session, fr, "")
         ordered = await _load_frames(session, int(project.id))
         live_parent = next(
@@ -150,6 +223,7 @@ async def insert_montage_frame(
     fr.voiceover_text = vo
     _set_cs(fr, role="vo_parent", parent_uuid=uid)
     await session.flush()
+    await _renumber_and_rename_media(session, project)
     await upsert_frame_voiceover(session, fr, vo)
     await session.flush()
     live = await session.get(Frame, fr.id)
@@ -232,6 +306,8 @@ async def delete_montage_frame(
     number = int(frame.number)
     if is_shot_child(frame):
         await delete_coverage_child(session, project, frame, frames)
+        # Дыр в нумерации не оставляем: номера снова 1..N по sort_key.
+        await _renumber_and_rename_media(session, project)
         board = montage_meta(project)
         drop_pending_ops_for_frames(board, {number})
         set_montage_meta(project, board)
@@ -240,6 +316,9 @@ async def delete_montage_frame(
 
     kids = _children_of(frames, frame)
     new_head = _promote_first_child(frame, kids)
+    # Номер повышённого кадра запоминаем до перенумерации: в ответе и тосте
+    # он означает прежний номер кадра, а не новый порядковый.
+    promoted_number = int(new_head.number) if new_head is not None else None
     quarantine_frame_media(project, number)
     await _drop_frame_rows(session, project, [frame])
     if new_head is not None:
@@ -247,6 +326,7 @@ async def delete_montage_frame(
         live = next((fr for fr in leftover if int(fr.id) == int(new_head.id)), new_head)
         _refresh_shots_in_beat(leftover, live)
         await session.flush()
+    await _renumber_and_rename_media(session, project)
     board = montage_meta(project)
     drop_pending_ops_for_frames(board, {number})
     set_montage_meta(project, board)
@@ -261,7 +341,7 @@ async def delete_montage_frame(
         "frame_id": frame_id,
         "number": number,
         "deleted": 1,
-        "promoted": int(new_head.number) if new_head is not None else None,
+        "promoted": promoted_number,
     }
 
 

@@ -995,7 +995,9 @@ async def generate_image_with_retries(
                 )
                 # kie-ветка ниже обязана быть достижима: use_outsee_api для kie
                 # всегда False, поэтому backend == "kie" идёт отдельным условием.
-                if use_outsee_api or backend == "kie":
+                # pay52 — та же история (GPT Image 2 через 52pay идёт в обход
+                # Outsee, см. app/bots/pay52_images.py).
+                if use_outsee_api or backend in ("kie", "pay52"):
                     refs = attempt_kwargs.get("reference_image")
                     ref_list: list[Any] | None = None
                     if isinstance(refs, Path):
@@ -1048,6 +1050,41 @@ async def generate_image_with_retries(
                         except Exception:  # noqa: BLE001
                             logger.debug("kie sidecar write skipped", exc_info=True)
                         # Факт уже записан внутри generate_kie_image (media_call).
+                        return result
+                    if backend == "pay52":
+                        from app.bots.pay52_images import generate_image as generate_pay52_image
+
+                        result = await generate_pay52_image(
+                            send_prompt,
+                            out_path,
+                            model_slug=str(raw_slug or "gpt-image-2"),
+                            aspect_ratio=str(ar).replace("_", ":"),
+                            quality=attempt_kwargs.get("quality"),
+                            reference_images=ref_list,
+                            timeout=float(attempt_kwargs.get("timeout") or 600),
+                            gen_id=attempt_kwargs.get("gen_id"),
+                            project_id=pid if isinstance(pid, int) else None,
+                        )
+                        try:
+                            from app.services.generation_storage import write_sidecar
+
+                            write_sidecar(
+                                result.file_path,
+                                media="image",
+                                model=str(raw_slug or "gpt-image-2"),
+                                prompt=send_prompt,
+                                params={
+                                    "aspect": str(ar).replace("_", ":"),
+                                    "resolution": str(res) if res else "2K",
+                                    "project_id": pid,
+                                    "gen_id": attempt_kwargs.get("gen_id"),
+                                },
+                                raw_url=result.raw_url,
+                                quote=None,
+                                provider="pay52",
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.debug("pay52 sidecar write skipped", exc_info=True)
                         return result
                     if use_outsee_api:
                         result = await outsee_api_generate_image(

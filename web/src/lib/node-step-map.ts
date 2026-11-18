@@ -9,6 +9,7 @@ export const NODE_TO_STEP: Record<string, string> = {
   sd_assemble: "scene_asm",
   hero: "hero",
   items: "items",
+  backgrounds: "bg",
   excel_gpt: "excel_gpt",
   image_prompts: "img_pr",
   images: "img",

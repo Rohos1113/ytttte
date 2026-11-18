@@ -879,11 +879,19 @@ def _variant_from_studio_meta(meta: dict | None, step_code: str) -> str | None:
 
 
 def _coerce_hero_sheet_variant(name: str, source: str) -> tuple[str, str]:
-    """Hero = turnaround sheet. Агент реестра / пустой default → лист 16:9."""
+    """Hero = turnaround sheet. Агент реестра / пустой default → лист 16:9.
+
+    При отключённых защитах слота hero возвращаем выбранный вариант как есть.
+    """
     from app.services.hero_prompt_contract import (
+        HERO_GUARDS_DISABLED,
         hero_master_looks_like_registry_agent,
         hero_master_looks_like_sheet,
     )
+
+    clean = _clean_variant_name(name)
+    if HERO_GUARDS_DISABLED:
+        return (clean or DEFAULT_NAME), source
 
     def _ok(variant: str) -> bool:
         text = _variant_text_db_first("hero", variant)
@@ -893,7 +901,6 @@ def _coerce_hero_sheet_variant(name: str, source: str) -> tuple[str, str]:
             return False
         return hero_master_looks_like_sheet(text)
 
-    clean = _clean_variant_name(name)
     if clean and _ok(clean):
         return clean, source
     for fallback in _HERO_SHEET_FALLBACKS:

@@ -12,6 +12,7 @@ import {
   useState,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -22,6 +23,8 @@ import {
   ChevronDown,
   ChevronRight,
   Clapperboard,
+  FileText,
+  GripVertical,
   Link2,
   Loader2,
   MoreHorizontal,
@@ -57,10 +60,15 @@ import {
 } from "@/lib/montage-ai-change-memory";
 import type {
   MontageAnchorRow,
+  MontageBoardCharacterRef,
   MontageBoardDTO,
   MontageBoardFrame,
+  MontageBoardShot,
   MontageImproveReport,
+  ProjectDetail,
 } from "@/lib/types";
+import type { NodeResultItem } from "@/lib/node-result-resolver";
+import type { MontageResultNode } from "@/components/canvas/montage-node-results";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +92,22 @@ import {
   type CoverageMenuGroup,
 } from "@/components/canvas/montage-scene-cells";
 import { FrameRefsStrip } from "@/components/canvas/montage-frame-refs";
+import { MontageVariablesPanel } from "@/components/canvas/montage-variables-panel";
+import { useMontagePlacements, applyPlacements } from "@/lib/montage-placement";
+import {
+  MontageResultRowContent,
+  ResultPlacementCell,
+  RES_ROW_PREFIX,
+  SPREAD_ITEM_ID,
+  resultRowKey,
+  resultRowLayout,
+  useMontageResults,
+  type ResultRowLayout,
+} from "@/components/canvas/montage-node-results";
+import {
+  MontageRowsMenu,
+  type MontageRowsMenuItem,
+} from "@/components/canvas/montage-rows-menu";
 
 /** Единая ширина колонок кадров (+30% к v215). */
 const FRAME_COL_REM = 15;
@@ -857,9 +881,263 @@ function sceneColSpan(frameCount: number): number {
   return Math.max(1, frameCount * 2 - 1);
 }
 
+/**
+ * Колонка доски = запланированный шот кадра (`attrs["кадры"]`).
+ * Доска без шотов живёт по-старому: одна колонка на кадр (старт+конец внутри).
+ */
+type ShotUnit = {
+  key: string;
+  frame: MontageBoardFrame;
+  shot: MontageBoardShot | null;
+  /** Таймлайн шота внутри сцены: секунды от её начала (по «длительность»). */
+  timelineStart?: number;
+  timelineEnd?: number;
+};
+
+function shotUnitsForFrame(frame: MontageBoardFrame): ShotUnit[] {
+  const shots = frame.planned_shots ?? [];
+  if (shots.length === 0) {
+    return [{ key: `${frame.frame_id}-frame`, frame, shot: null }];
+  }
+  return [...shots]
+    .sort((a, b) => (Number(a.порядок ?? 0) || 0) - (Number(b.порядок ?? 0) || 0))
+    .map((shot, index) => ({
+      key: `${frame.frame_id}-${shot.id || index}`,
+      frame,
+      shot,
+    }));
+}
+
+function rangeShotUnits(range: SceneRange): ShotUnit[] {
+  const units = range.frames.flatMap(shotUnitsForFrame);
+  let cursor = 0;
+  for (const unit of units) {
+    const duration = Number(unit.shot?.длительность ?? 0);
+    if (Number.isFinite(duration) && duration > 0) {
+      unit.timelineStart = Math.round(cursor * 100) / 100;
+      cursor += duration;
+      unit.timelineEnd = Math.round(cursor * 100) / 100;
+    }
+  }
+  return units;
+}
+
+/**
+ * Место единицы результата на доске глазами доски. `shot` доска понимает
+ * сама (панель пишет только `res:<node>:shown`), остальное — кадр/сцена/общая.
+ */
+type BoardPlaced = {
+  kind?: string;
+  shotId?: string;
+  frameNumber?: number;
+  frameNumbers?: number[];
+  sceneIndex?: number;
+};
+
+function boardPlacement(item: { placement?: unknown } | null | undefined): BoardPlaced | null {
+  const raw = item?.placement;
+  if (!raw || typeof raw !== "object") return null;
+  return raw as BoardPlaced;
+}
+
+function ShotColGroup({
+  ranges,
+  colRem,
+}: {
+  ranges: SceneRange[];
+  colRem: number;
+}) {
+  return (
+    <colgroup>
+      <col style={{ width: 11 * 16 }} />
+      {ranges.flatMap((range) =>
+        rangeShotUnits(range).map((unit) => (
+          <col key={`col-${unit.key}`} style={{ width: framePairRem(unit.frame, colRem) * 16 }} />
+        )),
+      )}
+    </colgroup>
+  );
+}
+
 function sceneBlockWidthPx(frames: MontageBoardFrame[], colRem: number): number {
   const cols = frames.reduce((sum, fr) => sum + framePairRem(fr, colRem), 0);
   return cols * 16 + Math.max(0, frames.length - 1) * SHOT_GAP_REM * 16;
+}
+
+const ROW_HEIGHT_MIN = 40;
+const ROW_HEIGHT_MAX = 600;
+const ROW_HEIGHT_DEFAULT = 128;
+
+function clampRowHeight(value: number): number {
+  return Math.round(Math.min(ROW_HEIGHT_MAX, Math.max(ROW_HEIGHT_MIN, value)));
+}
+
+/**
+ * Миниатюры рефов (персонажи/предметы) в колонке своего кадра — размером как
+ * картинка в строке «Кадры»: на ширину колонки, object-cover, подпись код/имя.
+ * Несколько персон в кадре идут стопкой, каждая на всю ширину — читаемо.
+ */
+function FrameRefThumbs({
+  refs,
+  tall = false,
+  tallAspect = null,
+  compact = false,
+}: {
+  refs: MontageBoardCharacterRef[];
+  tall?: boolean;
+  tallAspect?: string | null;
+  /** Размер как у still'а шота: картинка на ширину колонки, не выше 96px. */
+  compact?: boolean;
+}) {
+  if (refs.length === 0) {
+    return <span className="block text-[10px] text-muted-foreground/30">—</span>;
+  }
+  const mediaBox = tall ? tallMediaStyle(tallAspect) : undefined;
+  return (
+    <div className="flex flex-col gap-1.5">
+      {refs.map((ref) => (
+        <figure
+          key={`${ref.id}-${ref.image_url ?? ""}`}
+          className="w-full min-w-0"
+          title={ref.name || ref.code || ref.id}
+        >
+          {ref.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={ref.image_url}
+              alt={ref.name || ref.id}
+              loading="lazy"
+              decoding="async"
+              style={mediaBox}
+              className={cn(
+                "block w-full rounded-lg border border-white/10 bg-black object-cover",
+                tall ? null : compact ? "h-24" : "h-32",
+              )}
+            />
+          ) : (
+            <div
+              style={mediaBox}
+              className={cn(
+                "w-full rounded-lg border border-dashed border-white/15 bg-black/30",
+                tall ? null : compact ? "h-24" : "h-32",
+              )}
+            />
+          )}
+          <figcaption className="mt-0.5 truncate text-center font-mono text-[10px] text-muted-foreground/70">
+            {ref.code || ref.name}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Фон сцены: одна ячейка на сцену (колонки всех её кадров), картинка на ширину
+ * сцены — тот же размер, что у «Кадров», не мельче.
+ */
+function SceneBackgroundCell({
+  frames,
+  tall = false,
+  tallAspect = null,
+}: {
+  frames: MontageBoardFrame[];
+  tall?: boolean;
+  tallAspect?: string | null;
+}) {
+  const bg = frames.find((fr) => fr.background_ref)?.background_ref ?? null;
+  if (!bg) {
+    return <span className="block text-[10px] text-muted-foreground/30">—</span>;
+  }
+  const mediaBox = tall ? tallMediaStyle(tallAspect) : undefined;
+  return (
+    <figure className="w-full min-w-0" title={`${bg.name} · кадров в сцене: ${frames.length}`}>
+      {bg.image_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={bg.image_url}
+          alt={bg.name}
+          loading="lazy"
+          decoding="async"
+          style={mediaBox}
+          className={cn(
+            "block w-full rounded-lg border border-white/10 bg-black object-cover",
+            tall ? null : "h-32",
+          )}
+        />
+      ) : (
+        <div
+          style={mediaBox}
+          className={cn(
+            "w-full rounded-lg border border-dashed border-white/15 bg-black/30",
+            tall ? null : "h-32",
+          )}
+        />
+      )}
+      <figcaption className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground/70">
+        <span className="truncate font-mono">{bg.name}</span>
+        <span className="shrink-0 text-muted-foreground/50">{frames.length} кадр(ов)</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/** Ручка перетаскивания строки в липкой первой колонке (pointer-drag). */
+function RowGrip({
+  rowKey,
+  active,
+  onStart,
+}: {
+  rowKey: string;
+  active: boolean;
+  onStart: (rowKey: string, event: ReactMouseEvent<HTMLElement>) => void;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label="Перетащить строку"
+      title="Потяни, чтобы поднять/опустить строку"
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onStart(rowKey, event);
+      }}
+      className={cn(
+        "mt-0.5 shrink-0 cursor-grab touch-none rounded p-1 text-muted-foreground/50 transition hover:bg-white/10 hover:text-foreground active:cursor-grabbing",
+        active && "bg-[rgba(209,254,23,0.14)] text-[rgba(209,254,23,0.95)]",
+      )}
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+/** Нижняя ручка высоты строки; двойной клик — сброс к авто. */
+function RowResizer({
+  hasHeight,
+  onMouseDown,
+  onReset,
+}: {
+  hasHeight: boolean;
+  onMouseDown: (event: ReactMouseEvent<HTMLElement>) => void;
+  onReset: () => void;
+}) {
+  return (
+    <span
+      role="separator"
+      aria-label="Высота строки"
+      title="Потяни вниз/вверх: высота строки · двойной клик — сброс"
+      onMouseDown={onMouseDown}
+      onDoubleClick={onReset}
+      className={cn(
+        "absolute inset-x-0 bottom-0 z-20 h-2 cursor-row-resize transition",
+        hasHeight
+          ? "bg-[rgba(209,254,23,0.28)] hover:bg-[rgba(209,254,23,0.5)]"
+          : "bg-transparent hover:bg-[rgba(209,254,23,0.35)]",
+      )}
+    />
+  );
 }
 
 function MontageColGroup({
@@ -2085,6 +2363,10 @@ export function AssembleMontageBoard({
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<MediaPreview | null>(null);
   const [collapsedRows, setCollapsedRows] = useState<Set<RowKey>>(new Set());
+  /** Панель «Переменные проекта» (кнопка «+» над первой строкой доски). */
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  /** Меню «Шаги на доске» у места клика: правый клик по доске или кнопка «⋯». */
+  const [rowsMenu, setRowsMenu] = useState<{ x: number; y: number } | null>(null);
   const [trims, setTrims] = useState<Record<string, VideoTrim>>({});
   const [pendingOps, setPendingOps] = useState<MontagePendingOp[]>([]);
   const [promptModal, setPromptModal] = useState<PromptModalState>(null);
@@ -2150,6 +2432,15 @@ export function AssembleMontageBoard({
     // остаются на кнопке «Применить правки» при переключении.
   });
 
+  // Видимость строк доски хранится в meta проекта (переживает перезагрузку),
+  // читаем её из того же кэша ["project", projectId], что и остальная студия.
+  const projectQuery = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId as number),
+    enabled: open && projectId != null,
+    staleTime: 30_000,
+  });
+
   // Сброс локальной очереди при смене проекта — СНАЧАЛА flush старой очереди.
   const prevProjectIdRef = useRef<number | null>(null);
   useEffect(() => {
@@ -2211,26 +2502,455 @@ export function AssembleMontageBoard({
 
   const frames = board.data?.frames ?? [];
   const ranges = useMemo(() => sceneRanges(frames), [frames]);
+  /** Колонки доски по шотам: одна колонка = один запланированный шот кадра. */
+  const shotUnits = useMemo<ShotUnit[]>(() => ranges.flatMap(rangeShotUnits), [ranges]);
+  // Версия 17.11 18:49: сетка доски — ПО КАДРАМ (две колонки на кадр, слоты
+  // shot1/shot2). Шоты из attrs["кадры"] колонок не задают — они остаются
+  // данными ноды «Шоты». Ветки shotMode в разметке остались, но выключены.
+  const shotMode = false;
   const coverageOn = Boolean(board.data?.show_coverage_rows);
   const frameAspect = board.data?.frame_aspect ?? null;
   const colRem = coverageOn ? frameColRem(frameAspect) : FRAME_COL_REM;
   const gridRows = useMemo(() => {
     if (!coverageOn) return GRID_ROWS;
-    // Сцена ячейки сверху; под ней кадры: старт и рядом конец, если freeze.
+    // 18:49: строки тела — Кадры, Закадр кадра, Действие кадра, Видео 1,
+    // Таймкоды. Отдельной строки «Сцена» нет (её вернули в task-17 — убрали).
     const frameRow = GRID_ROWS.filter((r) => r.key === "image1");
-    const rest = GRID_ROWS.filter(
-      (r) =>
-        r.key !== "image1" &&
-        r.key !== "voiceover" &&
-        r.key !== "scene_info",
-    );
-    return [
-      { key: "scene_info" as RowKey, label: "Сцена" },
-      ...frameRow,
-      ...SCENE_SHOT_ROWS,
-      ...rest,
-    ];
+    const rest = GRID_ROWS.filter((r) => r.key !== "image1" && r.key !== "voiceover");
+    return [...frameRow, ...SCENE_SHOT_ROWS, ...rest];
   }, [coverageOn]);
+
+  // Видимость строк доски: ключ строки → false значит «скрыта». Нет ключа —
+  // строка видима (дефолт для новых строк и для проекта без meta).
+  const rowsVisible = useMemo<Record<string, boolean>>(() => {
+    const raw = (projectQuery.data?.meta ?? {})["montage_rows_visible"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const parsed: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === "boolean") parsed[key] = value;
+    }
+    return parsed;
+  }, [projectQuery.data]);
+
+  const rowsVisibility = useMutation({
+    mutationFn: (next: Record<string, boolean>) => {
+      if (projectId == null) throw new Error("проект не выбран");
+      return api.patchProject(projectId, { meta: { montage_rows_visible: next } });
+    },
+    onMutate: async (next) => {
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+      const prev = queryClient.getQueryData<ProjectDetail>(["project", projectId]);
+      queryClient.setQueryData<ProjectDetail>(["project", projectId], (old) =>
+        old ? { ...old, meta: { ...(old.meta ?? {}), montage_rows_visible: next } } : old,
+      );
+      return { prev };
+    },
+    onError: (error, _next, context) => {
+      // Строки не должны «прыгать» молча: откат + тост, человек видит, что не записалось.
+      if (context?.prev) queryClient.setQueryData(["project", projectId], context.prev);
+      toast.error(errorMessageFromUnknown(error));
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["project", projectId], data);
+    },
+  });
+
+  /**
+   * Порядок и высота строк доски — тоже в meta проекта, рядом с видимостью.
+   * Порядок: `montage_rows_order` = ключи всех строк (спец + node:* + res:*).
+   * Высота: `montage_row_heights` = {ключ: px} (40–600), нет ключа — авто.
+   */
+  const rowsOrder = useMemo<string[]>(() => {
+    const raw = (projectQuery.data?.meta ?? {})["montage_rows_order"];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((key): key is string => typeof key === "string");
+  }, [projectQuery.data]);
+  const rowHeights = useMemo<Record<string, number>>(() => {
+    const raw = (projectQuery.data?.meta ?? {})["montage_row_heights"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const parsed: Record<string, number> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        parsed[key] = clampRowHeight(value);
+      }
+    }
+    return parsed;
+  }, [projectQuery.data]);
+
+  const rowsLayout = useMutation({
+    mutationFn: (patch: {
+      montage_rows_order?: string[];
+      montage_row_heights?: Record<string, number>;
+    }) => {
+      if (projectId == null) throw new Error("проект не выбран");
+      return api.patchProject(projectId, { meta: patch });
+    },
+    onMutate: async (patch) => {
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+      const prev = queryClient.getQueryData<ProjectDetail>(["project", projectId]);
+      queryClient.setQueryData<ProjectDetail>(["project", projectId], (old) =>
+        old ? { ...old, meta: { ...(old.meta ?? {}), ...patch } } : old,
+      );
+      return { prev };
+    },
+    onError: (error, _patch, context) => {
+      if (context?.prev) queryClient.setQueryData(["project", projectId], context.prev);
+      toast.error(errorMessageFromUnknown(error));
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["project", projectId], data);
+    },
+  });
+  const saveRowsLayout = useCallback(
+    (patch: {
+      montage_rows_order?: string[];
+      montage_row_heights?: Record<string, number>;
+    }) => {
+      if (projectId == null) return;
+      rowsLayout.mutate(patch);
+    },
+    [projectId, rowsLayout],
+  );
+
+  // Перетаскивание строк: HTML5 drag & drop, порядок пишется в meta.
+  const [draggingRow, setDraggingRow] = useState<string | null>(null);
+  const [dropRow, setDropRow] = useState<string | null>(null);
+  // Изменение высоты: тянем за нижнюю ручку первой ячейки.
+  const [resizeRow, setResizeRow] = useState<{
+    key: string;
+    startY: number;
+    startHeight: number;
+  } | null>(null);
+  const [resizeHeight, setResizeHeight] = useState<number | null>(null);
+
+  const effectiveRowHeights = useMemo<Record<string, number>>(() => {
+    const next = { ...rowHeights };
+    if (resizeRow && resizeHeight != null) next[resizeRow.key] = resizeHeight;
+    return next;
+  }, [rowHeights, resizeRow, resizeHeight]);
+
+  useEffect(() => {
+    if (!resizeRow) return;
+    const onMove = (event: MouseEvent) => {
+      const next = clampRowHeight(resizeRow.startHeight + (event.clientY - resizeRow.startY));
+      setResizeHeight(next);
+    };
+    const onUp = () => {
+      setResizeHeight((current) => {
+        if (current != null) {
+          const key = resizeRow.key;
+          const base = rowsLayout.isPending ? rowHeights : rowHeights;
+          saveRowsLayout({ montage_row_heights: { ...base, [key]: current } });
+        }
+        return null;
+      });
+      setResizeRow(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [resizeRow, rowHeights, saveRowsLayout, rowsLayout.isPending]);
+
+  const startRowResize = useCallback(
+    (key: string) => (event: ReactMouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = (event.currentTarget.closest("tr") as HTMLElement | null) ?? null;
+      const startHeight = row?.getBoundingClientRect().height ?? ROW_HEIGHT_DEFAULT;
+      setResizeRow({ key, startY: event.clientY, startHeight });
+      setResizeHeight(clampRowHeight(startHeight));
+    },
+    [],
+  );
+  const resetRowHeight = useCallback(
+    (key: string) => {
+      if (!(key in rowHeights)) return;
+      const next = { ...rowHeights };
+      delete next[key];
+      saveRowsLayout({ montage_row_heights: next });
+    },
+    [rowHeights, saveRowsLayout],
+  );
+
+  /**
+   * Включить/выключить набор строк (клик по шагу или глаз в панели «Переменные
+   * проекта»). Пишем в тот же meta.montage_rows_visible, что и раньше: доска
+   * фильтрует строки по нему, значение переживает перезагрузку. Спец-строки по
+   * умолчанию видимы, обобщённые строки шагов (`node:<node_key>`) — скрыты.
+   *
+   * Ключи результатов (`res:*`) храним только как `true`: «убрать с доски» =
+   * удалить ключ. Иначе в meta проекта копится мусор `res:<node>:shown=false`,
+   * и его видят все, кто читает meta (панель, отчёты, повторные проекты).
+   */
+  const setBoardRows = useCallback(
+    (rowKeys: string[], visible: boolean) => {
+      if (rowKeys.length === 0) return;
+      const next: Record<string, boolean> = {};
+      // Заодно вычищаем старые false-ключи результатов, накопленные до правки.
+      for (const [key, value] of Object.entries(rowsVisible)) {
+        if (!(value === true) && key.startsWith(RES_ROW_PREFIX)) continue;
+        next[key] = value;
+      }
+      let changed = false;
+      for (const key of rowKeys) {
+        // Обычные строки доски видимы по умолчанию, строки результатов — нет.
+        const hiddenByDefault = key.startsWith(RES_ROW_PREFIX);
+        const current = hiddenByDefault ? next[key] === true : next[key] !== false;
+        if (current !== visible) changed = true;
+        if (visible) {
+          next[key] = true;
+        } else if (hiddenByDefault) {
+          delete next[key];
+        } else {
+          next[key] = false;
+        }
+      }
+      if (!changed) return;
+      rowsVisibility.mutate(next);
+    },
+    [rowsVisible, rowsVisibility],
+  );
+
+  /** Есть ли включённые строки результатов (`res:<node>:<item>`) — тогда грузим. */
+  const hasShownResRows = useMemo(
+    () =>
+      Object.entries(rowsVisible).some(
+        ([key, value]) => key.startsWith(RES_ROW_PREFIX) && value === true,
+      ),
+    [rowsVisible],
+  );
+  const stepVariablesQuery = useQuery({
+    queryKey: ["montage-variables", projectId],
+    queryFn: () => api.getMontageVariables(projectId as number),
+    enabled:
+      open &&
+      projectId != null &&
+      (variablesOpen || hasShownResRows || rowsMenu != null || open),
+    staleTime: 15_000,
+  });
+  // Результаты шагов: панель открыта или на доске уже есть строки результатов.
+  const { nodes: rawResultNodes, frames: resultFrames } = useMontageResults(
+    projectId,
+    open && (variablesOpen || hasShownResRows || open),
+  );
+  const stepNodes = stepVariablesQuery.data?.nodes ?? [];
+  // Привязка единиц результата к своим кадрам/сценам: шоты, сцены по плану,
+  // диалоги, каркас, QC, стиль ложатся в колонки вместо общей строки.
+  const placements = useMontagePlacements(stepNodes, resultFrames);
+  const resultNodes = useMemo(
+    () => applyPlacements(rawResultNodes, placements),
+    [rawResultNodes, placements],
+  );
+
+  // Полная ширина строки таблицы — чтобы обобщённая строка шага встала ровно.
+  // В режиме шотов: подпись строки + по колонке на каждый шот (без зазоров).
+  const gridColSpan = useMemo(
+    () =>
+      shotMode
+        ? 1 + shotUnits.length
+        : 1 + ranges.reduce((sum, range) => sum + 1 + sceneColSpan(range.frames.length), 0) + 1,
+    [ranges, shotMode, shotUnits.length],
+  );
+
+  // Строки результатов: любую единицу результата шага можно вывести на доску
+  // (`res:<node_key>:<item_id>`), а панель включает строку ноды целиком
+  // (`res:<node_key>:shown`) — тогда доска сама раскладывает ВСЕ её единицы.
+  // Персонажи/предметы ложатся по кадрам, фоны — по сценам (в режиме шотов —
+  // по шотам), шоты — в колонку своего шота, остальное — общей строкой.
+  const visibleResRows = useMemo(() => {
+    const rows: Array<{
+      node: MontageResultNode;
+      item: NodeResultItem | null;
+      layout: ResultRowLayout;
+      rowKey: string;
+    }> = [];
+    for (const node of resultNodes) {
+      const baseLayout = resultRowLayout(node.nodeType, node.snapshot.items);
+      const hasShotPlacement = node.snapshot.items.some(
+        (candidate) => boardPlacement(candidate)?.kind === "shot",
+      );
+      // В режиме шотов фоны раскладываем по шотам, а не сценой.
+      const layout: ResultRowLayout = !shotMode
+        ? baseLayout
+        : node.nodeType === "backgrounds" || hasShotPlacement
+          ? "frame"
+          : baseLayout;
+      const nodeShown = rowsVisible[`res:${node.nodeKey}:shown`] === true;
+      if (layout !== "full") {
+        const rowKey = resultRowKey(node.nodeKey, SPREAD_ITEM_ID);
+        if (nodeShown || rowsVisible[rowKey] === true) {
+          rows.push({ node, item: null, layout, rowKey });
+        }
+        continue;
+      }
+      // Общая строка ноды (отчёт/сводка): панель включает её целиком.
+      if (nodeShown && node.snapshot.items.length > 0) {
+        rows.push({
+          node,
+          item: node.snapshot.items[0],
+          layout,
+          rowKey: `res:${node.nodeKey}:shown`,
+        });
+      }
+      for (const item of node.snapshot.items) {
+        const rowKey = resultRowKey(node.nodeKey, item.id);
+        if (rowsVisible[rowKey] === true) {
+          rows.push({ node, item, layout, rowKey });
+        }
+      }
+    }
+    return rows;
+  }, [resultNodes, rowsVisible, shotMode]);
+
+  const visibleGridRows = useMemo(
+    () => gridRows.filter((row) => rowsVisible[row.key] !== false),
+    [gridRows, rowsVisible],
+  );
+
+  /**
+   * Все видимые строки доски одним списком: спец-строки, строки шагов
+   * (`node:*`) и строки результатов (`res:*`). Порядок — из meta
+   * `montage_rows_order`; неизвестные ключи идут в конец в порядке графа.
+   */
+  const renderEntries = useMemo(() => {
+    const entries: Array<{ kind: "grid" | "result"; key: string }> = [];
+    for (const row of visibleGridRows) entries.push({ kind: "grid", key: row.key });
+    for (const row of visibleResRows) entries.push({ kind: "result", key: row.rowKey });
+    const gridByKey = new Map(visibleGridRows.map((row) => [row.key, row]));
+    const resByKey = new Map(visibleResRows.map((row) => [row.rowKey, row]));
+    const rank = new Map<string, number>();
+    rowsOrder.forEach((key, index) => rank.set(key, index));
+    const ordered = entries
+      .filter((entry) => rank.has(entry.key))
+      .sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+    const unordered = entries.filter((entry) => !rank.has(entry.key));
+    return [...ordered, ...unordered].map((entry) =>
+      entry.kind === "grid"
+        ? { kind: "grid" as const, key: entry.key, row: gridByKey.get(entry.key as RowKey)! }
+        : { kind: "result" as const, key: entry.key, row: resByKey.get(entry.key)! },
+    );
+  }, [visibleGridRows, visibleResRows, rowsOrder]);
+
+  /** Переставить строку `fromKey` на место `toKey` и сохранить весь порядок. */
+  const moveRowBefore = useCallback(
+    (fromKey: string, toKey: string) => {
+      const keys = renderEntries.map((entry) => entry.key);
+      const from = keys.indexOf(fromKey);
+      const to = keys.indexOf(toKey);
+      if (from < 0 || to < 0 || from === to) return;
+      const next = [...keys];
+      next.splice(from, 1);
+      next.splice(to > from ? to - 1 : to, 0, fromKey);
+      if (next.every((key, index) => key === keys[index])) return;
+      const visibleSet = new Set(next);
+      const hiddenKnown = rowsOrder.filter((key) => !visibleSet.has(key));
+      saveRowsLayout({ montage_rows_order: [...next, ...hiddenKnown] });
+    },
+    [renderEntries, rowsOrder, saveRowsLayout],
+  );
+
+  /**
+   * Перетаскивание строки мышью: тянем за ручку, ищем целевую строку под
+   * курсором (data-row-key), подсвечиваем её и на отпускании меняем порядок.
+   * Pointer-вариант выбран вместо HTML5 DnD — не зависит от drag-режима браузера.
+   */
+  const rowDragRef = useRef<{ key: string; startY: number; moved: boolean } | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
+
+  const startRowDrag = useCallback(
+    (rowKey: string, event: ReactMouseEvent<HTMLElement>) => {
+      rowDragRef.current = { key: rowKey, startY: event.clientY, moved: false };
+      dropTargetRef.current = null;
+      setDraggingRow(rowKey);
+      setDropRow(null);
+      const onMove = (moveEvent: MouseEvent) => {
+        const drag = rowDragRef.current;
+        if (!drag) return;
+        if (!drag.moved && Math.abs(moveEvent.clientY - drag.startY) < 3) return;
+        drag.moved = true;
+        const element = document.elementFromPoint(
+          moveEvent.clientX,
+          moveEvent.clientY,
+        ) as HTMLElement | null;
+        const rowElement = element?.closest("tbody tr");
+        const targetKey = rowElement?.getAttribute("data-row-key") ?? "";
+        const nextTarget = targetKey && targetKey !== drag.key ? targetKey : null;
+        if (dropTargetRef.current !== nextTarget) {
+          dropTargetRef.current = nextTarget;
+          setDropRow(nextTarget);
+        }
+      };
+      const onUp = () => {
+        const drag = rowDragRef.current;
+        const target = dropTargetRef.current;
+        rowDragRef.current = null;
+        dropTargetRef.current = null;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        setDraggingRow(null);
+        setDropRow(null);
+        if (drag?.moved && target && target !== drag.key) {
+          moveRowBefore(drag.key, target);
+        }
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [moveRowBefore],
+  );
+
+  /**
+   * Содержимое меню «Шаги на доске»: сначала строки, которые сейчас на доске
+   * (порядок доски), затем скрытые — сначала спец-строки, потом обобщённые
+   * строки шагов в порядке графа. Скрытые остаются в списке, иначе не вернуть.
+   */
+  const rowsMenuItems = useMemo<MontageRowsMenuItem[]>(() => {
+    const specialNodesByRow = new Map<string, string[]>();
+    for (const node of stepNodes) {
+      for (const rowKey of node.montage_rows ?? []) {
+        const names = specialNodesByRow.get(rowKey) ?? [];
+        names.push(node.label);
+        specialNodesByRow.set(rowKey, names);
+      }
+    }
+    const specialVisible = visibleGridRows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      visible: true,
+      hint: specialNodesByRow.get(row.key)?.join(" · "),
+    }));
+    const specialHidden = gridRows
+      .filter((row) => rowsVisible[row.key] === false)
+      .map((row) => ({
+        key: row.key,
+        label: row.label,
+        visible: false,
+        hint: specialNodesByRow.get(row.key)?.join(" · "),
+      }));
+    return [...specialVisible, ...specialHidden];
+  }, [stepNodes, visibleGridRows, gridRows, rowsVisible]);
+
+  const toggleRowFromMenu = useCallback(
+    (rowKey: string, visible: boolean) => setBoardRows([rowKey], visible),
+    [setBoardRows],
+  );
+
+  // Правый клик по доске: меню строк у курсора. В полях ввода не перехватываем.
+  const handleBoardContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, [contenteditable='true'], [role='menu']")) return;
+    event.preventDefault();
+    setRowsMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  // Доска закрылась — меню не должно висеть поверх студии.
+  useEffect(() => {
+    if (!open) setRowsMenu(null);
+  }, [open]);
+
   const meta = board.data?.meta;
   const pendingOpsKey = JSON.stringify(meta?.pending_ops ?? []);
 
@@ -3613,6 +4333,13 @@ export function AssembleMontageBoard({
 
   const tableWidthPx = useMemo(() => {
     const rowLabel = 11 * 16;
+    if (shotMode) {
+      // Режим шотов: ширина = подпись + колонка на каждый шот (зазоров нет).
+      return (
+        rowLabel +
+        shotUnits.reduce((sum, unit) => sum + framePairRem(unit.frame, colRem) * 16, 0)
+      );
+    }
     const sceneGap = SCENE_GAP_REM * 16;
     const shotGap = SHOT_GAP_REM * 16;
     const sceneGaps = frames.length > 0 ? ranges.length + 1 : 0;
@@ -3625,7 +4352,7 @@ export function AssembleMontageBoard({
       0,
     );
     return rowLabel + framePx + sceneGaps * sceneGap + shotGaps * shotGap;
-  }, [frames, ranges, colRem]);
+  }, [frames, ranges, colRem, shotMode, shotUnits]);
 
   const syncScrollLeft = useCallback((from: HTMLDivElement, to: HTMLDivElement) => {
     if (Math.abs(to.scrollLeft - from.scrollLeft) < 0.5) return;
@@ -3660,11 +4387,13 @@ export function AssembleMontageBoard({
         setSwapPick(null);
         return;
       }
-      if (!preview) onClose();
+      // Открытый диалог поверх доски (например «Переменные проекта») гасит
+      // Esc сам; доску при этом закрывать не надо.
+      if (!preview && !variablesOpen) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, preview, swapPick]);
+  }, [open, onClose, preview, swapPick, variablesOpen]);
 
   const sceneDisabled = applyRunning || applyMutation.isPending || frameEditBusy;
 
@@ -3833,6 +4562,89 @@ export function AssembleMontageBoard({
       );
     }
     return null;
+  };
+
+  /** Ячейка строки в режиме шотов: колонка = один запланированный шот кадра. */
+  const renderShotFrameCell = (key: RowKey, unit: ShotUnit): ReactNode => {
+    const shot = unit.shot;
+    if (!shot) return renderSceneFrameCell(key, unit.frame);
+    if (key === "action") {
+      const action = (shot.действие || "").trim();
+      const meta = [shot.план, shot.где, shot.место].filter(Boolean).join(" · ");
+      return (
+        <div className="flex flex-col gap-1">
+          <div className="whitespace-pre-wrap break-words text-[11px] leading-snug">
+            {action || <span className="text-muted-foreground/40">—</span>}
+          </div>
+          {meta ? (
+            <div className="font-mono text-[9px] leading-tight text-white/30">{meta}</div>
+          ) : null}
+        </div>
+      );
+    }
+    if (key === "voiceover") {
+      const vo = (shot.закадр || "").trim();
+      return (
+        <div className="whitespace-pre-wrap break-words text-[11px] leading-snug">
+          {vo || <span className="text-muted-foreground/40">—</span>}
+        </div>
+      );
+    }
+    if (key === "image1") {
+      const url = shot.image_url ?? null;
+      if (!url) {
+        // Пока still шота не сгенерирован — колонка пустая (только габарит).
+        return (
+          <div
+            title={`${shot.id || "шот"}: кадр не сгенерирован`}
+            className="h-24 rounded-md border border-dashed border-white/10 bg-black/20"
+          />
+        );
+      }
+      return (
+        <button
+          type="button"
+          title={`Открыть ${shot.id || "шот"}`}
+          onClick={() =>
+            showPreview({
+              url,
+              kind: "image",
+              label: `${shot.id || "шот"} · кадр #${unit.frame.number}`,
+            })
+          }
+          className="block w-full"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={shot.id || "шот"}
+            loading="lazy"
+            decoding="async"
+            className="block h-24 w-full rounded-md border border-white/10 bg-black object-cover"
+          />
+        </button>
+      );
+    }
+    if (key === "timestamps") {
+      const parts: string[] = [];
+      const duration = Number(shot.длительность ?? 0);
+      if (unit.timelineStart != null && unit.timelineEnd != null) {
+        parts.push(`${unit.timelineStart}–${unit.timelineEnd} с`);
+      }
+      if (Number.isFinite(duration) && duration > 0) {
+        parts.push(`длит ${duration} с`);
+      }
+      return (
+        <div className="font-mono text-[10px] leading-tight text-white/40">
+          {parts.length ? parts.map((x) => <div key={x}>{x}</div>) : "—"}
+        </div>
+      );
+    }
+    if (key === "video1" || key === "video2") {
+      // Видео пока живёт на кадре, а не на шоте: в колонке шота пусто.
+      return <div className="text-[10px] text-muted-foreground/30">—</div>;
+    }
+    return renderSceneFrameCell(key, unit.frame);
   };
 
   const applySceneActionNow = useCallback(
@@ -4216,7 +5028,10 @@ export function AssembleMontageBoard({
 
   return createPortal(
     <>
-      <div className="pointer-events-auto fixed inset-0 z-[10050] flex flex-col bg-card">
+      <div
+        className="pointer-events-auto fixed inset-0 z-[10050] flex flex-col bg-card"
+        onContextMenu={handleBoardContextMenu}
+      >
         <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-3">
             <Clapperboard className="h-7 w-7 text-amber-400" />
@@ -4487,16 +5302,91 @@ export function AssembleMontageBoard({
               </div>
             )}
 
+            {/* «+» в тулбаре доски: все переменные проекта по нодам, поповером
+                рядом с кнопкой (доска остаётся видна). Данные ленивые — запрос
+                уходит только при открытии панели или включённых строках шагов. */}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Popover open={variablesOpen} onOpenChange={setVariablesOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={projectId == null}
+                    title="Переменные проекта по нодам графа"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Переменные проекта
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  sideOffset={6}
+                  avoidCollisions={false}
+                  className="z-[10070] w-[740px] max-w-[calc(100vw-2rem)] overflow-hidden border-white/15 bg-[#101013] p-0 shadow-2xl"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                >
+                  <div className="flex h-[70vh] flex-col">
+                    <MontageVariablesPanel
+                      open={variablesOpen}
+                      onOpenChange={setVariablesOpen}
+                      projectId={projectId}
+                      rowsVisible={rowsVisible}
+                      onSetRows={setBoardRows}
+                      rowsSaving={rowsVisibility.isPending}
+                      results={resultNodes}
+                      frames={frames}
+                    />
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={frameEditBusy || projectId == null}
+                title="Добавить новую сцену (ячейку закадра) в конец ленты"
+                onClick={() =>
+                  setAddFrame({
+                    kind: "parent",
+                    afterFrameId: frames[frames.length - 1]?.frame_id ?? null,
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Добавить кадр
+              </Button>
+            </div>
+
             {frames.length > 0 && (
               <div
                 ref={tableScrollRef}
                 className="overflow-x-auto overflow-y-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
+                {/* Высота строки из meta: tr задаёт высоту, содержимое ячеек
+                    обрезается/скроллится — как у ресайза колонок. */}
+                <style>{`
+                  tr[data-row-height] > td,
+                  tr[data-row-height] > th { overflow: hidden; }
+                  tr[data-row-height] > td > *,
+                  tr[data-row-height] > th > * {
+                    max-height: calc(var(--row-h, 240px) - 0.5rem);
+                    overflow-y: auto;
+                    overflow-x: hidden;
+                  }
+                `}</style>
                 <table
                   className="border-collapse text-[13px]"
                   style={{ width: tableWidthPx, tableLayout: "fixed" }}
                 >
-                  <MontageColGroup ranges={ranges} colRem={colRem} />
+                  {shotMode ? (
+                    <ShotColGroup ranges={ranges} colRem={colRem} />
+                  ) : (
+                    <MontageColGroup ranges={ranges} colRem={colRem} />
+                  )}
                   <thead>
                     <tr>
                       <th
@@ -4507,6 +5397,125 @@ export function AssembleMontageBoard({
                       >
                         Строка
                       </th>
+                      {shotMode ? (
+                        <>
+                          {ranges.map((range) => {
+                            const units = rangeShotUnits(range);
+                            return units.map((unit, ui) => {
+                              const firstOfScene = ui === 0;
+                              const firstOfFrame =
+                                ui === 0 ||
+                                units[ui - 1].frame.frame_id !== unit.frame.frame_id;
+                              const frameIndex = range.frames.findIndex(
+                                (f) => f.frame_id === unit.frame.frame_id,
+                              );
+                              const splitHere =
+                                frameIndex > 0 &&
+                                firstOfFrame &&
+                                range.frames.length > 1;
+                              return (
+                                <th
+                                  key={`shot-n-${unit.key}`}
+                                  className={cn(
+                                    "border-b border-white/10 px-1 py-1.5 text-center font-mono text-[11px]",
+                                    firstOfScene ? "border-l border-white/15" : null,
+                                    unit.frame.удалён
+                                      ? "bg-rose-950/40 text-rose-200/80"
+                                      : null,
+                                  )}
+                                  style={frameColStyle(framePairRem(unit.frame, colRem))}
+                                  title={
+                                    unit.shot
+                                      ? `${unit.shot.id || "шот"} · кадр #${unit.frame.number}${
+                                          unit.shot.действие ? ` · ${unit.shot.действие}` : ""
+                                        }`
+                                      : `#${unit.frame.number}`
+                                  }
+                                >
+                                  {unit.shot ? (
+                                    <span className="flex flex-col items-center gap-0.5">
+                                      <span>{unit.shot.id || `#${unit.frame.number}`}</span>
+                                      <span className="text-[9px] font-normal text-white/40">
+                                        {`#${unit.frame.number} · ${
+                                          unit.shot.parent_id
+                                            ? `ребёнок ${unit.shot.parent_id}`
+                                            : "родитель"
+                                        }`}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <span>#{unit.frame.number}</span>
+                                  )}
+                                  {/* Кнопки по кадру: сценовые живут в строке
+                                      «Сцены» второй строкой шапки. */}
+                                  <span className="mt-1 flex flex-wrap items-center justify-center gap-0.5">
+                                    {firstOfFrame ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          title={`Добавить кадр в сцену после #${unit.frame.number}`}
+                                          disabled={frameEditBusy}
+                                          onClick={() =>
+                                            void insertChildAfter(unit.frame.frame_id)
+                                          }
+                                          className="rounded p-0.5 text-white/35 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                                        >
+                                          <Plus className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          title={
+                                            unit.frame.удалён
+                                              ? `Вернуть кадр #${unit.frame.number}`
+                                              : `Удалить кадр #${unit.frame.number}`
+                                          }
+                                          disabled={frameEditBusy}
+                                          onClick={() =>
+                                            void (unit.frame.удалён
+                                              ? handleRestoreFrame(unit.frame)
+                                              : handleDeleteFrame(unit.frame))
+                                          }
+                                          className={cn(
+                                            "rounded p-0.5 transition disabled:opacity-40",
+                                            unit.frame.удалён
+                                              ? "text-amber-200 hover:bg-amber-500/15"
+                                              : "text-white/30 hover:bg-rose-500/15 hover:text-rose-200",
+                                          )}
+                                        >
+                                          {unit.frame.удалён ? (
+                                            <span className="px-0.5 text-[9px] font-semibold">
+                                              вернуть
+                                            </span>
+                                          ) : (
+                                            <Trash2 className="h-3 w-3" />
+                                          )}
+                                        </button>
+                                      </>
+                                    ) : null}
+                                    {splitHere ? (
+                                      <button
+                                        type="button"
+                                        title={`Отделить #${unit.frame.number} в новую сцену`}
+                                        disabled={frameEditBusy}
+                                        onClick={() =>
+                                          void splitSceneAt(
+                                            unit.frame,
+                                            range.frames.map((f) => f.frame_id),
+                                          )
+                                        }
+                                        className="rounded p-0.5 text-white/25 transition hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
+                                      >
+                                        <Scissors className="h-3 w-3" />
+                                      </button>
+                                    ) : null}
+                                  </span>
+                                </th>
+                              );
+                            });
+                          })}
+                        </>
+                      ) : (
+                        <>
                       {ranges.map((range, ri) => (
                         <Fragment key={`scene-n-${range.key}`}>
                           <InsertGutter
@@ -4626,93 +5635,130 @@ export function AssembleMontageBoard({
                           })
                         }
                       />
-                    </tr>
-                    <tr>
-                      <th
-                        className={cn(
-                          "sticky left-0 z-10 border-b border-r border-white/10 bg-card px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground",
-                          ROW_LABEL_CLASS,
-                        )}
-                      >
-                        Сцены
-                      </th>
-                      {ranges.map((range, ri) => {
-                        const head = range.frames[0];
-                        const last = range.frames[range.frames.length - 1];
-                        const nums = range.frames.map((f) => `#${f.number}`).join(" · ");
-                        return (
-                          <Fragment key={`scene-h-${range.key}`}>
-                            <GapCell as="th" gap="scene" />
-                            <th
-                              colSpan={sceneColSpan(range.frames.length)}
-                              style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
-                              className="border-b border-x border-white/20 bg-white/[0.05] px-2 py-1.5 text-left align-top"
-                            >
-                              <p className="flex items-center gap-1.5 truncate text-[11px] font-semibold text-white/80">
-                                <span className="min-w-0 truncate">
-                                  Сцена {ri + 1} · {nums}
-                                </span>
-                                {range.frames.length > 1 ? (
-                                  <button
-                                    type="button"
-                                    title="Каждый кадр этой сцены станет отдельной сценой"
-                                    disabled={frameEditBusy}
-                                    onClick={() =>
-                                      void splitSceneAll(
-                                        head,
-                                        range.frames.map((f) => f.frame_id),
-                                      )
-                                    }
-                                    className="inline-flex shrink-0 items-center gap-1 rounded border border-white/15 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/55 transition hover:border-[rgba(209,254,23,0.45)] hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
-                                  >
-                                    <Unlink2 className="h-3 w-3" />
-                                    Разделить
-                                  </button>
-                                ) : null}
-                              </p>
-                              {last && last.number !== head?.number ? (
-                                <p className="truncate text-[10px] text-white/35">
-                                  {range.frames.length} кадра
-                                </p>
-                              ) : null}
-                            </th>
-                          </Fragment>
-                        );
-                      })}
-                      <GapCell as="th" gap="scene" />
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {gridRows.map((row) => {
-                      const collapsed = collapsedRows.has(row.key);
-                      return (
+                    {renderEntries.map((entry) => {
+                      const rowHeight = effectiveRowHeights[entry.key];
+                      if (entry.kind === "grid") {
+                        const row = entry.row;
+                        const rowKey = entry.key;
+                        const collapsed = collapsedRows.has(row.key);
+                        return (
+                          <Fragment key={entry.key}>
                         <Fragment key={row.key}>
-                        <tr className="border-b border-white/5">
+                        <tr
+                          className={cn(
+                            "border-b border-white/5",
+                            draggingRow === rowKey && "opacity-50",
+                            dropRow === rowKey &&
+                              "bg-[rgba(209,254,23,0.06)] outline outline-1 -outline-offset-1 outline-[rgba(209,254,23,0.55)]",
+                          )}
+                          data-row-height={rowHeight ? "" : undefined}
+                          style={
+                            rowHeight
+                              ? ({ height: rowHeight, "--row-h": `${rowHeight}px` } as CSSProperties)
+                              : undefined
+                          }
+                          data-row-key={rowKey}
+                        >
                           <td
                             className={cn(
-                              "sticky left-0 z-10 border-r border-white/10 bg-card/95 px-2 py-2 align-top",
+                              "relative sticky left-0 z-10 border-r border-white/10 bg-card/95 px-2 py-2 align-top",
                               ROW_LABEL_CLASS,
                             )}
                           >
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium transition",
-                                collapsed
-                                  ? "text-muted-foreground hover:bg-white/5"
-                                  : "text-foreground hover:bg-white/5",
-                              )}
-                              onClick={() => toggleRow(row.key)}
-                              title={collapsed ? "Развернуть строку" : "Свернуть строку"}
-                            >
-                              {collapsed ? (
-                                <ChevronRight className="h-4 w-4 shrink-0" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 shrink-0" />
-                              )}
-                              <span>{row.label}</span>
-                            </button>
+                            <div className="flex items-start gap-0.5">
+                              <RowGrip
+                                rowKey={rowKey}
+                                active={draggingRow === rowKey}
+                                onStart={startRowDrag}
+                              />
+                              <button
+                                type="button"
+                                className={cn(
+                                  "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium transition",
+                                  collapsed
+                                    ? "text-muted-foreground hover:bg-white/5"
+                                    : "text-foreground hover:bg-white/5",
+                                )}
+                                onClick={() => toggleRow(row.key)}
+                                title={collapsed ? "Развернуть строку" : "Свернуть строку"}
+                              >
+                                {collapsed ? (
+                                  <ChevronRight className="h-4 w-4 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 shrink-0" />
+                                )}
+                                <span>{row.label}</span>
+                              </button>
+                              {/* «⋯» — то же меню «Шаги на доске» рядом с кнопкой. */}
+                              <button
+                                type="button"
+                                aria-label="Шаги на доске"
+                                title="Показать/скрыть шаги на доске"
+                                className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground/60 transition hover:bg-white/10 hover:text-foreground"
+                                onClick={(event) => {
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  setRowsMenu({ x: rect.left, y: rect.bottom + 4 });
+                                }}
+                              >
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <RowResizer
+                              hasHeight={rowHeights[rowKey] != null}
+                              onMouseDown={startRowResize(rowKey)}
+                              onReset={() => resetRowHeight(rowKey)}
+                            />
                           </td>
+                          {shotMode ? (
+                            <>
+                              {ranges.map((range) => {
+                                const units = rangeShotUnits(range);
+                                if (SCENE_SPAN_ROWS.has(row.key)) {
+                                  return (
+                                    <td
+                                      key={`${row.key}-shot-scene-${range.key}`}
+                                      colSpan={units.length}
+                                      style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
+                                      className="border-l border-white/15 px-2 py-2 align-top"
+                                    >
+                                      {collapsed ? (
+                                        <div className="h-8 rounded-md bg-black/10" />
+                                      ) : (
+                                        renderSceneSpanCell(row.key, range)
+                                      )}
+                                    </td>
+                                  );
+                                }
+                                return units.map((unit, ui) => (
+                                  <td
+                                    key={`${row.key}-${unit.key}`}
+                                    className={cn(
+                                      "relative isolate px-1.5 py-2 align-top",
+                                      row.key !== "voiceover" && "overflow-hidden",
+                                      ui === 0 ? "border-l border-white/15" : null,
+                                    )}
+                                    style={{
+                                      ...frameColStyle(framePairRem(unit.frame, colRem)),
+                                      contentVisibility: "auto",
+                                      containIntrinsicSize: "auto 240px auto 180px",
+                                    }}
+                                  >
+                                    {collapsed ? (
+                                      <div className="h-8 rounded-md bg-black/10" />
+                                    ) : (
+                                      renderShotFrameCell(row.key, unit)
+                                    )}
+                                  </td>
+                                ));
+                              })}
+                            </>
+                          ) : (
+                            <>
                           {ranges.map((range, ri) => (
                           <Fragment key={`${row.key}-scene-${range.key}`}>
                           <GapCell as="td" gap="scene" />
@@ -5067,8 +6113,290 @@ export function AssembleMontageBoard({
                           </Fragment>
                           ))}
                           <GapCell as="td" gap="scene" />
+                                                    </>
+                          )}
                         </tr>
                         </Fragment>
+                          </Fragment>
+                        );
+                      }
+                      const { node, item, layout, rowKey } = entry.row;
+const rowLabel = item
+                        ? `${node.label} · ${item.label}`
+                        : `${node.label} · ${layout === "scene" ? "по сценам" : "по кадрам"}`;
+                      const rowHint = item
+                        ? `${item.kind} · ${node.nodeKey}`
+                        : `${layout} · ${node.nodeKey}`;
+                      // Единицы-файлы (xlsx-снимок слота, отчёт): у них нет
+                      // своего места на доске, поэтому показываем имя файла и
+                      // ссылку в подписи строки — файл не теряется.
+                      const fileItems = node.snapshot.items.filter(
+                        (candidate) =>
+                          (candidate.kind === "xlsx" || candidate.kind === "file") &&
+                          Boolean(candidate.downloadUrl || candidate.previewUrl) &&
+                          !candidate.placement,
+                      );
+                      // Единицы результата с привязкой к месту (шоты, сцены по
+                      // плану, диалоги, каркас, QC, стиль) — в колонку своего
+                      // кадра/сцены; персонажи/фоны рисуются как раньше, рефами.
+                      const placedItems =
+                        layout === "full"
+                          ? []
+                          : node.snapshot.items.filter(
+                              (candidate) =>
+                                candidate.placement && candidate.placement.kind !== "full",
+                            );
+                      const hasPlacement = placedItems.length > 0;
+                      const itemsForScene = (range: SceneRange) =>
+                        placedItems.filter(
+                          (candidate) =>
+                            candidate.placement?.kind === "scene" &&
+                            candidate.placement.sceneIndex === range.scene,
+                        );
+                      const itemsForFrame = (fr: MontageBoardFrame) =>
+                        placedItems.filter(
+                          (candidate) =>
+                            candidate.placement?.kind === "frame" &&
+                            candidate.placement.frameNumbers.includes(fr.number),
+                        );
+                      // Единица в колонке своего шота: shot-привязка по id,
+                      // кадровая — только в первой колонке кадра (не дублируем).
+                      const itemsForUnit = (unit: ShotUnit, firstOfFrame: boolean) =>
+                        placedItems.filter((candidate) => {
+                          const placement = boardPlacement(candidate);
+                          if (!placement) return false;
+                          if (placement.kind === "shot") {
+                            return unit.shot
+                              ? unit.shot.id === placement.shotId
+                              : placement.frameNumber === unit.frame.number;
+                          }
+                          if (placement.kind === "frame") {
+                            return (
+                              firstOfFrame &&
+                              (placement.frameNumbers ?? []).includes(unit.frame.number)
+                            );
+                          }
+                          return false;
+                        });
+                      return (
+                        <tr
+                          key={rowKey}
+                          className={cn(
+                            "border-t border-white/10",
+                            draggingRow === rowKey && "opacity-50",
+                            dropRow === rowKey &&
+                              "bg-[rgba(209,254,23,0.06)] outline outline-1 -outline-offset-1 outline-[rgba(209,254,23,0.55)]",
+                          )}
+                          data-row-height={rowHeight ? "" : undefined}
+                          style={
+                            rowHeight
+                              ? ({ height: rowHeight, "--row-h": `${rowHeight}px` } as CSSProperties)
+                              : undefined
+                          }
+                          data-row-key={rowKey}
+                        >
+                          <th
+                            scope="row"
+                            className="relative sticky left-0 z-10 border-r border-white/10 bg-card/95 px-2 py-2 text-left align-top"
+                          >
+                            <div className="flex items-start gap-1">
+                              <RowGrip
+                                rowKey={rowKey}
+                                active={draggingRow === rowKey}
+                                onStart={startRowDrag}
+                              />
+                              <button
+                                type="button"
+                                aria-label="Убрать результат с доски"
+                                title="Убрать строку с доски"
+                                className="shrink-0 rounded p-1 text-muted-foreground/60 transition hover:bg-rose-500/15 hover:text-rose-200"
+                                onClick={() => setBoardRows([rowKey], false)}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="min-w-0 text-[11px] font-medium text-muted-foreground">
+                                <span className="block truncate">{rowLabel}</span>
+                                <span className="block truncate font-mono text-[9px] text-white/25">
+                                  {rowHint}
+                                </span>
+                                {fileItems.map((file) => (
+                                  <a
+                                    key={file.id}
+                                    href={file.downloadUrl || file.previewUrl || "#"}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={`Скачать ${file.label}`}
+                                    className="mt-1 flex items-center gap-1 truncate text-[10px] font-normal text-[rgba(209,254,23,0.85)] hover:underline"
+                                  >
+                                    <FileText className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{file.label || "файл"}</span>
+                                    <span className="shrink-0 text-white/45">скачать</span>
+                                  </a>
+                                ))}
+                              </span>
+                            </div>
+                            <RowResizer
+                              hasHeight={rowHeights[rowKey] != null}
+                              onMouseDown={startRowResize(rowKey)}
+                              onReset={() => resetRowHeight(rowKey)}
+                            />
+                          </th>
+                          {layout === "full" ? (
+                            <td
+                              colSpan={gridColSpan - 1}
+                              className="border-l border-white/10 px-3 py-2 align-top"
+                            >
+                              {rowKey.endsWith(":shown") ? (
+                                <div className="flex flex-col gap-2">
+                                  {node.snapshot.items
+                                    .filter(
+                                      (candidate) =>
+                                        candidate.kind !== "xlsx" &&
+                                        candidate.kind !== "file",
+                                    )
+                                    .map((candidate) => (
+                                      <MontageResultRowContent
+                                        key={candidate.id}
+                                        node={node}
+                                        item={candidate}
+                                        frames={resultFrames}
+                                      />
+                                    ))}
+                                </div>
+                              ) : item ? (
+                                <MontageResultRowContent
+                                  node={node}
+                                  item={item}
+                                  frames={resultFrames}
+                                />
+                              ) : null}
+                            </td>
+                          ) : (
+                            shotMode ? (
+                              ranges.map((range) => {
+                                const units = rangeShotUnits(range);
+                                if (layout === "scene") {
+                                  return (
+                                    <td
+                                      key={`${rowKey}-shot-scene-${range.key}`}
+                                      colSpan={units.length}
+                                      style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
+                                      className="border-l border-white/15 px-2 py-2 align-top"
+                                    >
+                                      {hasPlacement ? (
+                                        <ResultPlacementCell items={itemsForScene(range)} />
+                                      ) : (
+                                        <SceneBackgroundCell
+                                          frames={range.frames}
+                                          tall={coverageOn}
+                                          tallAspect={frameAspect}
+                                        />
+                                      )}
+                                    </td>
+                                  );
+                                }
+                                const refsForUnit = (unit: ShotUnit) => {
+                                  if (node.nodeType === "backgrounds") {
+                                    const bg =
+                                      unit.shot?.background_ref ?? unit.frame.background_ref ?? null;
+                                    return bg ? ([bg] as MontageBoardCharacterRef[]) : [];
+                                  }
+                                  if (
+                                    node.nodeType === "items" ||
+                                    node.nodeType === "hitl_items"
+                                  ) {
+                                    return unit.shot?.item_refs ?? unit.frame.item_refs ?? [];
+                                  }
+                                  return unit.shot?.character_refs ?? unit.frame.character_refs ?? [];
+                                };
+                                return units.map((unit, ui) => {
+                                  const firstShotOfFrame =
+                                    ui === 0 ||
+                                    units[ui - 1].frame.frame_id !== unit.frame.frame_id;
+                                  return (
+                                    <td
+                                      key={`${rowKey}-${unit.key}`}
+                                      className={cn(
+                                        "relative isolate overflow-hidden px-1.5 py-2 align-top",
+                                        ui === 0 && "border-l border-white/15",
+                                      )}
+                                      style={frameColStyle(framePairRem(unit.frame, colRem))}
+                                    >
+                                      {hasPlacement ? (
+                                        <ResultPlacementCell
+                                          items={itemsForUnit(unit, firstShotOfFrame)}
+                                        />
+                                      ) : (
+                                        <FrameRefThumbs
+                                          compact
+                                          tall={coverageOn}
+                                          tallAspect={frameAspect}
+                                          refs={refsForUnit(unit)}
+                                        />
+                                      )}
+                                    </td>
+                                  );
+                                });
+                              })
+                            ) : (
+                            <>
+                              {ranges.map((range, ri) => (
+                                <Fragment key={`${rowKey}-scene-${range.key}`}>
+                                  <GapCell as="td" gap="scene" />
+                                  {layout === "scene" ? (
+                                    <td
+                                      colSpan={sceneColSpan(range.frames.length)}
+                                      style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
+                                      className="border-l border-white/15 px-2 py-2 align-top"
+                                    >
+                                      {hasPlacement ? (
+                                        <ResultPlacementCell items={itemsForScene(range)} />
+                                      ) : (
+                                        <SceneBackgroundCell
+                                          frames={range.frames}
+                                          tall={coverageOn}
+                                          tallAspect={frameAspect}
+                                        />
+                                      )}
+                                    </td>
+                                  ) : (
+                                    range.frames.map((fr, fi) => (
+                                      <Fragment key={`${rowKey}-fr-${fr.frame_id}`}>
+                                        <td
+                                          className={cn(
+                                            "relative isolate overflow-hidden px-1.5 py-2 align-top",
+                                            fi === 0 && ri >= 0 && "border-l border-white/15",
+                                          )}
+                                          style={frameColStyle(framePairRem(fr, colRem))}
+                                        >
+                                          {hasPlacement ? (
+                                            <ResultPlacementCell items={itemsForFrame(fr)} />
+                                          ) : (
+                                            <FrameRefThumbs
+                                              tall={coverageOn}
+                                              tallAspect={frameAspect}
+                                              refs={
+                                                node.nodeType === "items" ||
+                                                node.nodeType === "hitl_items"
+                                                  ? (fr.item_refs ?? [])
+                                                  : (fr.character_refs ?? [])
+                                              }
+                                            />
+                                          )}
+                                        </td>
+                                        {fi < range.frames.length - 1 ? (
+                                          <GapCell as="td" gap="shot" />
+                                        ) : null}
+                                      </Fragment>
+                                    ))
+                                  )}
+                                </Fragment>
+                              ))}
+                              <GapCell as="td" gap="scene" />
+                            </>
+                            )
+                          )}
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -5090,6 +6418,15 @@ export function AssembleMontageBoard({
           </footer>
         )}
       </div>
+      {rowsMenu ? (
+        <MontageRowsMenu
+          items={rowsMenuItems}
+          x={rowsMenu.x}
+          y={rowsMenu.y}
+          onToggle={toggleRowFromMenu}
+          onClose={() => setRowsMenu(null)}
+        />
+      ) : null}
       <MediaLightbox preview={preview} onClose={() => setPreview(null)} />
       <PromptModal
         state={promptModal}
@@ -5147,7 +6484,7 @@ export function AssembleMontageBoard({
   );
 }
 
-/** Кнопка над нодой «Сборка» (монтаж). */
+/** Кнопка «Монтаж» на общей панели над канвасом. */
 export function AssembleMontageTrigger({
   onClick,
   active,
@@ -5162,18 +6499,14 @@ export function AssembleMontageTrigger({
       type="button"
       title={busy ? "Монтаж выполняется — панель можно открыть" : "Панель монтажа"}
       className={cn(
-        "nodrag nopan nowheel absolute left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-md backdrop-blur transition",
-        "-top-9",
+        "flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition",
         busy
           ? "border-amber-400/40 bg-amber-500/15 text-amber-200/90"
           : active
             ? "border-amber-400/60 bg-amber-500/25 text-amber-100"
             : "border-amber-400/40 bg-amber-500/15 text-amber-200 hover:border-amber-300/70 hover:bg-amber-500/25",
       )}
-      onPointerDown={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
-        e.stopPropagation();
         e.preventDefault();
         onClick();
       }}

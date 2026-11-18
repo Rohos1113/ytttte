@@ -387,11 +387,21 @@ async def start_step(
         _graph = await load_graph_for_project(session, project)
         _node = _graph._by_id.get(str(node_key))
         if _node is not None and _slot_of(_node) == 0:
-            raise ValueError(
-                f"excel_gpt: нода {node_key!r} стоит вне слотов доработки (1..5) и "
-                "не может быть запущена шагом — снимите у неё «вне слотов» "
-                "(data.slotOverflow) или поставьте на свободный слот"
-            )
+            # Группа plan_cinema ставит 9 нод одной цепочкой: в слоты 1..5 они не
+            # влезают и помечены data.slotOverflow — штатный для группы режим
+            # «запуск по node_key». Для них slot 0 поддержан: running-статус
+            # берётся из _slot_status_pair (enriching_1), фактическая нода — из
+            # meta.active_excel_gpt_node_key, а enrich_xlsx разводит pk_* своим
+            # раннером. Остальные overflow-ноды (проверки scene-веера) остаются
+            # под запретом: у них свой шаг.
+            from app.services.plan_cinema.nodes import is_plan_cinema_node as _is_pk
+
+            if not _is_pk(str(node_key)):
+                raise ValueError(
+                    f"excel_gpt: нода {node_key!r} стоит вне слотов доработки (1..5) и "
+                    "не может быть запущена шагом — снимите у неё «вне слотов» "
+                    "(data.slotOverflow) или поставьте на свободный слот"
+                )
 
     for code in _WRAPPER_TO_CODES.get(step_code, [step_code]):
         purge_tmp_gpt_for_step(project, code)

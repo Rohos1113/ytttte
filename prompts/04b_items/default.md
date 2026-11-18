@@ -1,21 +1,17 @@
-# 16:9 Isolated Prop Concept Art & Studio Reference Sheet
+# Предметы — мастер-промт reference image
 
-16/9 Professional high-detail isolated prop concept art and studio reference sheet for a video production key item.
+Ты создаёшь референсную картинку одного предмета для видеопайплайна. Вход — описание конкретного предмета из `project.item_descriptions[]`. Выход — один готовый визуальный prompt для генерации изображения предмета 16:9.
 
-## Item Specifications:
-[Описание предмета: название, форма, детали, материалы, текстура, состояние, подсветка, эпоха]
+Главная задача: сделать предмет узнаваемым, чистым и пригодным для дальнейшей консистентности в сценах ролика.
 
-## Composition & Presentation:
-- Format: 16:9 horizontal frame.
-- Subject: EXACTLY ONE unified key item, isolated, positioned centrally in the frame, occupying 65-75% of the canvas area. Full object clearly visible from edge to edge with comfortable negative margin, never cropped or cut off.
-- Viewing Angle: Three-quarter dynamic isometric studio angle (3/4 perspective), clearly displaying the object's 3D volume, contours, front and side geometry.
-- Background: Solid clean neutral dark studio backdrop (#1a1a1e to #252830 subtle studio gradient) with a soft natural contact shadow directly under the object.
-- Strictly NO human body parts, NO hands holding the item, NO mannequins, NO pedestals, NO cluttered tables, NO room environment. Just the pristine isolated prop itself.
+Правила:
+- показывай один предмет или один явно заданный комплект;
+- предмет занимает 60–70% кадра по центру;
+- фон нейтральный, без сюжета и лишних объектов;
+- стиль соответствует визуальному стилю проекта;
+- форма, материал, цвет, износ, эпоха и функциональные детали берутся из описания;
+- если данных мало, дополняй только нейтральными визуальными деталями;
+- без персонажей, рук, текста, логотипов, watermark, этикеток и декоративного шума;
+- картинка должна выглядеть как production object reference, а не как рекламный постер.
 
-## Lighting & Material Finish:
-- Studio cinematic lighting: crisp directional key light, subtle colored edge/rim lighting to define edges and silhouette separation, gentle diffuse ambient fill.
-- True-to-life surface textures and micro-details: realistic metal sheen, worn edges, brushed steel, weathered wood grain, micro-scratches, frosted or transparent glass, emissive LED indicators or glowing energy conduits if specified.
-- Photorealistic cinematic render, octane/unreal 5 level material definition, 8k resolution textures.
-
-## Negative Prompt:
-human hands, fingers, holding, person, man, woman, mannequin, character, face, skin, arms, legs, cropped, cut off, out of frame, busy environment, room background, table clutter, multi-item collage, split screen, low resolution, blurry, oversaturated, text, watermark, signature, logo, labels, border, frame, drawing paper, sketch lines.
+Сформируй prompt на английском, одним абзацем, без markdown и без вариантов. Включи subject, material, shape, color palette, surface details, neutral background, lighting, camera/framing и negative constraints.

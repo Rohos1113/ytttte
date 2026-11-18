@@ -133,9 +133,9 @@ async def db_overview(session: AsyncSession = Depends(get_session)) -> dict:
     projects = list((await session.execute(select(Project).order_by(Project.id))).scalars())
     out = []
     for p in projects:
-        frames_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == p.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        frames_n = await count_live_frames(session, p.id)
         scenes_n = (
             await session.execute(select(func.count(Scene.id)).where(Scene.project_id == p.id))
         ).scalar_one()
@@ -309,7 +309,10 @@ async def shot_menu_edit_field(
 async def export_xlsx(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Кнопка «Экспорт в Excel»: переписать строки листа «план» из DB."""
     project = await _project(session, project_id)
-    frames = list(
+    from app.services.db_v2 import live_frames
+
+    # Архив прежнего разбиения по плану в Excel не выгружаем.
+    frames = live_frames(
         (
             await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
         ).scalars()
@@ -3720,8 +3723,19 @@ async def insert_frame(
         )
     except ValueError as e:
         raise HTTPException(404, str(e)) from None
+    # number = 1..N по sort_key: вставка даёт max+1, и номера на доске
+    # расходились с порядком ленты (владелец: «строки не там»).
+    from app.services.scene_design.camera_expand import renumber_frames_by_sort_key
+
+    await renumber_frames_by_sort_key(session, project)
     await commit_with_retry(session)
-    return {"id": fr.id, "uuid": fr.uuid, "sort_key": fr.sort_key, "scene_id": fr.scene_id}
+    return {
+        "id": fr.id,
+        "uuid": fr.uuid,
+        "number": fr.number,
+        "sort_key": fr.sort_key,
+        "scene_id": fr.scene_id,
+    }
 
 
 class TextBody(BaseModel):

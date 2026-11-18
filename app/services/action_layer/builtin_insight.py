@@ -831,7 +831,9 @@ async def _prompts_in_frames(pid: int, node_type: str) -> tuple[int, int] | None
         return None
     try:
         async with _sessions()() as s:
-            total = int(await s.scalar(select(func.count(Frame.id)).where(Frame.project_id == pid)) or 0)
+            from app.services.db_v2 import count_live_frames
+
+            total = int(await count_live_frames(s, pid) or 0)
             filled = int(
                 await s.scalar(
                     select(func.count(Frame.id)).where(

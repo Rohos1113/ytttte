@@ -459,9 +459,83 @@ async def _ref_ids_from_db(
     if fr is None:
         return [], []
     attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
-    persons = _parse_ref_ids(attrs.get("characters") or attrs.get("персонажи") or "")
-    items = _parse_ref_ids(attrs.get("shot01_props") or attrs.get("предметы") or "")
+
+    def _ids(raw: object) -> list[str]:
+        """``["c01","c02"]`` и ``"c01, c02"`` — оба вида встречаются в attrs."""
+        if isinstance(raw, (list, tuple)):
+            out: list[str] = []
+            for x in raw:
+                out.extend(_parse_ref_ids(str(x)))
+            return out
+        return _parse_ref_ids(str(raw or ""))
+
+    persons = _ids(attrs.get("characters") or attrs.get("персонажи"))
+    items = _ids(attrs.get("shot01_props") or attrs.get("предметы"))
     return persons, items
+
+
+async def _background_ref_for_frame(
+    session: AsyncSession | None,
+    project: Project,
+    frame_number: int,
+) -> Path | None:
+    """PNG фона кадра — первый референс генерации (``Image1``).
+
+    Кадры строятся от готового фона: в промте кадра так и написано
+    («Image1 — фон f0N»), а в attrs кадра лежит поле ``фон`` = код фона.
+    До этого фон уходил только текстом, рефов не было вовсе (refs=0) — и
+    модель рисовала другую локацию. Теперь PNG фона подставляется первым,
+    персонажи занимают оставшиеся слоты провайдера.
+    """
+    if session is None:
+        return None
+    code = ""
+    try:
+        row = (
+            (
+                await session.execute(
+                    select(Frame).where(
+                        Frame.project_id == project.id,
+                        Frame.number == frame_number,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        attrs = dict(row.attrs or {}) if row is not None else {}
+        for key in ("фон", "background", "bg", "background_code"):
+            raw = attrs.get(key)
+            if isinstance(raw, str) and raw.strip():
+                code = raw.strip().lower()
+                break
+            if isinstance(raw, (list, tuple)) and raw:
+                code = str(raw[0]).strip().lower()
+                break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[#{}] frame {}: не смог прочитать фон из attrs: {}", project.id, frame_number, exc)
+        return None
+    if not code:
+        return None
+    if not code.startswith("f"):
+        code = f"f{int(code):02d}" if code.isdigit() else code
+    try:
+        from app.services.plan_cinema.backgrounds_render import background_path
+
+        path = background_path(project, code)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[#{}] frame {}: фон {} — ошибка резолва пути: {}", project.id, frame_number, code, exc)
+        return None
+    if not path.is_file():
+        logger.warning(
+            "[#{}] frame {}: фон {} не найден на диске ({}) — кадр уйдёт без фона-рефa",
+            project.id,
+            frame_number,
+            code,
+            path,
+        )
+        return None
+    return path
 
 
 async def _load_refs_for_frame(
@@ -480,6 +554,19 @@ async def _load_refs_for_frame(
       3) постоянный продукт массового — если остался свободный слот.
     """
     refs: list[Path] = []
+
+    # Фон кадра — первый референс (Image1 в промте кадра).
+    bg_ref = await _background_ref_for_frame(session, project, frame_number)
+    if bg_ref is not None:
+        refs.append(bg_ref)
+        logger.info(
+            "[#{}] frame {} ref фон → {} (slot {})",
+            project.id,
+            frame_number,
+            bg_ref.name,
+            len(refs),
+        )
+
     xlsx_path = project.data_dir / "project.xlsx"
     if persons_override is not None:
         persons_ids = [x for x in persons_override if x]
@@ -542,7 +629,7 @@ async def _load_refs_for_frame(
             kind="character",
             base_dir=chars_dir,
             frame_number=frame_number,
-            max_count=_max_refs(),
+            max_count=_max_refs() - len(refs),
         )
     )
 
@@ -745,6 +832,20 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         await session.flush()
 
     out_dir = project.data_dir / "scenes"
+
+    # Картинки по кадрам-шотам (S1-K1 …): на сцену приходится несколько кадров,
+    # и монтаж/видео работают именно с кадрами. Раньше здесь была одна PNG на
+    # сцену — у дочерних кадров картинок не было вовсе. Файлы кладём в
+    # shots/<id>.png: этот путь уже ищет доска монтажа.
+    try:
+        from app.services.plan_cinema.shots_render import render_missing as render_shots
+
+        await session.commit()
+        shot_drawn, shot_ready = await render_shots(session, project, frames)
+        if shot_drawn or shot_ready:
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("[#{}] generate_images: кадры-шоты не отрисованы", project.id)
 
     sheet = _sheet_for_project(project)
     try:
@@ -1363,7 +1464,9 @@ async def _coverage_parent_png(
         return None
     if out_dir is None:
         out_dir = project.data_dir / "scenes"
-    frames = (
+    from app.services.db_v2 import live_frames
+
+    frames = live_frames(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()
@@ -1599,7 +1702,9 @@ async def _all_frames_have_image_or_failed(
     if project is not None and get_scene_check_regen(project):
         # Regen-targets + дырки (не passed / без PNG). Не считать «готово»,
         # пока post_validate ещё видит missing кадры вне списка regen.
-        frames = (
+        from app.services.db_v2 import live_frames
+
+        frames = live_frames(
             (
                 await session.execute(
                     select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)

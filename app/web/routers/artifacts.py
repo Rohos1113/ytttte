@@ -98,7 +98,11 @@ async def serve_data_file(
             return FileResponse(
                 small,
                 media_type="image/webp",
-                headers={"Cache-Control": "private, max-age=31536000, immutable"},
+                # Кэш миниатюр раньше был immutable на год — после перерисовки
+                # картинки браузер показывал старую миниатюру по тому же URL.
+                # Теперь проверяем актуальность: файл миниатюры меняется вместе
+                # с источником (ключ = путь+mtime), ETag пересчитывается.
+                headers={"Cache-Control": "private, max-age=60, must-revalidate"},
             )
 
     if not candidate.is_file():
@@ -317,7 +321,10 @@ async def download_artifact(
             return FileResponse(
                 small,
                 media_type="image/webp",
-                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+                # immutable на год вешал старую миниатюру после перерисовки
+                # фона/персонажа: URL тот же. Проверяем актуальность (ETag от
+                # файла миниатюры, ключ которого = путь+mtime источника).
+                headers={"Cache-Control": "private, max-age=60, must-revalidate"},
             )
 
     if getattr(a, "storage_key", ""):

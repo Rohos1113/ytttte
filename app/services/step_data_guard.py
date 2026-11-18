@@ -55,15 +55,14 @@ async def _frames_with_voiceover(session: AsyncSession, project: Project) -> int
     n = read_v8_active_frame_count(xlsx) if xlsx.is_file() else 0
     if n > 0:
         return n
-    return (
-        await session.execute(
-            select(func.count(Frame.id)).where(
-                Frame.project_id == project.id,
-                Frame.voiceover_text.isnot(None),
-                Frame.voiceover_text != "",
-            )
-        )
-    ).scalar_one()
+    from app.services.db_v2 import count_live_frames
+
+    return await count_live_frames(
+        session,
+        project.id,
+        Frame.voiceover_text.isnot(None),
+        Frame.voiceover_text != "",
+    )
 
 
 async def ready_status_confirmed_by_data(
@@ -76,9 +75,9 @@ async def ready_status_confirmed_by_data(
     # Не требуем длинный general_plan и НЕ смотрим stale NodeRun.done —
     # иначе recompute после разбивки откатывает в `new` и цепочка встаёт.
     if ready_status is ProjectStatus.frames_ready:
-        fr_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        fr_n = await count_live_frames(session, project.id)
         if int(fr_n or 0) >= 1:
             meta = project.meta if isinstance(project.meta, dict) else {}
             if meta.get("split_completed") or project.status is ProjectStatus.frames_ready:
@@ -87,9 +86,9 @@ async def ready_status_confirmed_by_data(
     # scene_agents_ready: кадры есть + (все 5 чекпоинтов агентов done ИЛИ
     # фича выключена — pass-through фазы не оставляет чекпоинтов).
     if ready_status is ProjectStatus.scene_agents_ready:
-        fr_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        fr_n = await count_live_frames(session, project.id)
         if int(fr_n or 0) < 1:
             return False
         if project.status is ProjectStatus.scene_agents_ready:
@@ -103,9 +102,9 @@ async def ready_status_confirmed_by_data(
     # scene_design_ready: кадры есть + (meta.scene_design.status=done ИЛИ
     # фича выключена — pass-through ноды не оставляет флага).
     if ready_status is ProjectStatus.scene_design_ready:
-        fr_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        fr_n = await count_live_frames(session, project.id)
         if int(fr_n or 0) < 1:
             return False
         meta = project.meta if isinstance(project.meta, dict) else {}
@@ -277,15 +276,14 @@ async def can_enter_running(
 
     if target is ProjectStatus.generating_animation_prompts:
         # Видеопромт строится из image_prompt; PNG больше не обязателен на входе.
-        with_img_pr = (
-            await session.execute(
-                select(func.count(Frame.id)).where(
-                    Frame.project_id == project.id,
-                    Frame.image_prompt.isnot(None),
-                    Frame.image_prompt != "",
-                )
-            )
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        with_img_pr = await count_live_frames(
+            session,
+            project.id,
+            Frame.image_prompt.isnot(None),
+            Frame.image_prompt != "",
+        )
         if with_img_pr > 0:
             return True, "", None
         imgs = await _count_kind(session, project.id, ArtifactKind.scene_image)
@@ -406,9 +404,9 @@ async def clamp_status_to_data(session: AsyncSession, project: Project) -> Proje
 
     # Тот же BLOCKED, что в recompute_status: * → new при script/кадрах.
     if actual is ProjectStatus.new and old is not ProjectStatus.new:
-        fr_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        fr_n = await count_live_frames(session, project.id)
         has_script = bool((project.script_text or "").strip())
         if int(fr_n or 0) >= 1 or has_script:
             logger.warning(

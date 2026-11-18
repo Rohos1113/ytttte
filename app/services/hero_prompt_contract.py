@@ -7,6 +7,12 @@
 
 from __future__ import annotations
 
+#: Защиты слота hero отключены по требованию владельца (2026-11-17): гейт
+#: отклонял рабочие промты по маркерам «16:9 / white background / full-body»,
+#: из-за чего шаг генерации персонажей падал и уходил в 30-минутные ретраи.
+#: False — не проверяем вообще; True — вернуть прежнее поведение.
+HERO_GUARDS_DISABLED = True
+
 _REGISTRY_MARKERS = (
     "frame_uuid",
     "реестр персонаж",
@@ -83,7 +89,12 @@ def hero_style_looks_like_character_lock(text: str) -> bool:
 
 
 def validate_hero_master_or_error(text: str, *, source_name: str = "") -> str | None:
-    """None если ок; иначе человекочитаемая ошибка."""
+    """None если ок; иначе человекочитаемая ошибка.
+
+    При ``HERO_GUARDS_DISABLED`` проверка не выполняется: любой промт проходит.
+    """
+    if HERO_GUARDS_DISABLED:
+        return None
     raw = (text or "").strip()
     if len(raw) < 80:
         return (

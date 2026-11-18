@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,23 @@ def _find_shot2_video(videos_dir: Path, frame_number: int) -> Path | None:
     return candidates[0]
 
 
+def _attr_ref_ids(raw: Any) -> list[str]:
+    """ID рефов из attrs кадра: строка, список строк или список карточек."""
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        ids: list[str] = []
+        for item in raw:
+            if isinstance(item, dict):
+                ids.extend(_parse_ref_ids(item.get("id") or item.get("код") or item.get("code") or ""))
+            else:
+                ids.extend(_parse_ref_ids(item))
+        return _merge_ref_ids(ids)
+    if isinstance(raw, dict):
+        return _parse_ref_ids(raw.get("id") or raw.get("код") or raw.get("code") or "")
+    return _parse_ref_ids(raw)
+
+
 def _person_ids_from_attrs(attrs: dict[str, Any] | None) -> list[str]:
     src = attrs if isinstance(attrs, dict) else {}
     raw = (
@@ -113,7 +131,7 @@ def _person_ids_from_attrs(attrs: dict[str, Any] | None) -> list[str]:
         or src.get("persons")
         or ""
     )
-    return _parse_ref_ids(raw)
+    return _attr_ref_ids(raw)
 
 
 def _character_refs_for_ids(
@@ -134,6 +152,91 @@ def _character_refs_for_ids(
             }
         )
     return refs
+
+
+_SHOT_REF_CODE_RE = re.compile(r"\b([ci]\d{2})\b", re.IGNORECASE)
+
+
+def _shot_still_path(data_dir: Path, shot_id: str) -> Path | None:
+    """Картинка шота: images/<Sx-Ky>.png (или scenes/, shots/), пока нет — None."""
+    if not shot_id:
+        return None
+    names = (f"{shot_id}.png", f"{shot_id.lower()}.png", f"{shot_id}.jpg", f"{shot_id}.webp")
+    for sub in ("images", "shots", "scenes"):
+        folder = data_dir / sub
+        if not folder.is_dir():
+            continue
+        for name in names:
+            candidate = folder / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _planned_shots_payload(
+    frame: Any,
+    *,
+    data_dir: Path,
+    chars_dir: Path,
+    items_dir: Path,
+    backgrounds_dir: Path,
+    char_names: dict[str, str],
+    item_names: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Запланированные шоты кадра для доски: колонка на каждый, рефы шота."""
+    from app.services.vo_shot_expand import planned_shots_from_attrs
+
+    out: list[dict[str, Any]] = []
+    for item in planned_shots_from_attrs(frame):
+        shot_id = str(item.get("id") or "").strip()
+        kto = str(item.get("кто") or "").strip()
+        char_ids: list[str] = []
+        for code in _SHOT_REF_CODE_RE.findall(kto):
+            norm = code.lower()
+            if norm not in char_ids:
+                char_ids.append(norm)
+        raw_props = item.get("предметы") or []
+        prop_ids = [str(x).strip() for x in raw_props if isinstance(x, (str, int)) and str(x).strip()] if isinstance(raw_props, list) else []
+        bg_code = str(item.get("фон_код") or "").strip()
+        background_ref: dict[str, Any] | None = None
+        if bg_code:
+            background_ref = {
+                "id": bg_code,
+                "code": bg_code,
+                "name": bg_code,
+                "image_url": _preview_url(backgrounds_dir / f"{bg_code}.png"),
+            }
+        parent_id = item.get("parent_id")
+        out.append(
+            {
+                "id": shot_id,
+                "parent_id": str(parent_id) if parent_id else None,
+                "порядок": item.get("порядок"),
+                "номер": item.get("номер"),
+                "сцена": item.get("сцена"),
+                "действие": str(item.get("действие") or ""),
+                "фон": str(item.get("фон") or ""),
+                "фон_код": bg_code,
+                "кто": kto,
+                "где": str(item.get("где") or ""),
+                "место": str(item.get("место") or ""),
+                "план": str(item.get("план") or ""),
+                "позы": str(item.get("позы") or ""),
+                "старт": item.get("старт"),
+                "конец": item.get("конец"),
+                "длительность": item.get("длительность"),
+                "закадр": str(item.get("закадр") or ""),
+                "image_url": _preview_url(_shot_still_path(data_dir, shot_id)),
+                "character_refs": _character_refs_for_ids(
+                    char_ids, chars_dir=chars_dir, names=char_names
+                ),
+                "item_refs": _character_refs_for_ids(
+                    prop_ids, chars_dir=items_dir, names=item_names
+                ),
+                "background_ref": background_ref,
+            }
+        )
+    return out
 
 
 def _vo_parent_and_members(frames: list[Any], frame: Any) -> tuple[Any, list[Any]]:
@@ -881,17 +984,25 @@ async def build_montage_board(
         board_meta = _json_safe_meta({})
 
     async def _load_frames() -> list[Frame]:
-        return list(
-            (
-                await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project_id)
-                    .order_by(Frame.sort_key.asc(), Frame.number.asc())
+        # Архив прежнего разбиения по плану (attrs["источник"] == "pk_archived")
+        # на доску не пускаем: сценарий живых кадров, а не 54 при 22.
+        from app.services.db_v2 import frame_is_archived
+
+        return [
+            fr
+            for fr in (
+                (
+                    await session.execute(
+                        select(Frame)
+                        .where(Frame.project_id == project_id)
+                        .order_by(Frame.sort_key.asc(), Frame.number.asc())
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+            if not frame_is_archived(fr)
+        ]
 
     frames_orm = await _load_frames()
     # Ручной перенос scenes/videos в новый проект: без Frame в БД доска пустая.
@@ -995,6 +1106,7 @@ async def build_montage_board(
     dur_iter = iter(durations)
 
     rows: list[dict[str, Any]] = []
+    backgrounds_dir = data_dir / "backgrounds"
     for fr, vid1, vid2, ex, has_shot2, has_shot2_video in frame_videos:
         img1 = find_shot1_image(scenes_dir, fr.number)
         img2 = find_shot2_image(scenes_dir, fr.number)
@@ -1014,6 +1126,47 @@ async def build_montage_board(
         shot2_timeline_start = shot1_timeline_end
         shot2_timeline_end = vo_end if has_shot2 else None
         prompts = prompts_by_frame.get(fr.number) or {}
+        coverage = coverage_by_number.get(fr.number) or _empty_coverage_fields()
+        group_refs = group_refs_by_number.get(fr.number) or {
+            "ref_parent": None,
+            "group_character_refs": [],
+            "item_refs": [],
+        }
+        attrs = fr.attrs or {}
+        # Персонажи/предметы кадра: excel-колонка «персонажи» + attrs кадра
+        # (`персонажи`/`предметы` из плана). refs собираем здесь же — тогда
+        # миниатюры рефов на доске не зависят от заполненности листа «план».
+        char_ids = _merge_ref_ids(
+            _parse_ref_ids(ex.get("characters") or ""),
+            _person_ids_from_attrs(attrs),
+        )
+        character_refs = _character_refs_for_ids(
+            char_ids,
+            chars_dir=chars_dir,
+            names={**excel_char_names, **entity_char_names},
+        )
+        item_ids, item_seed_names = _item_ids_from_attrs(attrs)
+        item_refs = _character_refs_for_ids(
+            _merge_ref_ids(item_ids, list(ex.get("item_ids") or [])),
+            chars_dir=items_dir,
+            names={**entity_item_names, **item_seed_names},
+        )
+        if not item_refs:
+            item_refs = list(group_refs.get("item_refs") or [])
+        # Фон кадра: код `f01` из attrs кадра, иначе из сцены (`scene_bg`).
+        bg_raw = attrs.get("фон") or attrs.get("background") or attrs.get("bg") or ""
+        if isinstance(bg_raw, (list, tuple)):
+            bg_raw = bg_raw[0] if bg_raw else ""
+        bg_code = str(bg_raw or coverage.get("scene_bg") or "").strip()
+        background_ref: dict[str, Any] | None = None
+        if bg_code:
+            bg_path = backgrounds_dir / f"{bg_code}.png"
+            background_ref = {
+                "id": bg_code,
+                "code": bg_code,
+                "name": bg_code,
+                "image_url": _preview_url(bg_path),
+            }
 
         rows.append(
             {
@@ -1021,8 +1174,9 @@ async def build_montage_board(
                 "number": fr.number,
                 "voiceover_text": fr.voiceover_text,
                 "voiceover_excel": ex.get("voiceover_excel") or "",
-                "characters": ex.get("characters") or "",
-                "character_refs": ex.get("character_refs") or [],
+                "characters": ", ".join(char_ids) or (ex.get("characters") or ""),
+                "character_refs": character_refs,
+                "background_ref": background_ref,
                 "start_ts": fr.start_ts,
                 "end_ts": fr.end_ts,
                 "duration_seconds": fr.duration_seconds,
@@ -1055,14 +1209,27 @@ async def build_montage_board(
                     }
                 ),
                 "manual_refs": manual_refs_for_board(data_dir, fr),
+                "planned_shots": _planned_shots_payload(
+                    fr,
+                    data_dir=data_dir,
+                    chars_dir=chars_dir,
+                    items_dir=items_dir,
+                    backgrounds_dir=backgrounds_dir,
+                    char_names={**excel_char_names, **entity_char_names},
+                    item_names=entity_item_names,
+                ),
             }
         )
 
     from app.services.shot_templates import template_choices_for_ui
 
+    shots_total = sum(len(row.get("planned_shots") or []) for row in rows)
+
     return {
         "frames": rows,
         "frame_count": len(rows),
+        "shots_total": shots_total,
+        "board_columns": 1 + shots_total,
         "meta": board_meta,
         "frame_aspect": _real_frame_aspect(scenes_dir, rows) or frame_aspect,
         "show_coverage_rows": show_coverage_rows,

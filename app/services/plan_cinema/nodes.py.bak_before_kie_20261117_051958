@@ -1,0 +1,2824 @@
+"""Диспетчер нод группы ``plan_cinema`` (``pk_*``): «Кино по плану».
+
+Группа подключена пользовательской JSON-спекой ``node_groups/plan_cinema.json``;
+``app/services/node_groups.py`` и ``app/orchestrator/steps/enrich_xlsx.py`` не
+правятся. Хук раннера — две точки входа этого модуля:
+
+- ``is_plan_cinema_node(node_key)`` — «моя ли нода»;
+- ``run_plan_cinema_node(session, project, node_key=..., slot_idx=...)`` — исполнить.
+
+Обработчики читают входы и пишут результаты только через модули пакета:
+``plan_cinema.source`` (режим plan и текст плана), ``plan_cinema.apply``
+(БД и артефакты), ``plan_cinema.gates`` (гейты). Исходная механика проекта
+только импортируется (промты, оператор GPT, отчёт, стиль) — без правок.
+
+Модель зовётся только для нод с промт-вариантом; «Стиль» и «Отчёт» — код.
+Ответ модели всегда забираем текстом и разбираем JSON сами: это одинаково
+работает для artifact- и project_file-нод и не требует отдельного
+apply-ops-моста раннера.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, NamedTuple
+
+logger = logging.getLogger(__name__)
+
+GROUP_ID = "plan_cinema"
+
+#: Ключ meta, включающий режим плана (CONTRACT.md §2).
+SOURCE_MODE_KEY = "source_mode"
+PLAN_MODE = "plan"
+
+ARTIFACT_SCENES = "plan_scenes.json"
+ARTIFACT_SHOTS = "shots.json"
+ARTIFACT_QC = "qc_report.json"
+ARTIFACT_STYLE = "style_report.json"
+ARTIFACT_REPORT = "report.json"
+
+#: Минимум сцен в артефакте «Сцены по плану» (CONTRACT.md §4: гейт R-PLAN-COVER).
+MIN_SCENES = 1
+#: Попыток ответа модели на гейт R-PLAN-COVER (CONTRACT.md §4: один повтор).
+COVER_ATTEMPTS = 2
+
+
+# ── Реестр нод ───────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class PlanCinemaNodeSpec:
+    """Описание одной ноды группы (совпадает с ``node_groups/plan_cinema.json``)."""
+    kind: str
+    local_key: str
+    label: str
+    prompt_variant: str | None
+    output_mode: str
+
+    @property
+    def node_id(self) -> str:
+        return f"n_excel_gpt_{self.local_key}"
+
+    @property
+    def suffix(self) -> str:
+        return f"_{self.local_key}"
+
+    @property
+    def uses_model(self) -> bool:
+        """Зовёт ли нода модель. «Стиль» и «Отчёт» — код, промт — имя файла."""
+        return self.kind not in CODE_ONLY_KINDS
+
+
+#: Ноды группы в порядке цепочки (CONTRACT.md §1).
+NODE_SPECS: tuple[PlanCinemaNodeSpec, ...] = (
+    PlanCinemaNodeSpec("scenes", "pk_scenes", "Сцены по плану", "plan_to_scenes", "artifact"),
+    PlanCinemaNodeSpec("cast", "pk_cast", "Персонажи", "plan_cast", "project_file"),
+    PlanCinemaNodeSpec("skeleton", "pk_skeleton", "Каркас", "scene_skeleton_plan", "project_file"),
+    PlanCinemaNodeSpec("dialogues", "pk_dialogues", "Диалоги", "plan_dialogues", "project_file"),
+    PlanCinemaNodeSpec("shots", "pk_shots", "Шоты", "scenes_to_frames_plan_ru", "project_file"),
+    PlanCinemaNodeSpec(
+        "backgrounds", "pk_backgrounds", "Фоны", "plan_backgrounds", "artifact"
+    ),
+    PlanCinemaNodeSpec("qc", "pk_qc", "QC", "shots_qc_plan_ru", "project_file"),
+    PlanCinemaNodeSpec(
+        "style", "pk_style", "Стиль", "style_noir_watercolour_16_09", "artifact"
+    ),
+    PlanCinemaNodeSpec("report", "pk_report", "Отчёт", None, "artifact"),
+)
+
+_BY_KIND: dict[str, PlanCinemaNodeSpec] = {spec.kind: spec for spec in NODE_SPECS}
+_BY_SUFFIX: dict[str, PlanCinemaNodeSpec] = {spec.suffix: spec for spec in NODE_SPECS}
+
+#: Полный ключ ноды (``pk_scenes``) или id (``n_excel_gpt_pk_scenes``).
+_BY_KEY: dict[str, PlanCinemaNodeSpec] = {}
+for _spec in NODE_SPECS:
+    _BY_KEY[_spec.local_key] = _spec
+    _BY_KEY[_spec.node_id] = _spec
+
+#: Ноды без модели: «Стиль» пишет код (промт-вариант — имя файла стиля), «Отчёт» — HTML.
+CODE_ONLY_KINDS: frozenset[str] = frozenset({"style", "report"})
+
+#: Легаси-суффиксы script_frames_qc (v1 ``_fw_*`` и v3 ``_sfq3_*``).
+LEGACY_SUFFIXES: tuple[str, ...] = (
+    "_fw_boundaries",
+    "_fw_script",
+    "_fw_check_script",
+    "_fw_action",
+    "_fw_shots",
+    "_fw_frames",
+    "_fw_qc",
+    "_fw_style",
+    "_fw_report",
+    "_sfq3_plan",
+    "_sfq3_script",
+    "_sfq3_shots",
+)
+
+
+def plan_cinema_node_specs() -> tuple[PlanCinemaNodeSpec, ...]:
+    """Все ноды группы в порядке цепочки."""
+    return NODE_SPECS
+
+
+def plan_cinema_node_ids() -> tuple[str, ...]:
+    """id нод группы (``n_excel_gpt_pk_*``)."""
+    return tuple(spec.node_id for spec in NODE_SPECS)
+
+
+def is_plan_cinema_node(node_key: str | None) -> bool:
+    """Нода принадлежит группе ``plan_cinema``?
+
+    Ключ — полный (``pk_scenes``) или id ноды (``n_excel_gpt_pk_scenes``);
+    «оканчивается на ``_pk_*``» сравнивается по границе слова, чтобы
+    ``n_excel_gpt_pk_unknown`` не считалась своей.
+    """
+    return plan_cinema_node_spec(node_key) is not None
+
+
+def plan_cinema_node_spec(node_key: str | None) -> PlanCinemaNodeSpec | None:
+    """Описание ноды по id или local_key; ``None`` — чужая нода."""
+    key = str(node_key or "").strip()
+    return _BY_KEY.get(key)
+
+
+def plan_cinema_node_kind(node_key: str | None) -> str:
+    """Короткий вид ноды: ``scenes``, ``cast``… или пустая строка."""
+    spec = plan_cinema_node_spec(node_key)
+    return spec.kind if spec else ""
+
+
+# ── Активация и конфликт групп ──────────────────────────────────────────────
+
+
+def _canvas_node_ids(meta: Any) -> list[str]:
+    """id нод канваса из ``meta.canvas_graph`` (пусто — графа нет)."""
+    if not isinstance(meta, dict):
+        return []
+    graph = meta.get("canvas_graph")
+    if not isinstance(graph, dict):
+        return []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+    return [
+        str(node.get("id") or "")
+        for node in nodes
+        if isinstance(node, dict) and str(node.get("id") or "").strip()
+    ]
+
+
+def _is_legacy_node(node_id: str) -> bool:
+    return any(node_id.endswith(suffix) for suffix in LEGACY_SUFFIXES)
+
+
+def mixed_group_conflict_error(meta: Any) -> str | None:
+    """Ошибка, если на канвасе plan_cinema и script_frames_qc одновременно.
+
+    CONTRACT.md §6: молча выбирать группу нельзя. ``None`` — конфликта нет.
+    """
+    keys = _canvas_node_ids(meta)
+    own = sorted({key for key in keys if is_plan_cinema_node(key)})
+    legacy = sorted({key for key in keys if _is_legacy_node(key)})
+    if not (own and legacy):
+        return None
+    return (
+        "На канвасе одновременно plan_cinema (_pk_*) и script_frames_qc "
+        f"(v1 _fw_* / v3 _sfq3_*): plan_cinema={own[:5]}, script_frames_qc={legacy[:5]}. "
+        "Так нельзя: раннер не выбирает группу молча. Оставь на канвасе одну схему."
+    )
+
+
+def source_mode(meta: Any) -> str:
+    """Режим источника из meta: ``plan`` или ``voiceover`` (по умолчанию)."""
+    if isinstance(meta, dict) and meta.get(SOURCE_MODE_KEY) == PLAN_MODE:
+        return PLAN_MODE
+    return "voiceover"
+
+
+def assert_plan_cinema_activation(meta: Any, node_key: str | None = None) -> None:
+    """Проверить, что нода plan_cinema может запускаться на этом канвасе.
+
+    ``ValueError``, если смешаны группы или нет ``meta.source_mode="plan"``:
+    молчаливый запуск режима плана на закадровом проекте запрещён.
+    """
+    error = mixed_group_conflict_error(meta)
+    if error:
+        raise ValueError(error)
+    if node_key is not None and not is_plan_cinema_node(node_key):
+        return
+    if source_mode(meta) != PLAN_MODE:
+        raise ValueError(
+            f"нода {node_key or 'plan_cinema'} есть на канвасе, но режим плана "
+            f"выключен: нет meta.{SOURCE_MODE_KEY} == {PLAN_MODE!r}. Вставь группу "
+            f"{GROUP_ID} (она ставит флаг) или убери _pk_* ноды; молча запускать "
+            "режим плана на закадровом проекте нельзя."
+        )
+
+
+# ── Результат ноды и общие помощники ────────────────────────────────────────
+
+
+@dataclass
+class NodeResult:
+    """Итог обработчика ноды для ``run_plan_cinema_node``."""
+
+    gate_status: str = "pass"
+    reply_text: str = ""
+    output_paths: list[Path] = field(default_factory=list)
+    meta_patch: dict[str, Any] = field(default_factory=dict)
+
+
+def _apply():
+    from app.services.plan_cinema import apply as plan_apply
+
+    return plan_apply
+
+
+def _gates():
+    from app.services.plan_cinema import gates
+
+    return gates
+
+
+def _source():
+    from app.services.plan_cinema import source
+
+    return source
+
+
+def _split():
+    """Чистые функции резки плана: разметка P1…Pn, разбор ответа, гейт."""
+    from app.services import plan_scenes
+
+    return plan_scenes
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _scene_dict(frame: Any) -> dict[str, Any]:
+    """Сцена ``Frame`` → JSON-вход промтов по CONTRACT.md §3."""
+    attrs = frame.attrs if isinstance(frame.attrs, dict) else {}
+    return {
+        "id": str(frame.uuid or ""),
+        "номер": int(frame.number or 0),
+        "место": str(attrs.get("место") or ""),
+        "персонажи": list(attrs.get("персонажи") or []),
+        "предметы": list(attrs.get("предметы") or []),
+        "событие": str(attrs.get("событие") or ""),
+        "сцена": str(attrs.get("сцена") or ""),
+        "id_плана": list(attrs.get("id_плана") or []),
+        "фон": str(attrs.get("фон") or ""),
+    }
+
+
+_TIME_WORDS = (
+    "рассвет",
+    "утро",
+    "день",
+    "полдень",
+    "вечер",
+    "сумерки",
+    "закат",
+    "ночь",
+    "полночь",
+)
+
+
+def _time_of_day(place: str) -> str:
+    """Время суток из описания места: «спальня, ночь, ложе…» → «ночь».
+
+    Фон задаёт свет, поэтому одна локация в разное время суток — это разные
+    фоны. Без времени в ключе ночная сцена получала рассветный фон соседней.
+    """
+    text = str(place or "").lower()
+    for word in _TIME_WORDS:
+        if word in text:
+            return word
+    return ""
+
+
+def _place_group_key(place: str) -> str:
+    """Локация места: «внутри каменного дома Куси, утро, дверь…» → «внутри каменного дома куси».
+
+    Сцены одного места различаются хвостом деталей (время, что стоит рядом),
+    а фон один на локацию. Берём часть до первой запятой, нижний регистр,
+    кавычки и лишние пробелы снимаем.
+    """
+    head = str(place or "").split(",")[0]
+    head = head.replace("«", "").replace("»", "").replace('"', "")
+    return " ".join(head.split()).strip().lower()
+
+
+_HEADING_RE = re.compile(
+    r"^\s*(?:\d+[.)]\s*)?(?:ИНТ|НАТ|INT|EXT)[./\s]\s*(?P<loc>[^—–\n]+)",
+    re.IGNORECASE,
+)
+
+
+def _plan_location(points_by_code: dict[str, str], refs: Sequence[str]) -> str:
+    """Локация из шапки плана: ``ИНТ. КАМЕННЫЙ ДОМ КУСИ — УТРО`` → «каменный дом куси».
+
+    План — источник правды о месте: в нём шапка написана кодом сценария, а
+    «место» сцены — это уже описание для кадра. Группируем фоны по локации
+    из шапки, а не по тексту описания.
+    """
+    for code in refs:
+        match = _HEADING_RE.match(points_by_code.get(str(code), ""))
+        if match:
+            loc = " ".join(match.group("loc").split()).strip().lower()
+            if loc:
+                return loc
+    return ""
+
+
+def _speech_of(frame: Any) -> dict[str, Any]:
+    attrs = frame.attrs if isinstance(frame.attrs, dict) else {}
+    speech = attrs.get("речь")
+    if isinstance(speech, dict):
+        return speech
+    return {"тип": "нет", "реплики": []}
+
+
+def _frames_of(frame: Any) -> list[dict[str, Any]]:
+    attrs = frame.attrs if isinstance(frame.attrs, dict) else {}
+    kadry = attrs.get("кадры")
+    return [row for row in kadry if isinstance(row, dict)] if isinstance(kadry, list) else []
+
+
+def _registry_list(characters: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [characters[code] for code in sorted(characters)]
+
+
+def _retry_block(problems: Sequence[str]) -> str:
+    if not problems:
+        return ""
+    return (
+        "\n\n### ИСПРАВЬ ПРЕДЫДУЩИЙ ОТВЕТ\n"
+        + "\n".join(f"- {item}" for item in problems)
+        + "\nВерни ответ заново целиком, только JSON, без пояснений."
+    )
+
+
+def _read_group_prompt(project: Any, name: str | None) -> str:
+    """Файл промта группы ``plan_cinema``: ``templates/node_groups/plan_cinema/<name>.md``.
+
+    Плюс то, что даёт обычное чтение промта (стилевые переменные, тема):
+    без этого в промт не попадут ``{{ТЕМА}}`` и подстановки стиля.
+    """
+    from app.services.prompt_library import node_group_prompts_dir
+
+    clean = str(name or "").strip()
+    if not clean:
+        raise FileNotFoundError("не задан промт-вариант ноды")
+    path = node_group_prompts_dir(GROUP_ID) / f"{clean}.md"
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    text = path.read_text(encoding="utf-8")
+    try:
+        from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE
+        from app.services.gpt_text_builder import inject_topic_placeholders
+        from app.services.prompt_style_vars import apply_style_vars
+
+        meta = getattr(project, "meta", None) or {}
+        text = apply_style_vars(text, path, meta, EXCEL_GPT_STEP_CODE, clean)
+        text = inject_topic_placeholders(text, str(getattr(project, "topic", None) or ""))
+    except Exception:  # noqa: BLE001 — подстановки не критичны для чтения промта
+        logger.debug("plan_cinema: подстановки промта %s пропущены", clean, exc_info=True)
+    return text
+
+
+def _read_master(project: Any, node_key: str, spec: PlanCinemaNodeSpec) -> str:
+    """Прочитать промт ноды из папки группы ``plan_cinema``.
+
+    Имя файла всегда берём из спеки группы, а не из ``prompt_slot_variants``:
+    у голого проекта слотов нет, и общий резолвер молча отдаёт
+    ``prompts/05_excel_gpt/default.md`` — чужого агента. Чтение идёт своим
+    путём: ``_read_group_prompt``.
+    """
+    try:
+        text = _read_group_prompt(project, spec.prompt_variant)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: не найден промт "
+            f"{spec.prompt_variant!r} в папке группы {GROUP_ID}"
+        ) from exc
+    text = str(text or "").strip()
+    if not text:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: пустой промт "
+            f"{spec.prompt_variant!r}"
+        )
+    return text
+
+
+def _render(master: str, **context: Any) -> str:
+    from app.services.prompts import render_prompt
+
+    return render_prompt(master, **context)
+
+
+#: Модель группы: GPT 6.1 Sol со средним мышлением (CONTRACT.md §2).
+#: Берётся с канвас-ноды; если на канвасе забыли — падаем на это значение,
+#: а не на дефолт «Работы с GPT» (там gpt-5.6-sol без мышления).
+#: Именно ``gpt-6.1-sol``: на канвасе группа пишет ``gpt-6.1-sol-52pay``, но
+#: маршрут 52pay в этом инстансе не поднят (в .env ключ лежит как
+#: ``PAY52_GPT_API_KEY``, а Settings ждёт ``PAY52_GPT_KEY``), поэтому запрос
+#: уходил в шлюз с литералом неизвестной модели и падал HTTP 400. Каталог
+#: знает ``gpt-6.1-sol`` (алиас vibecode) — этот путь в инстансе рабочий.
+DEFAULT_MODEL_ID = "gpt-6.1-sol"
+DEFAULT_REASONING_EFFORT = "medium"
+# Модели, которые группа считает «своими»: выбор с канваса принимается только
+# из этого набора, иначе берётся DEFAULT_MODEL_ID.
+ALLOWED_MODEL_IDS = frozenset({"gpt-6.1-sol-52pay", "gpt-6.1-sol"})
+
+
+def _routable_model_id(raw: str) -> str | None:
+    """id модели, который каталог/маршруты действительно знают.
+
+    Канвас группы хранит ``gpt-6.1-sol-52pay`` (суффикс наоборот относительно
+    каталожного ``-pay52``); без этой нормализации id уезжал в шлюз литералом
+    и получал ``unknown model``. Возвращаем первый вариант, на который есть
+    маршрут, иначе ``None`` — вызывающий возьмёт DEFAULT_MODEL_ID.
+    """
+    want = (raw or "").strip()
+    if not want:
+        return None
+    from app.services.pay52_routes import resolve_text
+    from app.services.vibecode_catalog import find_model
+
+    candidates = [want]
+    flipped = want.replace("-52pay", "-pay52")
+    if flipped != want:
+        candidates.append(flipped)
+    for cand in candidates:
+        if find_model(cand) is not None or resolve_text(cand) is not None:
+            return cand
+    return None
+
+
+def node_llm_choice(project: Any, node_key: str) -> tuple[str | None, str | None]:
+    """Модель и сила мышления ноды: приоритет у выбора на канвасе, но только
+    если там стоит наша модель 52pay.
+
+    Иначе UI-дефолт каталога (``gpt-5.6-sol`` без мышления) перебивал бы выбор
+    человека: ноды группы после вставки выглядели «сброшенными» на другую
+    модель. Поэтому чужая модель с канваса игнорируется, а сила мышления
+    берётся с канваса, если задана явно.
+    """
+    from app.services.vibecode_catalog import find_canvas_node
+
+    meta = getattr(project, "meta", None) or {}
+    node = find_canvas_node(meta, node_key=node_key)
+    data = node.get("data") if isinstance(node, dict) and isinstance(node.get("data"), dict) else node
+    data = data if isinstance(data, dict) else {}
+    raw_model = _routable_model_id(
+        str(data.get("modelId") or data.get("model_id") or "")
+    )
+    raw_effort = str(
+        data.get("reasoningEffort") or data.get("reasoning_effort") or ""
+    ).strip().lower()
+    # Мышление читаем сами: штатный ``read_node_reasoning_effort`` на пустом
+    # значении отдаёт ``high``, из-за чего «среднее» превращалось в высокое.
+    effort = {
+        "low": "low",
+        "med": "medium",
+        "medium": "medium",
+        "high": "high",
+        "ultra": "xhigh",
+        "xhigh": "xhigh",
+    }.get(raw_effort) or DEFAULT_REASONING_EFFORT
+    if raw_model in ALLOWED_MODEL_IDS:
+        return raw_model, effort
+    return DEFAULT_MODEL_ID, effort
+
+
+async def _ask_text(project: Any, node_key: str, prompt: str, accompanying: str) -> str:
+    """Один вызов модели текстом; JSON разбирает вызывающий обработчик.
+
+    Модель и сила мышления берутся из ``node_llm_choice``: каталог сам по себе
+    подставляет ``gpt-5.6-sol`` без мышления, поэтому override ставим явно,
+    иначе выбор «52pay 6.1 среднее» не доезжает до запроса.
+    """
+    from app.services.gpt_operator_client import run_operator_api
+    from app.services.llm_override import NodeLlmOverride, use_override
+    from app.services.vibecode_catalog import find_model
+
+    model_id, effort = node_llm_choice(project, node_key)
+    found = find_model(str(model_id)) or {}
+    ov = NodeLlmOverride(
+        model_id=str(model_id),
+        channel=str(found.get("channel") or "stable"),
+        kind="text",
+        provider=str(found.get("provider") or "52pay"),
+        label=str(found.get("display_name") or found.get("label") or model_id),
+        reasoning_effort=effort,
+    )
+    with use_override(ov):
+        res = await run_operator_api(
+            project_dir=Path(project.data_dir),
+            node_key=node_key,
+            role="work",
+            output_mode="text",
+            prompt=prompt,
+            accompanying=accompanying,
+            input_paths=[],
+            auto_pack=False,
+        )
+    logger.info(
+        "[#%s] %s: модель %s, мышление %s",
+        getattr(project, "id", "?"),
+        node_key,
+        model_id,
+        effort,
+    )
+    text = str(res.reply_text or "").strip()
+    if not text:
+        raise RuntimeError(f"#{getattr(project, 'id', '?')} {node_key}: пустой ответ модели")
+    return text
+
+
+async def _ask_json(project: Any, node_key: str, prompt: str, accompanying: str) -> dict:
+    """Вызов модели с разбором JSON-объекта (с спасением обрезанного хвоста)."""
+    from app.services.ai_result_io import parse_json_object
+    from app.services.db_apply import close_truncated_json
+
+    text = await _ask_text(project, node_key, prompt, accompanying)
+    try:
+        payload = parse_json_object(text)
+    except ValueError as exc:
+        payload = close_truncated_json(text)
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: модель вернула не JSON ({exc})"
+            ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: ответ модели — не JSON-объект"
+        )
+    return payload
+
+
+def _parallel_limits(project: Any | None = None) -> tuple[int, float]:
+    """Размер пачки и пауза между пачками для per-scene вызовов модели.
+
+    ``PLAN_CINEMA_SCENES_PARALLEL`` (default 4) — сколько сцен спрашиваем у
+    модели одновременно; ``1`` включает старое серийное поведение.
+    ``PLAN_CINEMA_SCENES_STAGGER`` (default 1.0) — пауза между пачками, сек.
+
+    Env задаёт поведение процесса, но переключать режим без рестарта нужно для
+    A/B: если переменных нет, читаем ``data/plan_cinema_parallel.json``
+    (``{"parallel": 1, "stagger": 1.0}``) — один и тот же сервер, разные
+    прогоны. Файл опционален, битый файл — дефолт.
+
+    Параллельны только вызовы модели. Запись в БД всегда идёт после пачки и
+    строго в порядке сцен: сессия SQLAlchemy async не терпит конкурентных
+    flush, а порядок правок должен быть предсказуемым.
+    """
+    raw_size = str(os.environ.get("PLAN_CINEMA_SCENES_PARALLEL") or "").strip()
+    raw_stagger = str(os.environ.get("PLAN_CINEMA_SCENES_STAGGER") or "").strip()
+    if not raw_size or not raw_stagger:
+        try:
+            from app.settings import settings as _settings
+
+            path = Path(_settings.data_dir) / "plan_cinema_parallel.json"
+            if path.is_file():
+                config = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(config, dict):
+                    if not raw_size:
+                        raw_size = str(config.get("parallel") or "").strip()
+                    if not raw_stagger:
+                        raw_stagger = str(config.get("stagger") or "").strip()
+        except (OSError, ValueError):
+            logger.warning("plan_cinema: plan_cinema_parallel.json не прочитан — дефолт")
+    try:
+        size = int(raw_size) if raw_size else 4
+    except ValueError:
+        size = 4
+    try:
+        stagger = float(raw_stagger) if raw_stagger else 1.0
+    except ValueError:
+        stagger = 1.0
+    return max(1, size), max(0.0, stagger)
+
+
+async def _run_in_batches(
+    items: Sequence[Any],
+    worker: Any,
+    commit: Any,
+    *,
+    size: int,
+    stagger: float,
+    project_id: Any = "?",
+    node_key: str = "",
+    label: Any = None,
+) -> list[Any]:
+    """Прогнать ``items`` через ``worker`` пачками по ``size`` и закоммитить.
+
+    Внутри пачки — ``asyncio.gather`` (только вызовы модели, без записи),
+    между пачками — пауза ``stagger``. После пачки результаты идут в
+    ``commit`` по одному и строго в порядке ``items``: сессия SQLAlchemy async
+    не терпит конкурентных flush, а порядок правок должен быть предсказуемым.
+    При ``size <= 1`` поведение прежнее серийное (вызов → запись → следующий).
+    Исключение из ``worker``/``commit`` не глотается: нода падает.
+
+    На каждую сцену пишется INFO: номер пачки, сцена, время вызова и время
+    записи — по журналу видно, где именно ушло время (модель или БД).
+    ``label`` — функция «item → метка сцены» для этого лога.
+    """
+    done: list[Any] = []
+    llm_ms_holder: list[int] = [0]
+
+    def _scene_label(item: Any, position: int) -> Any:
+        if callable(label):
+            try:
+                return label(item)
+            except Exception:  # noqa: BLE001 — лог не должен валить прогон
+                return position + 1
+        return position + 1
+
+    async def _timed(item: Any) -> tuple[Any, int]:
+        started = time.perf_counter()
+        result = await worker(item)
+        return result, int((time.perf_counter() - started) * 1000)
+
+    async def _commit_one(result: Any, scene: Any, pack: Any) -> None:
+        started = time.perf_counter()
+        await commit(result)
+        commit_ms = int((time.perf_counter() - started) * 1000)
+        # Строку хронометража пишем в loguru: stdlib-INFO этого модуля в файл
+        # студии не доходит (стандартный логгер перехватывается только с
+        # WARNING), а по этой строке видно, где время — в модели или в БД.
+        try:
+            from loguru import logger as _loguru
+
+            _loguru.info(
+                "[#{}] {}: сцена {}, пачка {} — вызов {} мс, запись {} мс",
+                project_id,
+                node_key,
+                scene,
+                pack,
+                llm_ms_holder[0],
+                commit_ms,
+            )
+        except Exception:  # noqa: BLE001 — хронометраж не должен валить ноду
+            logger.info(
+                "[#%s] %s: сцена %s, пачка %s — вызов %s мс, запись %s мс",
+                project_id,
+                node_key,
+                scene,
+                pack,
+                llm_ms_holder[0],
+                commit_ms,
+            )
+
+    if size <= 1:
+        for position, item in enumerate(items):
+            result, llm_ms = await _timed(item)
+            llm_ms_holder[0] = llm_ms
+            await _commit_one(result, _scene_label(item, position), "серийно")
+            done.append(result)
+        return done
+    for pack, start in enumerate(range(0, len(items), size), 1):
+        if start:
+            await asyncio.sleep(stagger)
+        chunk = items[start : start + size]
+        pairs = await asyncio.gather(*(_timed(item) for item in chunk))
+        for offset, (result, llm_ms) in enumerate(pairs):
+            llm_ms_holder[0] = llm_ms
+            await _commit_one(
+                result, _scene_label(items[start + offset], start + offset), pack
+            )
+        done.extend(result for result, _llm_ms in pairs)
+    return done
+
+
+def _scenes_artifact(project: Any) -> dict[str, Any] | None:
+    """Артефакт «Сцены по плану» (вход всех следующих нод)."""
+    data = _apply().read_artifact(project, _BY_KIND["scenes"].node_id, ARTIFACT_SCENES)
+    return data if isinstance(data, dict) else None
+
+
+def _require_scenes_artifact(project: Any) -> dict[str, Any]:
+    data = _scenes_artifact(project)
+    if not data or not isinstance(data.get("сцены"), list) or not data["сцены"]:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')}: нет артефакта {ARTIFACT_SCENES} — "
+            "сначала запусти ноду «Сцены по плану» (pk_scenes)"
+        )
+    return data
+
+
+def _scenes_for_gate(data: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"номер": int(item.get("номер") or 0), "id_плана": list(item.get("id_плана") or [])}
+        for item in data.get("сцены") or []
+        if isinstance(item, dict)
+    ]
+
+
+# ── Обработчики нод ─────────────────────────────────────────────────────────
+
+
+async def _run_scenes(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 1: план P1…Pn → сцены; гейт R-PLAN-COVER, один повтор."""
+    split = _split()
+    gates = _gates()
+    plan_text = _source().read_plan_text(project)
+    if not plan_text:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: план пуст "
+            "(project.general_plan пустой) — резать нечего"
+        )
+    points = split.num_plan_points(plan_text)
+    if len(points) < MIN_SCENES:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: в плане не нашлось пунктов P1…Pn"
+        )
+    numbered = split.format_plan_points(points)
+    master = _read_master(project, node_key, _BY_KIND["scenes"])
+
+    last_problems: list[str] = []
+    scenes: list[dict[str, Any]] = []
+    for attempt in range(1, COVER_ATTEMPTS + 1):
+        prompt = _render(master, ПЛАН_С_НОМЕРАМИ=numbered)
+        raw = await _ask_text(
+            project,
+            node_key,
+            prompt,
+            _retry_block(last_problems) if attempt > 1 else "",
+        )
+        try:
+            scenes = split.parse_scenes_reply(raw)
+        except split.PlanScenesError as exc:
+            last_problems = [f"ответ не по контракту: {exc}"]
+            logger.warning("[#%s] %s: попытка %s — %s", project.id, node_key, attempt, exc)
+            continue
+        verdict = gates.check_plan_coverage(points, scenes)
+        if verdict.get("passed"):
+            path = _apply().save_artifact(
+                project,
+                node_key,
+                ARTIFACT_SCENES,
+                {
+                    "пункты": [{"код": code, "текст": text} for code, text in points],
+                    "план_с_номерами": numbered,
+                    "сцены": scenes,
+                },
+            )
+            return NodeResult(
+                reply_text=(
+                    f"сцены по плану: пунктов {len(points)}, сцен {len(scenes)}, "
+                    f"покрытие R-PLAN-COVER pass"
+                ),
+                output_paths=[path],
+            )
+        last_problems = list(verdict.get("errors") or [])
+        for code in verdict.get("uncovered") or []:
+            last_problems.append(f"пункт {code} не покрыт ни одной сценой")
+        for code in verdict.get("unknown") or []:
+            last_problems.append(f"сцена ссылается на несуществующий пункт {code}")
+        logger.warning(
+            "[#%s] %s: попытка %s, R-PLAN-COVER fail: %s",
+            project.id,
+            node_key,
+            attempt,
+            "; ".join(last_problems[:6]),
+        )
+    raise RuntimeError(
+        f"#{getattr(project, 'id', '?')} {node_key}: R-PLAN-COVER fail после "
+        f"{COVER_ATTEMPTS} попыток — {json.dumps(last_problems[:8], ensure_ascii=False)}"
+    )
+
+
+async def _run_cast(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 2: сцены + план → реестр ``Entity(type="character")``; гейт R-CAST-DUP."""
+    gates = _gates()
+    data = _require_scenes_artifact(project)
+    master = _read_master(project, node_key, _BY_KIND["cast"])
+    prompt = _render(
+        master,
+        ПЛАН_С_НОМЕРАМИ=str(data.get("план_с_номерами") or ""),
+        СЦЕНЫ=_json(data.get("сцены") or []),
+    )
+    payload = await _ask_json(project, node_key, prompt, "Реестр персонажей целиком.")
+    characters = payload.get("персонажи")
+    if not isinstance(characters, list) or not characters:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: ответ без списка «персонажи»"
+        )
+    problems = gates.cast_duplicate_problems(characters)
+    if problems:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: R-CAST-DUP fail — "
+            f"{json.dumps(problems[:8], ensure_ascii=False)}"
+        )
+    result = await _apply().write_entities(session, project, characters=characters)
+    return NodeResult(
+        reply_text=(
+            f"персонажи: {len(characters)} записей, записано "
+            f"{result.get('characters', 0)}, R-CAST-DUP pass"
+        )
+    )
+
+
+async def _ensure_scene_cells(
+    session: Any,
+    project: Any,
+    scenes: list[dict[str, Any]],
+    step1: list[dict[str, Any]],
+) -> list[Any]:
+    """Ячейки ``Frame`` сцен: создать при первом прогоне, иначе обновить ``attrs``.
+
+    Сцена — ячейка ``Frame`` (``Scene`` только папка), ``voiceover_text=""``.
+    Старые ячейки проекта не трогаются: при первом прогоне создаются новые
+    сцены, при повторном обновляются только сцены ``attrs["источник"] == "pk"``.
+    """
+    apply = _apply()
+    from app.models import Frame, FrameStatus, Scene
+    from app.services.db_v2 import new_frame_uuid
+
+    refs_by_number = {
+        int(item.get("номер") or 0): list(item.get("id_плана") or [])
+        for item in step1
+        if isinstance(item, dict)
+    }
+    existing = await apply.load_scenes(session, project)
+    if existing and len(existing) != len(scenes):
+        # План переписали — число сцен поменялось. Старые ячейки не удаляем:
+        # снимаем метку источника, чтобы группа их больше не видела, и создаём
+        # новый комплект. Так повторный прогон не упирается в «12 → 11».
+        logger.warning(
+            "[#%s] сцен было %s, стало %s — старые ячейки сняты с учёта",
+            getattr(project, "id", "?"),
+            len(existing),
+            len(scenes),
+        )
+        for frame in existing:
+            attrs = dict(frame.attrs) if isinstance(frame.attrs, dict) else {}
+            # Всё, что делало ячейку «живой» для следующих нод, убираем: иначе
+            # архивные сцены висят в очереди «Картинок» под номерами 1000xx и
+            # просят генерацию по старым промтам. «удалён» — штатная пометка,
+            # по ней платная генерация пропускает кадр навсегда.
+            attrs = {
+                "источник": "pk_archived",
+                "архив_номер": attrs.get("номер") or attrs.get("архив_номер"),
+                "удалён": True,
+                "пометка": "архив прежнего разбиения по плану",
+            }
+            frame.attrs = attrs
+            frame.image_prompt = ""
+            frame.animation_prompt = ""
+            frame.status = FrameStatus.planned
+            # Номер уникален в проекте: архивным ячейкам отдаём смещённый
+            # диапазон, чтобы новый комплект сцен занял номера 1..N.
+            frame.number = 100000 + int(getattr(frame, "id", 0) or 0)
+            frame.sort_key = 1000000.0 + float(getattr(frame, "id", 0) or 0)
+        await session.flush()
+        existing = []
+    if existing:
+        for frame, raw in zip(existing, scenes, strict=False):
+            number = int(raw.get("номер") or 0)
+            attrs = {
+                "источник": "pk",
+                "id_плана": refs_by_number.get(number, []),
+                "место": str(raw.get("место") or ""),
+                "персонажи": list(raw.get("персонажи") or []),
+                "предметы": list(raw.get("предметы") or []),
+                "событие": str(raw.get("событие") or ""),
+                "сцена": str(raw.get("сцена") or ""),
+            }
+            await apply.write_scene_attrs(session, project, str(frame.uuid), attrs)
+        return existing
+
+    scene = (
+        (await session.execute(__import__("sqlalchemy").select(Scene).where(Scene.project_id == project.id)))
+        .scalars()
+        .first()
+    )
+    if scene is None:
+        scene = Scene(project_id=project.id, sort_key=10.0, title="main")
+        session.add(scene)
+        await session.flush()
+    cells: list[Frame] = []
+    for index, raw in enumerate(scenes, 1):
+        number = int(raw.get("номер") or index)
+        frame = Frame(
+            project_id=project.id,
+            number=index,
+            voiceover_text="",
+            meaning=str(raw.get("событие") or ""),
+            duration_seconds=None,
+            uuid=new_frame_uuid(),
+            sort_key=float(index) * 10.0,
+            scene_id=scene.id,
+            status=FrameStatus.planned,
+            attrs={
+                "источник": "pk",
+                "id_плана": refs_by_number.get(number, []),
+                "место": str(raw.get("место") or ""),
+                "персонажи": list(raw.get("персонажи") or []),
+                "предметы": list(raw.get("предметы") or []),
+                "событие": str(raw.get("событие") or ""),
+                "сцена": str(raw.get("сцена") or ""),
+            },
+        )
+        session.add(frame)
+        cells.append(frame)
+    await session.flush()
+    return cells
+
+
+async def _run_skeleton(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 3: сцены шага 1 → текст действия и `attrs` ячеек сцен."""
+    data = _require_scenes_artifact(project)
+    characters = await _apply().load_characters(session, project)
+    master = _read_master(project, node_key, _BY_KIND["skeleton"])
+    prompt = _render(
+        master,
+        СЦЕНЫ=_json(data.get("сцены") or []),
+        РЕЕСТР=_json(_registry_list(characters)),
+    )
+    payload = await _ask_json(project, node_key, prompt, "Сцены каркаса целиком.")
+    scenes = payload.get("сцены")
+    if not isinstance(scenes, list) or not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: ответ без списка «сцены»"
+        )
+    step1 = [item for item in data.get("сцены") or [] if isinstance(item, dict)]
+    if len(scenes) != len(step1):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: сцен в ответе {len(scenes)}, "
+            f"во входе {len(step1)} — одна сцена входа = одна сцена ответа"
+        )
+    cells = await _ensure_scene_cells(session, project, scenes, step1)
+    return NodeResult(
+        reply_text=(
+            f"каркас: сцен {len(cells)}, у каждой attrs источник=pk, "
+            'voiceover_text=""'
+        )
+    )
+
+
+async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 4: по сцене → ``attrs["речь"]``; гейты R-DLG-FORM и R-DLG-SPEAKER."""
+    apply = _apply()
+    gates = _gates()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+        )
+    characters = await apply.load_characters(session, project)
+    registry_codes = sorted(characters)
+    plan_points = _split().num_plan_points(_source().read_plan_text(project))
+    plan_by_code = dict(plan_points)
+    master = _read_master(project, node_key, _BY_KIND["dialogues"])
+    # Промты собираем заранее и один раз: в пачке разница только в том, когда
+    # именно ушёл вызов, сам промт сцены от этого не меняется.
+    jobs: list[tuple[dict[str, Any], str]] = []
+    for frame in scenes:
+        scene = _scene_dict(frame)
+        # План — единственный источник того, что люди произносят: в сцене
+        # остаётся только действие. Отдаём модели пункты именно этой сцены.
+        refs = [str(code) for code in scene.get("id_плана") or []]
+        scene_plan = "\n".join(
+            f"{code}: {plan_by_code[code]}" for code in refs if code in plan_by_code
+        ) or "\n".join(f"{code}: {text}" for code, text in plan_points)
+        prompt = _render(
+            master,
+            СЦЕНА=_json(scene),
+            ПЛАН=scene_plan,
+            РЕЕСТР=_json(_registry_list(characters)),
+        )
+        jobs.append((scene, prompt))
+
+    async def _ask_scene(job: tuple[dict[str, Any], str]) -> tuple[dict[str, Any], dict[str, Any]]:
+        scene, prompt = job
+        payload = await _ask_json(project, node_key, prompt, "Речь этой сцены целиком.")
+        return scene, payload
+
+    written = 0
+
+    async def _commit(answer: tuple[dict[str, Any], dict[str, Any]]) -> None:
+        nonlocal written
+        scene, payload = answer
+        speech = {
+            "тип": str(payload.get("тип") or ""),
+            "реплики": payload.get("реплики") or [],
+        }
+        problems = gates.dialog_problems(
+            speech,
+            list(scene.get("персонажи") or []),
+            registry_codes,
+        )
+        if problems:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']}, "
+                f"R-DLG fail — {json.dumps(problems[:8], ensure_ascii=False)}"
+            )
+        await apply.apply_plan_ops(
+            session,
+            project,
+            [{"frame_uuid": scene["id"], "fields": {"речь": speech}}],
+        )
+        written += 1
+        # Коммитим каждую сцену: иначе длинная транзакция шага держит write-lock
+        # SQLite, и учёт LLM (`llm_ledger`) не может вставить строку — каждый
+        # вызов ждёт освобождения блокировки (~66 с на сцену). Плюс прогресс
+        # переживает падение ноды.
+        await session.commit()
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен %s, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+    )
+    await _run_in_batches(
+        jobs,
+        _ask_scene,
+        _commit,
+        size=size,
+        stagger=stagger,
+        project_id=getattr(project, "id", "?"),
+        node_key=node_key,
+        label=lambda job: job[0]["номер"],
+    )
+    return NodeResult(reply_text=f"диалоги: сцен с речью {written}, R-DLG-FORM/SPEAKER pass")
+
+
+def _shot_prompt_from_fields(
+    shot: dict[str, Any], scene: dict[str, Any], background: dict[str, Any] | None
+) -> str:
+    """Собрать ``промт_картинки`` кадра из его же полей, если модель его не дала.
+
+    Модель иногда оставляет промт только у K1 и у промта конца. Дырку в
+    обязательном поле не оставляем: собираем тот же текст из плана, ракурса,
+    высоты, фона сцены и действия кадра. Это не выдумка, а компоновка уже
+    принятых полей кадра.
+    """
+    parts: list[str] = ["Линза 35 мм."]
+    if shot.get("план"):
+        parts.append(f"План {shot['план']}.")
+    if shot.get("ракурс"):
+        parts.append(f"Ракурс {shot['ракурс']}.")
+    if shot.get("высота"):
+        parts.append(f"Высота {shot['высота']}.")
+    if shot.get("объект"):
+        parts.append(f"Объект {shot['объект']}.")
+    place = str(scene.get("место") or "").strip()
+    if place:
+        parts.append(f"Место: {place}.")
+    if background:
+        for key in ("описание", "свет", "время"):
+            value = str(background.get(key) or "").strip()
+            if value:
+                parts.append(f"{value.rstrip('.')}.")
+        shot_background = str(shot.get("фон") or "").strip()
+        if shot_background:
+            parts.append(f"В кадре видно: {shot_background.rstrip('.')}.")
+    if shot.get("кто"):
+        parts.append(f"В кадре: {shot['кто']}.")
+    if shot.get("позы"):
+        parts.append(f"Позы: {str(shot['позы']).rstrip('.')}.")
+    if shot.get("действие"):
+        parts.append(f"Действие: {str(shot['действие']).rstrip('.')}.")
+    return _clamp(" ".join(parts), 4700)
+
+
+def _clamp(text: str, limit: int) -> str:
+    """Обрезать по границе предложения, не длиннее ``limit``."""
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    for separator in (". ", "! ", "? ", "; "):
+        position = cut.rfind(separator)
+        if position > limit // 2:
+            return cut[: position + 1]
+    return cut.rstrip()
+
+
+def _normalize_kadry(
+    kadry: list[Any],
+    speech: dict[str, Any],
+    scene: dict[str, Any],
+    background: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Довести кадры сцены до контракта валидатора кадров (``shot_rules_v2``).
+
+    Модель пишет K1 в ``промт_картинки``, а детям — ``промт_старт``/``промт_конец``.
+    Валидатор же требует ``промт_картинки`` у каждого кадра (обязательное поле
+    ``REQUIRED_SHOT_FIELDS``) и промт старта при ``точность="старт/конец"``.
+    Здесь промт не выдумывается: промт старта и есть промт входной картинки
+    ребёнка, поэтому он дублируется в ``промт_картинки``; если промта нет вовсе —
+    он собирается из полей самого кадра (``_shot_prompt_from_fields``).
+    Ещё проставляются ``номер`` и ``фон_код`` из сцены.
+    """
+    out: list[Any] = []
+    pairs_used = 0
+    for index, shot in enumerate(kadry, 1):
+        if not isinstance(shot, dict):
+            out.append(shot)
+            continue
+        row = dict(shot)
+        picture = str(row.get("промт_картинки") or "").strip()
+        start = str(row.get("промт_старт") or "").strip()
+        end = str(row.get("промт_конец") or "").strip()
+        if not picture:
+            picture = start or end
+        if not picture:
+            picture = _shot_prompt_from_fields(row, scene, background)
+        row["промт_картинки"] = _clamp(picture, 4700)
+        # Пара старт/конец — исключение, а не норма: не больше двух на сцену.
+        accuracy = str(row.get("точность") or "").strip()
+        if accuracy != "старт/конец" or pairs_used >= _MAX_STARTEND_PER_SCENE:
+            row["точность"] = "одна картинка"
+            row["старт"] = ""
+            row["конец"] = ""
+            row["причина"] = ""
+            row.pop("промт_конец", None)
+        else:
+            pairs_used += 1
+            if not end:
+                row["промт_конец"] = _clamp(
+                    f"{picture} Конец кадра: {row.get('конец') or ''}", 4700
+                )
+        # Внутренний промт старта генератору нужен всегда — это и есть вход кадра.
+        if not start:
+            row["промт_старт"] = _clamp(picture, 4700)
+        row.setdefault("номер", index)
+        row.setdefault("ракурс", "фронт")
+        if scene.get("фон"):
+            row["фон_код"] = scene["фон"]
+        out.append(row)
+    return out
+
+
+class _ShotAttempt(NamedTuple):
+    """Один ответ модели по сцене: нормализованная лестница и её замечания."""
+
+    kadry: list[Any]
+    problems: list[str]
+
+
+async def _plan_scene_shots(
+    project: Any,
+    node_key: str,
+    scene: dict[str, Any],
+    speech: dict[str, Any],
+    background: dict[str, Any] | None,
+    *,
+    scene_vo: str | None = None,
+    previous: _ShotAttempt | None = None,
+) -> _ShotAttempt:
+    """Спросить у модели кадры одной сцены и сразу прогнать код-валидатор.
+
+    ``scene_vo`` — кусок закадрового текста этой сцены (режим VO): с ним
+    берётся промт ``scenes_to_frames_plan_vo`` и модель обязана разложить весь
+    кусок по кадрам. Без ``scene_vo`` — прежний промт без закадра.
+
+    ``previous`` — прошлая попытка: её замечания уходят модели отдельным
+    блоком «Исправь». Так исправляются и техсбой, и неверная раскладка закадра.
+    """
+    if scene_vo is None:
+        master = _read_master(project, node_key, _BY_KIND["shots"])
+        prompt = _render(
+            master,
+            UUID_СЦЕНЫ=scene["id"],
+            СЦЕНА=_json(scene),
+            РЕЧЬ=_json(speech),
+            ФОН=_json(background),
+        )
+    else:
+        master = _read_vo_prompt(project, VO_SHOTS_PROMPT, node_key)
+        prompt = _render_vo(
+            master,
+            UUID_СЦЕНЫ=scene["id"],
+            СЦЕНА=_json(scene),
+            РЕЧЬ=_json(speech),
+            ФОН=_json(background),
+            ЗАКАДР_СЦЕНЫ=scene_vo,
+        )
+    if previous is not None and previous.problems:
+        prompt += (
+            "\n\n## Исправь\n\nПрошлый ответ не прошёл код-валидатор. "
+            "Пересобери кадры сцены целиком и устрани ровно это:\n"
+            + "\n".join(f"- {item}" for item in previous.problems[:10])
+        )
+    payload = await _ask_json(project, node_key, prompt, "Шоты этой сцены целиком.")
+    ops = payload.get("ops")
+    if not isinstance(ops, list) or not ops:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+            "ответ без ops"
+        )
+    kadry: list[Any] = []
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        fields = op.get("fields")
+        if not isinstance(fields, dict):
+            continue
+        raw_kadry = fields.get("кадры")
+        if isinstance(raw_kadry, list):
+            kadry.extend(_normalize_kadry(raw_kadry, speech, scene, background))
+    # Правил-отбраковки нет намеренно (решение владельца 2026-11-15): кадры
+    # делаются промтом, а не доработкой по замечаниям валидатора.
+    return _ShotAttempt(kadry=kadry, problems=[])
+
+
+# ── Режим VO: закадровый текст, подведённый к «Шотам» ───────────────────────
+
+
+def _vo():
+    """Модуль VO-механики: деление закадра, проверки раскладки, длительности."""
+    from app.services.plan_cinema import vo_shots
+
+    return vo_shots
+
+
+#: Промты режима VO — файлы в папке группы ``plan_cinema``.
+VO_PARTITION_PROMPT = "plan_vo_partition"
+VO_SHOTS_PROMPT = "scenes_to_frames_plan_vo"
+#: Попыток деления закадра по сценам: ответ модели проверяет код (один повтор).
+VO_PARTITION_ATTEMPTS = 2
+#: Попыток разложить кусок сцены по кадрам, прежде чем разложить его кодом.
+VO_SHOT_ATTEMPTS = 2
+#: Приписка к промту QC в режиме VO: закадр — не лишнее поле и не нарушение.
+VO_QC_NOTE = (
+    "\n\n## Закадровый текст (режим VO)\n\n"
+    "В этой сцене есть закадровый текст: поле `закадр` у каждого кадра — дословный "
+    "кусок полной озвучки, склейка кусков сцены = кусок сцены. Это не заглушка и не "
+    "лишнее поле: не предлагай убрать `закадр` и не считай его нарушением. Проверяй, "
+    "что картинка кадра соответствует смыслу его куска.\n"
+)
+
+
+#: Подписи-отсылки для ПОВТОРНЫХ вхождений плейсхолдеров в промтах режима VO:
+#: большие данные подставляются один раз, дальше — короткая ссылка «см. выше».
+#: Без этого один закадр на 14 000 знаков размножается на десятки тысяч
+#: символов (плейсхолдер упомянут в правилах и чек-листах), и шлюз отбивает
+#: запрос как «промт содержит недопустимое содержимое» (код 400).
+VO_PLACEHOLDER_ALIASES: dict[str, str] = {
+    "СЦЕНЫ": "‹список сцен выше›",
+    "ЗАКАДР": "‹полный закадр выше›",
+    "ЗАКАДР_СЦЕНЫ": "‹кусок закадра сцены выше›",
+    "СЦЕНА": "‹сцена выше›",
+    "РЕЧЬ": "‹речь сцены выше›",
+    "ФОН": "‹фон сцены выше›",
+    "UUID_СЦЕНЫ": "‹UUID сцены выше›",
+}
+
+
+def _render_vo(master: str, **values: str) -> str:
+    """Подстановка данных в промт режима VO: значение — один раз, дальше отсылка.
+
+    Обычный ``_render`` заменяет все вхождения; для маленьких полей это
+    нормально, но закадр и список сцен в промте VO повторяются в правилах и
+    чек-листах, и все-вхождения-подстановка раздувает запрос в десятки раз.
+    """
+    text = str(master or "")
+    for name, value in values.items():
+        token = "{{" + name + "}}"
+        if token not in text:
+            continue
+        text = text.replace(token, str(value), 1)
+        text = text.replace(token, VO_PLACEHOLDER_ALIASES.get(name, f"‹{name} выше›"))
+    return text
+
+
+def _read_vo_prompt(project: Any, name: str, node_key: str) -> str:
+    """Промт режима VO из папки группы; отсутствие файла — внятная ошибка."""
+    try:
+        text = _read_group_prompt(project, name)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: к «Шотам» подведён закадровый "
+            f"текст, но в папке группы {GROUP_ID} нет промта {name!r}"
+        ) from exc
+    text = str(text or "").strip()
+    if not text:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: пустой промт {name!r} режима VO"
+        )
+    return text
+
+
+def _vo_scene_rows(scene_dicts: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Вход деления закадра: номер, место, событие и короткое описание сцены.
+
+    Описание нужно модели, чтобы понять, о чём сцена, и привязать к ней кусок
+    текста. Режем его: длинные описания вместе с полным закадром раздувают
+    запрос до размера, на котором шлюз отбивает промт («недопустимое
+    содержимое»); проверено на проекте 2 (пустой вход давал кривые границы —
+    кусок на 7 знаков посреди ролика).
+    """
+    rows: list[dict[str, Any]] = []
+    for scene in scene_dicts:
+        event = " ".join(str(scene.get("событие") or "").split())
+        action = " ".join(str(scene.get("сцена") or "").split())
+        characters = [
+            str(code)[:12]
+            for code in (scene.get("персонажи") or [])[:3]
+            if str(code).strip()
+        ]
+        rows.append(
+            {
+                "номер": int(scene["номер"]),
+                "место": str(scene.get("место") or "").strip(),
+                "событие": event[:200],
+                "сцена": action[:300],
+                "персонажи": characters,
+            }
+        )
+    return rows
+
+
+def _vo_partition_block() -> str:
+    """Заголовок «Исправь» для второй попытки деления закадра."""
+    return (
+        "\n\n## Исправь\n\nПрошлое деление не прошло код-проверку закадра. "
+        "Пересобери ответ целиком и устрани ровно это:\n"
+    )
+
+
+async def _vo_partition(
+    project: Any,
+    node_key: str,
+    scene_dicts: Sequence[dict[str, Any]],
+    vo_text: str,
+) -> list[dict[str, Any]]:
+    """Полный закадр → кусок на каждую сцену; проверка кодом, один повтор.
+
+    Деление семантическое (какой кусок к какой сцене), поэтому его делает
+    модель. Код проверяет арифметику: сцены 1:1, порядок, каждый кусок
+    непустой, склейка = весь закадр слово в слово. Не сошлось — второй
+    запрос с конкретными замечаниями, потом отказ с проблемами.
+    """
+    vo = _vo()
+    numbers = [int(scene["номер"]) for scene in scene_dicts]
+    master = _read_vo_prompt(project, VO_PARTITION_PROMPT, node_key)
+    problems: list[str] = []
+    for attempt in range(1, VO_PARTITION_ATTEMPTS + 1):
+        prompt = _render_vo(
+            master,
+            СЦЕНЫ=_json(_vo_scene_rows(scene_dicts)),
+            ЗАКАДР=vo_text,
+        )
+        if attempt > 1:
+            prompt += _vo_partition_block() + "\n".join(
+                f"- {item}" for item in problems[:10]
+            )
+        try:
+            payload = await _ask_json(
+                project, node_key, prompt, "Куски закадра по сценам целиком."
+            )
+        except RuntimeError as exc:
+            problems = [str(exc)]
+            logger.warning(
+                "[#%s] %s: деление закадра, попытка %s — %s",
+                getattr(project, "id", "?"),
+                node_key,
+                attempt,
+                exc,
+            )
+            continue
+        chunks = payload.get("сцены")
+        problems = vo.scene_chunk_problems(
+            numbers, chunks if isinstance(chunks, list) else [], vo_text
+        )
+        if not problems:
+            rows = (
+                [row for row in chunks if isinstance(row, dict)]
+                if isinstance(chunks, list)
+                else []
+            )
+            return [
+                {
+                    "номер": int(row.get("номер") or 0),
+                    "закадр": str(row.get("закадр") or "").strip(),
+                }
+                for row in rows
+            ]
+        logger.warning(
+            "[#%s] %s: деление закадра, попытка %s, код-проверка — %s",
+            getattr(project, "id", "?"),
+            node_key,
+            attempt,
+            json.dumps(problems[:6], ensure_ascii=False),
+        )
+    raise RuntimeError(
+        f"#{getattr(project, 'id', '?')} {node_key}: закадровый текст не разложился по "
+        f"сценам после {VO_PARTITION_ATTEMPTS} попыток — "
+        f"{json.dumps(problems[:8], ensure_ascii=False)}"
+    )
+
+
+def _kadry_in_order(kadry: Sequence[Any]) -> list[Any]:
+    """Кадры сцены по полю ``порядок`` (если оно есть), иначе как пришли.
+
+    Раскладка закадра и длительности идут по порядку списка, поэтому список
+    выравнивается по «порядок» ещё до раскладки: иначе кадр с порядком 3 мог
+    бы получить текст второго.
+    """
+    rows = list(kadry or [])
+    keyed: list[tuple[int, int, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            keyed.append((len(rows), index, row))
+            continue
+        raw = row.get("порядок")
+        if raw is None:
+            raw = row.get("номер")
+        try:
+            order = int(str(raw).strip())
+        except (TypeError, ValueError):
+            order = len(rows)
+        keyed.append((order, index, row))
+    keyed.sort(key=lambda item: (item[0], item[1]))
+    return [row for _, _, row in keyed]
+
+
+async def _run_shots_vo(
+    session: Any,
+    project: Any,
+    *,
+    node_key: str,
+    source: Any,
+) -> NodeResult:
+    """Шаг 5 в режиме VO: закадр разложен по кадрам, темп 13.5 знака в секунду.
+
+    Порядок: полный закадр → куски по сценам (модель + код-гейт) → кадры
+    каждой сцены (модель раскладывает свой кусок + код-гейт, при провале
+    кусок раскладывается кодом) → запись ``кадры``, ``voiceover_text`` сцены и
+    ``duration_seconds`` → сквозная проверка «весь текст покрыт, темп 13.5».
+    """
+    apply = _apply()
+    vo = _vo()
+    from app.services.gpt_api import GptApiError
+
+    text = str(getattr(source, "text", "") or "").strip()
+    if not vo.normalize_words(text):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: к «Шотам» подведён закадровый "
+            f"текст ({getattr(source, 'node_key', '?')}), но текст пуст — сначала нода "
+            "«Закадровый текст»"
+        )
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+        )
+    backgrounds = await apply.load_backgrounds(session, project)
+    scene_dicts = [_scene_dict(frame) for frame in scenes]
+    no_background = [
+        scene["номер"]
+        for scene in scene_dicts
+        if not scene["фон"] or scene["фон"] not in backgrounds
+    ]
+    if no_background:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: режим VO — у сцен "
+            f"{no_background[:8]} нет существующего фона (R-BG-REF): сначала «Фоны», "
+            "иначе кусок закадра не к чему привязать"
+        )
+    chunks = await _vo_partition(project, node_key, scene_dicts, text)
+    chunk_by_number = {int(row["номер"]): row["закадр"] for row in chunks}
+    # Склейка проверяется ДО вызовов модели на кадры: деление уже прошло
+    # код-гейт, это страховка, и падать на ней после 32 платных сцен незачем.
+    glued = " ".join(str(row.get("закадр") or "").strip() for row in chunks)
+    if not vo.same_words(text, glued):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: режим VO — куски сцен не "
+            "склеиваются в полный закадровый текст (потеря или дубль слов)"
+        )
+
+    all_ops: list[dict[str, Any]] = []
+    no_kadry: list[str] = []
+    code_split: list[int] = []
+    frames_by_number = {
+        int(_scene_dict(frame)["номер"]): frame for frame in scenes
+    }
+    jobs: list[dict[str, Any]] = []
+    for scene in scene_dicts:
+        frame = frames_by_number[int(scene["номер"])]
+        jobs.append(
+            {
+                "scene": scene,
+                "frame": frame,
+                "speech": _speech_of(frame),
+                "background": backgrounds[scene["фон"]],
+                "scene_vo": chunk_by_number.get(int(scene["номер"]), ""),
+            }
+        )
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        """Кадры сцены: модель раскладывает кусок, код проверяет и страхует."""
+        scene = job["scene"]
+        scene_vo = job["scene_vo"]
+        last_kadry: list[Any] = []
+        problems: list[str] = []
+        for attempt_no in range(1, VO_SHOT_ATTEMPTS + 1):
+            previous = (
+                _ShotAttempt(kadry=last_kadry, problems=problems) if problems else None
+            )
+            try:
+                attempt = await _plan_scene_shots(
+                    project,
+                    node_key,
+                    scene,
+                    job["speech"],
+                    job["background"],
+                    scene_vo=scene_vo,
+                    previous=previous,
+                )
+            except RuntimeError as exc:
+                problems = [str(exc)]
+                logger.warning(
+                    "[#%s] %s: сцена %s, попытка %s — %s",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    scene["номер"],
+                    attempt_no,
+                    exc,
+                )
+                continue
+            except GptApiError as exc:
+                logger.warning(
+                    "[#%s] %s: сцена %s — шлюз отказал (%s), сцену пропускаю",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    scene["номер"],
+                    exc,
+                )
+                return {**job, "kadry": [], "skip_reason": str(exc)}
+            last_kadry = _kadry_in_order(attempt.kadry)
+            problems = vo.shots_partition_problems(scene_vo, last_kadry)
+            if not problems:
+                return {**job, "kadry": last_kadry, "code_split": False}
+            logger.warning(
+                "[#%s] %s: сцена %s, попытка %s, раскладка закадра — %s",
+                getattr(project, "id", "?"),
+                node_key,
+                scene["номер"],
+                attempt_no,
+                json.dumps(problems[:4], ensure_ascii=False),
+            )
+        if not last_kadry:
+            return {
+                **job,
+                "kadry": [],
+                "skip_reason": "; ".join(problems[:3]) or "нет кадров",
+            }
+        # Модель не разложила текст слово в слово — раскладываем кодом.
+        # Это не выдумывание кадров: визуальную лестницу дала модель, код
+        # только гарантирует, что весь кусок закадра дошёл до кадров.
+        code_split.append(int(scene["номер"]))
+        return {
+            **job,
+            "kadry": vo.distribute_scene_vo(scene_vo, last_kadry),
+            "code_split": True,
+        }
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene = answer["scene"]
+        kadry = [row for row in (answer.get("kadry") or []) if isinstance(row, dict)]
+        if not kadry:
+            no_kadry.append(
+                f"сцена {scene['номер']}: {answer.get('skip_reason') or 'нет кадров'}"
+            )
+            return
+        kadry = vo.with_durations(kadry)
+        kadry = [{**row, "номер": index} for index, row in enumerate(kadry, 1)]
+        scene_vo = str(answer.get("scene_vo") or "")
+        seconds = round(
+            sum(float(row.get("длительность") or 0) for row in kadry), 2
+        )
+        await apply.write_scene_attrs(
+            session, project, scene["id"], {"кадры": kadry}
+        )
+        frame = answer["frame"]
+        frame.voiceover_text = scene_vo
+        frame.duration_seconds = seconds
+        await session.flush()
+        all_ops.append({"frame_uuid": scene["id"], "fields": {"кадры": kadry}})
+        # Коммит на сцену: готовые сцены не теряются, write-lock SQLite не
+        # держится через все вызовы модели (тот же BUG-006, что в dialogues).
+        await session.commit()
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: режим VO, сцен %s, закадр %s зн, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        len(text),
+        size,
+        stagger,
+    )
+    if jobs:
+        await _run_in_batches(
+            jobs,
+            _ask_scene,
+            _commit,
+            size=size,
+            stagger=stagger,
+            project_id=getattr(project, "id", "?"),
+            node_key=node_key,
+            label=lambda job: job["scene"]["номер"],
+        )
+    if no_kadry:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: режим VO — без кадров остались "
+            f"сцены: {json.dumps(no_kadry[:8], ensure_ascii=False)}. Закадр обязан быть "
+            "разложен по всем сценам"
+        )
+    summary = vo.vo_rate_summary(text, chunks)
+    written = round(
+        sum(
+            float(row.get("длительность") or 0)
+            for op in all_ops
+            for row in op["fields"]["кадры"]
+        ),
+        2,
+    )
+    # Сверяем не с длиной всего закадра, а с текстом, который физически лёг в
+    # кадры: пробелы на стыках сцен (31 штука на 32 сцены) — паузы, их нет ни
+    # в одном кадре, иначе гейт рушился бы на любом длинном проекте.
+    shot_chars = sum(
+        len(str(row.get("закадр") or "").strip()) for row in chunks
+    )
+    expected = round(shot_chars / vo.VO_CHARS_PER_SEC, 2)
+    delta = round(written - expected, 2)
+    tolerance = max(0.5, 0.02 * max(1, len(chunks)))
+    if abs(delta) > tolerance:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: режим VO — длительность "
+            f"{written} с не сходится с темпом 13.5 знака/сек ({expected} с, "
+            f"расхождение {delta:+.2f} с при допуске {tolerance:.2f}). "
+            "Раскладка потеряла или добавила текст"
+        )
+    pauses = round((len(chunks) - 1) / vo.VO_CHARS_PER_SEC, 2) if len(chunks) > 1 else 0.0
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_SHOTS,
+        {
+            "ops": all_ops,
+            "закадр_план": chunks,
+            "закадр_источник": str(getattr(source, "node_key", "") or ""),
+            "темп_зн_в_сек": vo.VO_CHARS_PER_SEC,
+            "секунд": written,
+            "секунд_в_кадрах": expected,
+            "паузы_между_сценами_сек": pauses,
+        },
+    )
+    kadrov = sum(len(op["fields"]["кадры"]) for op in all_ops)
+    reply = (
+        f"шоты (VO): сцен {len(all_ops)}, кадров {kadrov}, закадр {summary['chars']} зн = "
+        f"{written} с при {vo.VO_CHARS_PER_SEC} зн/с, покрытие VO pass"
+    )
+    if pauses:
+        reply += f" (+{pauses:.2f} с пауз на стыках сцен не входят в кадры)"
+    if code_split:
+        reply += f"; раскладку пересобрал код: сцен {len(sorted(set(code_split)))}"
+    logger.info("[#%s] %s: %s", getattr(project, "id", "?"), node_key, reply)
+    return NodeResult(reply_text=reply, output_paths=[path])
+
+
+async def _run_shots(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 5: по сцене → ``attrs["кадры"]`` через apply-ops ``frame_uuid``.
+
+    Если к ноде «Шоты» подведён закадровый текст (ребро от ноды «Закадровый
+    текст» на канвасе), включается режим VO: весь текст обязан быть разложен
+    по кадрам с темпом 13.5 знака в секунду, сцены соотносятся с кусками
+    текста. Без ребра поведение прежнее — кадры без закадра.
+    """
+    source = _vo().shots_node_vo_source(project, node_key)
+    if source is not None:
+        return await _run_shots_vo(session, project, node_key=node_key, source=source)
+    apply = _apply()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+        )
+    backgrounds = await apply.load_backgrounds(session, project)
+    all_ops: list[dict[str, Any]] = []
+    problems_total: list[str] = []
+    skipped_total: list[str] = []
+    # Отладка одного прогона: PLAN_CINEMA_SCENES="1,2" — считать только эти сцены.
+    only = {
+        int(part)
+        for part in str(os.environ.get("PLAN_CINEMA_SCENES") or "").replace(" ", "").split(",")
+        if part.isdigit()
+    }
+    if only:
+        # Частичный прогон — отладочный: его лестницу не записываем, иначе
+        # остальные сцены остались бы без кадров.
+        logger.warning("[#%s] %s: частичный прогон, сцены %s", getattr(project, "id", "?"), node_key, sorted(only))
+    jobs: list[dict[str, Any]] = []
+    for frame in scenes:
+        scene = _scene_dict(frame)
+        if only and int(scene["номер"]) not in only:
+            continue
+        speech = _speech_of(frame)
+        background = backgrounds.get(scene["фон"])
+        if background is None:
+            problems_total.append(
+                f"R-BG-REF: сцена {scene['номер']} без существующего фона "
+                f"({scene['фон']!r}) — сначала «Фоны»"
+            )
+            continue
+        jobs.append({"scene": scene, "speech": speech, "background": background})
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        """Спросить кадры сцены — один ответ, без правок по замечаниям.
+
+        Повтор только на технический сбой (модель вернула битый JSON): такой
+        ответ разобрать нельзя. Если и со второго раза не разобралось — сцену
+        пропускаем (её прошлые кадры остаются), а не роняем весь шаг.
+        """
+        scene, speech, background = job["scene"], job["speech"], job["background"]
+        from app.services.gpt_api import GptApiError
+
+        last_error = ""
+        for attempt_no in range(1, _SHOTS_ATTEMPTS + 1):
+            try:
+                attempt = await _plan_scene_shots(
+                    project, node_key, scene, speech, background
+                )
+            except RuntimeError as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "[#%s] %s: сцена %s, попытка %s — %s",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    scene["номер"],
+                    attempt_no,
+                    last_error,
+                )
+                continue
+            except GptApiError as exc:
+                # Отказ шлюза (модерация промта, лимит, баланс) — это не битый
+                # JSON: повторять ту же сцену бессмысленно, и ронять весь шаг
+                # из-за одной сцены тоже. Пропускаем — прошлые кадры остаются.
+                last_error = str(exc)
+                logger.warning(
+                    "[#%s] %s: сцена %s — шлюз отказал (%s), сцену пропускаю",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    scene["номер"],
+                    last_error,
+                )
+                break
+            return {**job, "attempt": attempt}
+        return {**job, "attempt": None, "skip_reason": last_error}
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene = answer["scene"]
+        attempt = answer.get("attempt")
+        if attempt is None:
+            skipped_total.append(f"сцена {scene['номер']}: {answer.get('skip_reason')}")
+            return
+        scene_kadry, problems = attempt.kadry, list(attempt.problems)
+        if problems:
+            problems_total.extend(problems)
+            return
+        # Лестницу кадров сцены пишем точной заменой: обычный apply-ops склеивает
+        # новую лестницу со старой и оставляет «хвост» от прошлого прогона
+        # (например кадр без промта картинки), а гейт потом падает на нём.
+        scene_kadry = [
+            {**row, "номер": index} if isinstance(row, dict) else row
+            for index, row in enumerate(scene_kadry, 1)
+        ]
+        if not only:
+            await apply.write_scene_attrs(
+                session, project, scene["id"], {"кадры": scene_kadry}
+            )
+        all_ops.append({"frame_uuid": scene["id"], "fields": {"кадры": scene_kadry}})
+        # Коммит на сцену: не держим write-lock SQLite через весь прогон (иначе
+        # учёт LLM ждёт блокировку на каждом вызове) и не теряем готовые сцены
+        # при падении на следующей.
+        await session.commit()
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен %s, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+    )
+    if jobs:
+        await _run_in_batches(
+            jobs,
+            _ask_scene,
+            _commit,
+            size=size,
+            stagger=stagger,
+            project_id=getattr(project, "id", "?"),
+            node_key=node_key,
+            label=lambda job: job["scene"]["номер"],
+        )
+    if problems_total:
+        debug_path = Path(project.data_dir) / "excel_gpt_uploads" / node_key / "shots_fail.json"
+        try:
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(
+                json.dumps(
+                    {"проблемы": problems_total, "ops": all_ops},
+                    ensure_ascii=False,
+                    indent=1,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.exception("[#%s] %s: не удалось сохранить shots_fail.json",
+                             getattr(project, "id", "?"), node_key)
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: кадры не прошли код-валидатор — "
+            f"{json.dumps(problems_total[:8], ensure_ascii=False)}"
+        )
+    if not all_ops:
+        raise RuntimeError(f"#{getattr(project, 'id', '?')} {node_key}: нет ни одного кадра")
+    path = apply.save_artifact(project, node_key, ARTIFACT_SHOTS, {"ops": all_ops})
+    kadrov = sum(len(op["fields"]["кадры"]) for op in all_ops)
+    reply = f"шоты: сцен {len(all_ops)}, кадров {kadrov}"
+    if skipped_total:
+        logger.warning(
+            "[#%s] %s: сцены без кадров — %s",
+            getattr(project, "id", "?"),
+            node_key,
+            "; ".join(skipped_total[:8]),
+        )
+        reply += f"; сцен без ответа модели {len(skipped_total)}"
+    return NodeResult(reply_text=reply, output_paths=[path])
+
+
+async def _run_backgrounds(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 6: места всех сцен → Entity(background) f0N + ``attrs["фон"]`` сцен."""
+    apply = _apply()
+    gates = _gates()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+        )
+    # Фон — на локацию, а не на сцену. Локацию берём из шапки плана
+    # («НАТ. ЛЕСНАЯ ПРОГАЛИНА — ДЕНЬ» → «лесная прогалина»): сцены одной
+    # локации в плане всегда подписаны одинаково, а «место» сцены — это уже
+    # подробное описание для кадра. Нет шапки — падаем на текст места.
+    plan_by_code = dict(_split().num_plan_points(_source().read_plan_text(project)))
+    places: dict[str, dict[str, Any]] = {}
+    for frame in scenes:
+        scene = _scene_dict(frame)
+        place = " ".join(scene["место"].split()).strip()
+        if not place:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: у сцены {scene['номер']} "
+                "пустое место"
+            )
+        key = _plan_location(plan_by_code, scene["id_плана"]) or _place_group_key(place)
+        # Время суток — часть ключа: свет фона должен совпадать со сценой.
+        key = f"{key} · {_time_of_day(place)}" if _time_of_day(place) else key
+        entry = places.setdefault(
+            key, {"место": place, "варианты": [], "сцены": [], "события": []}
+        )
+        if place not in entry["варианты"]:
+            entry["варианты"].append(place)
+        entry["сцены"].append(scene["номер"])
+        if scene["событие"]:
+            entry["события"].append(scene["событие"])
+    places_payload = [
+        {
+            "код": f"M{index}",
+            "место": entry["место"],
+            "варианты": entry["варианты"],
+            "сцен": len(entry["сцены"]),
+            "события": entry["события"][:4],
+        }
+        for index, entry in enumerate(places.values(), 1)
+    ]
+    code_by_group = {f"M{index}": key for index, key in enumerate(places, 1)}
+    master = _read_master(project, node_key, _BY_KIND["backgrounds"])
+    prompt = _render(master, МЕСТА=_json(places_payload))
+    payload = await _ask_json(project, node_key, prompt, "Фоны целиком.")
+    backgrounds = payload.get("фоны")
+    if not isinstance(backgrounds, list) or not backgrounds:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: ответ без списка «фоны»"
+        )
+    if len(backgrounds) != len(places_payload):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: фонов {len(backgrounds)}, "
+            f"мест во входе {len(places_payload)} — один фон на каждое место"
+        )
+    await apply.write_entities(session, project, backgrounds=backgrounds)
+    code_by_place: dict[str, str] = {}
+    for card in backgrounds:
+        if not isinstance(card, dict):
+            continue
+        code = str(card.get("id") or "").strip()
+        place_code = str(card.get("место") or "").strip()
+        group_key = code_by_group.get(place_code)
+        if not group_key:
+            # модель вернула текст места вместо кода — ищем по началу строки
+            folded = _place_group_key(place_code)
+            for key in places:
+                if folded and (key.startswith(folded) or folded.startswith(key)):
+                    group_key = key
+                    break
+        if group_key and code:
+            code_by_place[group_key] = code
+    missing = [key for key in places if key not in code_by_place]
+    if missing:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: R-BG-REF fail — нет фона для "
+            f"мест: {json.dumps(missing[:8], ensure_ascii=False)}"
+        )
+    scene_group: dict[str, str] = {}
+    for frame in scenes:
+        scene = _scene_dict(frame)
+        place = " ".join(scene["место"].split()).strip()
+        base = _plan_location(plan_by_code, scene["id_плана"]) or _place_group_key(place)
+        time_of_day = _time_of_day(place)
+        scene_group[scene["id"]] = f"{base} · {time_of_day}" if time_of_day else base
+    ops = [
+        {"frame_uuid": scene_id, "fields": {"фон": code_by_place[group_key]}}
+        for scene_id, group_key in scene_group.items()
+    ]
+    await apply.apply_plan_ops(session, project, ops)
+    problems = gates.background_ref_problems(
+        [_scene_dict(frame) for frame in scenes],
+        await apply.load_backgrounds(session, project),
+    )
+    if problems:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: R-BG-REF fail — "
+            f"{json.dumps(problems[:8], ensure_ascii=False)}"
+        )
+    # Фон — не только текст: до генерации кадров у каждой локации должна быть
+    # PNG (механика как у референсов персонажей). Иначе «Картинки» стартуют с
+    # пустыми фонами, и кадры рисуются «в воздухе» — ровно то, на что указал
+    # владелец 2026-11-16: «Фоны должны генерироваться перед картинками».
+    from app.services.plan_cinema.backgrounds_render import render_missing
+
+    rendered, already = await render_missing(session, project)
+    logger.info(
+        "[#%s] %s: PNG фонов — нарисовано %s, уже было %s",
+        getattr(project, "id", "?"),
+        node_key,
+        rendered,
+        already,
+    )
+    return NodeResult(
+        reply_text=(
+            f"фоны: мест {len(places_payload)}, фонов {len(backgrounds)}, "
+            f"PNG нарисовано {rendered}, готовых {already}, R-BG-REF pass"
+        )
+    )
+
+
+async def _run_qc(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 7: семантический QC сцены; VO-правила не применяются (vo_mode=False).
+
+    Сцены с вердиктом ``fail`` не валят ноду сразу: сначала их кадры один раз
+    переспрашиваются у модели ноды шотов с текстом замечаний QC. Остались
+    нарушения — тогда нода падает, как и раньше.
+    """
+    result, verdicts, violations_total = await _qc_pass(session, project, node_key=node_key)
+    failed = [row for row in verdicts if row["verdict"] == "fail"]
+    if failed:
+        fixed = await _shots_repair_pass(
+            session,
+            project,
+            qc_node_key=node_key,
+            scenes=[row for row in failed],
+            violations=violations_total,
+        )
+        if fixed:
+            logger.info(
+                "[#%s] %s: после правки кадров сцен %s — новый QC",
+                getattr(project, "id", "?"),
+                node_key,
+                fixed,
+            )
+            result, verdicts, violations_total = await _qc_pass(
+                session, project, node_key=node_key
+            )
+            failed = [row for row in verdicts if row["verdict"] == "fail"]
+    path = result
+    warn = [row for row in verdicts if row["verdict"] == "warn"]
+    if failed:
+        codes = sorted({str(v.get("code") or "?") for v in violations_total})
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: QC fail в сценах "
+            f"{[row['номер'] for row in failed]} — коды: {codes}, "
+            f"замечаний {len(violations_total)}, "
+            f"первое: {json.dumps(violations_total[:1], ensure_ascii=False)}"
+        )
+    return NodeResult(
+        reply_text=(
+            f"QC: сцен {len(verdicts)}, pass {sum(1 for v in verdicts if v['verdict'] == 'pass')}, "
+            f"warn {len(warn)}, замечаний {len(violations_total)}"
+        ),
+        output_paths=[path],
+    )
+
+
+async def _qc_pass(
+    session: Any, project: Any, *, node_key: str
+) -> tuple[Path, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Один проход QC по всем сценам: (файл отчёта, вердикты, нарушения)."""
+    apply = _apply()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+        )
+    characters = await apply.load_characters(session, project)
+    backgrounds = await apply.load_backgrounds(session, project)
+    master = _read_master(project, node_key, _BY_KIND["qc"])
+    # Режим VO: в кадрах есть «закадр», и QC не должен считать его нарушением.
+    vo_source = _vo().shots_node_vo_source(project, _BY_KIND["shots"].node_id)
+    verdicts: list[dict[str, Any]] = []
+    violations_total: list[dict[str, Any]] = []
+    jobs: list[dict[str, Any]] = []
+    for index, frame in enumerate(scenes):
+        scene = _scene_dict(frame)
+        speech = _speech_of(frame)
+        kadry = _frames_of(frame)
+        mechanical = _shot_mechanics(kadry, vo_mode=vo_source is not None)
+        neighbour_prev = _scene_dict(scenes[index - 1]) if index > 0 else None
+        neighbour_next = _scene_dict(scenes[index + 1]) if index + 1 < len(scenes) else None
+        prompt = _render(
+            master,
+            сцена=_json(scene),
+            речь=_json(speech),
+            кадры=_json(kadry),
+            реестр_персонажи=_json(_registry_list(characters)),
+            реестр_фоны=_json([backgrounds[code] for code in sorted(backgrounds)]),
+            механические_нарушения=_json(mechanical),
+            соседи=_json({"предыдущая": neighbour_prev, "следующая": neighbour_next}),
+        )
+        if vo_source is not None:
+            prompt += VO_QC_NOTE
+        jobs.append({"scene": scene, "prompt": prompt})
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        payload = await _ask_json(
+            project, node_key, job["prompt"], "Вердикт QC этой сцены."
+        )
+        return {**job, "payload": payload}
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene, payload = answer["scene"], answer["payload"]
+        qc = payload.get("qc")
+        if not isinstance(qc, dict):
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+                "ответ без «qc»"
+            )
+        verdict = str(qc.get("verdict") or "")
+        if verdict not in ("pass", "warn", "fail"):
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+                f"недопустимый verdict {verdict!r}"
+            )
+        violations = [row for row in qc.get("violations") or [] if isinstance(row, dict)]
+        # Стык двух сцен — не ошибка кадра: правится раскадровкой соседей, а не
+        # этой нодой. Такие замечания остаются в отчёте как warn с рецептом.
+        codes = {str(row.get("code") or "") for row in violations}
+        if verdict == "fail" and codes and codes <= _CROSS_SCENE_CODES:
+            verdict = "warn"
+        for row in violations:
+            violations_total.append({"сцена": scene["номер"], **row})
+        verdicts.append(
+            {"номер": scene["номер"], "verdict": verdict,
+             "violations": violations, "fixes": qc.get("fixes") or [],
+             "issues": qc.get("issues") or []}
+        )
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен %s, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+    )
+    await _run_in_batches(
+        jobs,
+        _ask_scene,
+        _commit,
+        size=size,
+        stagger=stagger,
+        project_id=getattr(project, "id", "?"),
+        node_key=node_key,
+        label=lambda job: job["scene"]["номер"],
+    )
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_QC,
+        {"сцены": verdicts, "механические": True},
+    )
+    return Path(path), verdicts, violations_total
+
+
+#: Механические коды кадров, которые в режиме VO снимаются: старый потолок
+#: «не больше 6 кадров на сцену» противоречит правилу владельца «весь закадр
+#: разложен по кадрам»: на 600–900 знаков сцены нужно 7–10 кадров.
+VO_RELAXED_SHOT_CODES: tuple[str, ...] = ("R-SHOT-CEILING",)
+
+
+def _shot_mechanics(kadry: Sequence[Any], *, vo_mode: bool = False) -> list[str]:
+    """Механические нарушения кадров; в режиме VO потолок кадров снят."""
+    problems = list(_gates().shots_gate_problems(kadry, vo_mode=False))
+    if not vo_mode:
+        return problems
+    return [
+        item
+        for item in problems
+        if not any(item.startswith(code) for code in VO_RELAXED_SHOT_CODES)
+    ]
+
+
+def _vo_chunks_by_number(
+    project: Any, shots_key: str, scenes: Sequence[Any]
+) -> dict[int, str]:
+    """Куски закадра по сценам для ремонтного прохода.
+
+    Источник правды — ``Frame.voiceover_text`` сцены (его пишет сама нода
+    «Шоты» в режиме VO); если он пуст (старый прогон) — берём ``закадр_план``
+    из артефакта ``shots.json``.
+    """
+    chunks: dict[int, str] = {}
+    for frame in scenes:
+        number = int(_scene_dict(frame)["номер"])
+        text = str(getattr(frame, "voiceover_text", "") or "").strip()
+        if text:
+            chunks[number] = text
+    if chunks:
+        return chunks
+    data = _apply().read_artifact(project, shots_key, ARTIFACT_SHOTS)
+    if isinstance(data, dict):
+        for row in data.get("закадр_план") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                chunks[int(row.get("номер") or 0)] = str(row.get("закадр") or "").strip()
+            except (TypeError, ValueError):
+                continue
+    return chunks
+
+
+async def _shots_repair_pass(
+    session: Any,
+    project: Any,
+    *,
+    qc_node_key: str,
+    scenes: list[dict[str, Any]],
+    violations: list[dict[str, Any]],
+) -> list[int]:
+    """Переспросить кадры сцен, где QC нашёл нарушения.
+
+    Модель ноды шотов получает ту же сцену, фон и разбор QC с указанием кадра:
+    правится лестница кадров, затем она снова идёт через код-валидатор. Возвращает
+    номера сцен, которые реально переписались (их проверяет повторный QC).
+    """
+    apply = _apply()
+    gates = _gates()
+    vo = _vo()
+    shots_key = _BY_KIND["shots"].node_id
+    all_scenes = await apply.load_scenes(session, project)
+    frames_by_number = {int(_scene_dict(frame)["номер"]): frame for frame in all_scenes}
+    backgrounds = await apply.load_backgrounds(session, project)
+    # Ремонт после QC обязан сохранить режим VO: иначе с отремонтированной
+    # сцены исчезнут закадры, а полный текст перестанет сходиться.
+    vo_source = vo.shots_node_vo_source(project, shots_key)
+    vo_chunks = (
+        _vo_chunks_by_number(project, shots_key, all_scenes)
+        if vo_source is not None
+        else {}
+    )
+    repaired: list[int] = []
+    for row in scenes:
+        number = int(row["номер"])
+        frame = frames_by_number.get(number)
+        if frame is None:
+            continue
+        scene = _scene_dict(frame)
+        speech = _speech_of(frame)
+        background = backgrounds.get(scene["фон"])
+        if background is None:
+            continue
+        scene_vo = str(vo_chunks.get(number) or "")
+        if vo_source is not None and not scene_vo:
+            logger.warning(
+                "[#%s] %s: сцена %s — режим VO, но куска закадра нет "
+                "(voiceover_text пуст и в shots.json его нет), правлю по старой ветке",
+                getattr(project, "id", "?"),
+                qc_node_key,
+                number,
+            )
+        scene_notes = [
+            item for item in violations if int(item.get("сцена") or 0) == number
+        ]
+        if scene_vo:
+            base_prompt = _render_vo(
+                _read_vo_prompt(project, VO_SHOTS_PROMPT, shots_key),
+                UUID_СЦЕНЫ=scene["id"],
+                СЦЕНА=_json(scene),
+                РЕЧЬ=_json(speech),
+                ФОН=_json(background),
+                ЗАКАДР_СЦЕНЫ=scene_vo,
+            )
+        else:
+            base_prompt = _render(
+                _read_master(project, shots_key, _BY_KIND["shots"]),
+                UUID_СЦЕНЫ=scene["id"],
+                СЦЕНА=_json(scene),
+                РЕЧЬ=_json(speech),
+                ФОН=_json(background),
+            )
+        notes = "\n".join(
+            f"- {item.get('shot') or 'сцена'}: {item.get('code') or '?'} — {item.get('detail') or ''}"
+            for item in scene_notes[:10]
+        )
+        prompt = (
+            base_prompt
+            + "\n\n## Исправь после QC\n\n"
+            "QC кадров этой сцены нашёл несоответствия. Пересобери кадры сцены "
+            "целиком и убери ровно эти:\n"
+            + notes
+            + "\nКадр, на который указал QC, больше не должен объяснять движение "
+            "против его же промта; соседние сцены и фон не меняй."
+        )
+        if scene_vo:
+            prompt += (
+                "\nЗакадровый текст сцены при правке обязан остаться разложенным "
+                "по кадрам слово в слово: склейка «закадр» всех кадров = кусок сцены."
+            )
+        payload = await _ask_json(project, shots_key, prompt, "Шоты этой сцены целиком.")
+        ops = payload.get("ops")
+        if not isinstance(ops, list) or not ops:
+            continue
+        kadry: list[Any] = []
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            fields = op.get("fields")
+            if isinstance(fields, dict) and isinstance(fields.get("кадры"), list):
+                kadry.extend(_normalize_kadry(fields["кадры"], speech, scene, background))
+        if scene_vo:
+            kadry = _kadry_in_order([item for item in kadry if isinstance(item, dict)])
+            lost = vo.shots_partition_problems(scene_vo, kadry)
+            if lost:
+                logger.warning(
+                    "[#%s] %s: сцена %s после правки QC — закадр разложен кодом (%s)",
+                    getattr(project, "id", "?"),
+                    qc_node_key,
+                    number,
+                    json.dumps(lost[:3], ensure_ascii=False),
+                )
+                kadry = vo.distribute_scene_vo(scene_vo, kadry)
+            kadry = vo.with_durations(kadry)
+        problems = list(gates.shots_dialogue_problems_plan(kadry, speech))
+        problems.extend(_shot_mechanics(kadry, vo_mode=bool(scene_vo)))
+        if problems:
+            logger.warning(
+                "[#%s] %s: сцена %s после правки не прошла валидатор — %s",
+                getattr(project, "id", "?"),
+                qc_node_key,
+                number,
+                json.dumps(problems[:3], ensure_ascii=False),
+            )
+            continue
+        kadry = [
+            {**item, "номер": position} if isinstance(item, dict) else item
+            for position, item in enumerate(kadry, 1)
+        ]
+        await apply.write_scene_attrs(
+            session, project, scene["id"], {"кадры": kadry}
+        )
+        if scene_vo:
+            frame.voiceover_text = scene_vo
+            frame.duration_seconds = round(
+                sum(
+                    float(item.get("длительность") or 0)
+                    for item in kadry
+                    if isinstance(item, dict)
+                ),
+                2,
+            )
+        # Коммит после каждой отремонтированной сцены: иначе нода держит
+        # write-lock SQLite на все вызовы модели ремонтного прохода, и леджер
+        # не может записать llm_calls (тот же BUG-006, что в dialogues/shots).
+        await session.commit()
+        repaired.append(number)
+    if repaired:
+        await session.flush()
+    return repaired
+
+
+#: Коды про стык соседних сцен: это замечание раскадровке, не провал сцены.
+_CROSS_SCENE_CODES = frozenset({"R-SEM-CONTINUITY"})
+
+#: Счётчики последней сцены (их же возвращает ``_apply_style_to_kadry``).
+_STYLE_COUNTS: dict[str, dict[str, int]] = {}
+
+#: Предел тела промта кадра по валидатору: ``shot_rules_v2.PROMPT_BODY_MAX``.
+_CADR_BODY_MAX = 4000
+#: STYLE-блок кадра: предел 700 символов (R-STYLE-LEN), запас сцены — 200.
+#: В keys `frame_style.max_style_chars_v2` нет, поэтому считаем локально.
+_STYLE_BLOCK_LIMIT_V2 = 700
+_MIN_SCENE_BUDGET = 200
+#: Исходник `промт_старт` без STYLE-блока (в keys такой константы нет).
+_START_RAW_KEY = "промт_старт_без_стиля"
+
+
+def _max_style_chars_v2(limit: int | None = None) -> int:
+    """Предел STYLE-блока v2: 700 символов и не больше остатка бюджета."""
+    from app.services import frame_style
+
+    lim = frame_style.body_limit() if limit is None else int(limit)
+    return min(_STYLE_BLOCK_LIMIT_V2, max(0, lim - _MIN_SCENE_BUDGET))
+
+
+#: Сколько раз спрашивать модель по сцене, если ответ не разобрался как JSON.
+_SHOTS_ATTEMPTS = 3
+
+#: Сколько кадров со парой «старт/конец» допустимо в одной сцене. Пара — это
+#: вторая картинка, а не способ показать обычное движение: больше двух на
+#: сцену не бывает.
+_MAX_STARTEND_PER_SCENE = 2
+
+
+def _compact_style(style_text: str, limit: int) -> str:
+    """Сжать файл стиля до бюджета STYLE-блока (≤ ``limit``).
+
+    В файле стиля много пояснений для человека; картинке хватает первых
+    абзацев: режем по границе предложения, чтобы блок остался читаемым и
+    проходил ``R-STYLE-LEN``. Если файл уже короткий — не трогаем.
+    """
+    text = " ".join(str(style_text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    for separator in (". ", "! ", "? ", "; "):
+        position = cut.rfind(separator)
+        if position > limit // 2:
+            return cut[: position + 1]
+    return cut.rstrip()
+
+
+def _apply_style_to_kadry(
+    frame_style: Any,
+    frame: Any,
+    style_text: str,
+    style_name: str,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Дописать STYLE-блок в кадры одной сцены-``Frame`` и сохранить в ``attrs``.
+
+    Мастер K1 идёт штатным ``apply_style_to_frames``: он берёт сцену из
+    ``промт_картинки``, кладёт исходник в ``промт_без_стиля``, пишет ``промт`` и
+    ``image_prompt`` по переданному бюджету — режется сцена по предложению,
+    стиль никогда.
+
+    Дети (``промт_старт``/``промт_конец``) в план-группе не отдельные ``Frame``,
+    а строки ``attrs["кадры"]``, поэтому штатный
+    ``apply_style_to_child_prompts`` их не видит. Дописываем их сами тем же
+    публичным ``compose_styled_prompt`` и с тем же бюджетом; исходник — в
+    ``промт_*_без_стиля``, повтор идемпотентен.
+
+    ``limit`` = тело промта (4000 по валидатору) + длина сжатого STYLE-блока,
+    чтобы итог не вылетал за ``R-PROMPT-LEN``.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    report = frame_style.apply_style_to_frames(
+        [frame],
+        style_name=style_name,
+        style_text=style_text,
+        limit=limit,
+        set_ready_status=False,
+    )
+    raw = report.get("counts") or {}
+    kadry = _frames_of(frame)
+    limit = frame_style.body_limit() if limit is None else int(limit)
+    style_clean = str(style_text or "").strip()
+    master = frame_style.master_index(kadry)
+    children = 0
+    trimmed_children = 0
+    for index, entry in enumerate(kadry):
+        if index == master:
+            continue
+        styled_any = False
+        for key, raw_key in (
+            (frame_style.START_PROMPT_KEY, _START_RAW_KEY),
+            ("промт_конец", "промт_конец_без_стиля"),
+        ):
+            base = str(entry.get(raw_key) or "").strip() or str(
+                frame_style.strip_style(entry.get(key)) or ""
+            ).strip()
+            if not base:
+                continue
+            final, _scene_cut, trimmed = frame_style.compose_styled_prompt(
+                base, style_clean, limit=limit
+            )
+            if not final or final == str(entry.get(key) or ""):
+                continue
+            entry[key] = final
+            entry[raw_key] = base
+            styled_any = True
+            if trimmed:
+                trimmed_children += 1
+        if styled_any:
+            entry[frame_style.STYLE_NAME_KEY] = frame_style.clean_style_name(style_name)
+            children += 1
+    attrs = dict(frame.attrs or {})
+    attrs["кадры"] = kadry
+    frame.attrs = attrs
+    flag_modified(frame, "attrs")
+    counts = {
+        "shots": len(kadry),
+        "master": int(raw.get("image_prompt_written", 0) or 0),
+        "children": children,
+        "trimmed": int(raw.get("trimmed", 0) or 0) + trimmed_children,
+        "no_prompt": int(raw.get("no_prompt", 0) or 0),
+    }
+    _STYLE_COUNTS["last"] = counts
+    return counts
+
+
+def _style_text_from_slot(node_key: str, name: str, text: Any) -> str:
+    """Текст стиля из загруженного «своего промта».
+
+    Поле выбора стиля хранит имя файла, но текст лежит в библиотеке промтов как
+    ``<имя>.md`` (файл стиля в папке стилей при этом не создаётся). Если текст
+    слота не похож на стиль — это мастер-промт шага, и брать его нельзя.
+    """
+    from app.services import frame_style
+    from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE
+    from app.services.prompt_library import prompt_path
+
+    candidates: list[str] = [str(text or "").strip()]
+    try:
+        path = prompt_path(EXCEL_GPT_STEP_CODE, name)
+        if path.is_file():
+            candidates.append(path.read_text(encoding="utf-8", errors="replace").strip())
+    except Exception:  # noqa: BLE001 — путь промта не критичен, важен текст слота
+        logger.debug("[%s] не удалось прочитать промт %r", node_key, name)
+    for item in candidates:
+        if _looks_like_style(item):
+            return frame_style.normalize_style_text(item)
+    logger.warning(
+        "[%s] стиль %r не найден как файл, а текст слота не похож на стиль — "
+        "беру стиль по умолчанию",
+        node_key,
+        name,
+    )
+    return ""
+
+
+def _looks_like_style(text: str) -> bool:
+    """Стиль — короткий визуальный блок (до 1500 символов), не мастер-промт шага."""
+    clean = (text or "").strip()
+    if len(clean) < 40 or len(clean) > 1500:
+        return False
+    # Мастер-промты шагов начинаются с постановки роли и содержат разделы «##».
+    return "## " not in clean and "Ты " not in clean[:200]
+
+
+def _resolve_style(project: Any, node_key: str) -> tuple[str, str]:
+    """(имя стиля, текст стиля) для ноды: файл стилей или загруженный текст."""
+    from app.services import frame_style
+    from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE
+    from app.services.prompt_library import read_resolved_project_prompt
+
+    try:
+        variant, _path, _text, prompt_source = read_resolved_project_prompt(
+            project, EXCEL_GPT_STEP_CODE, node_key=node_key, slot_id="main"
+        )
+    except FileNotFoundError:
+        variant, _text, prompt_source = "", "", "missing"
+    style_name = ""
+    style_text = ""
+    # Стиль выбирают двумя способами: файлом из папки стилей (имя файла) или
+    # загрузкой текста в «свой промт» — тогда в поле стоит имя загруженного
+    # файла, а файла стиля с таким именем нет. Второй способ законный: текст
+    # приходит содержимым слота, и брать его надо оттуда, а не искать файл.
+    candidate = frame_style.clean_style_name(variant)
+    is_default_variant = candidate in ("", "default", "по умолчанию")
+    if not is_default_variant:
+        path = frame_style.style_path(candidate)
+        if path is None:
+            path = next(
+                (
+                    item
+                    for item in sorted(frame_style.styles_dir().glob("*.md"))
+                    if item.stem == candidate and item.is_file()
+                ),
+                None,
+            )
+        if path is not None:
+            style_name = path.stem
+            style_text = frame_style.normalize_style_text(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
+        else:
+            style_name = candidate
+            style_text = _style_text_from_slot(node_key, candidate, _text)
+    if not style_text:
+        style_name = frame_style.DEFAULT_STYLE
+        style_text = frame_style.load_style_text(style_name)
+    logger.info(
+        "[%s] стиль: %s (источник %s), символов %s",
+        node_key,
+        style_name,
+        prompt_source,
+        len(style_text),
+    )
+    return style_name, style_text
+
+
+async def _run_style(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 8: стиль (код, без GPT): STYLE-блок в поля кадров сцен ``attrs["кадры"]``.
+
+    Промтов на уровне сцены в группе нет: промты живут в кадрах (``промт_картинки``,
+    ``промт_старт``, ``промт_конец``), поэтому стиль идёт по кадрам каждой сцены:
+    мастеру K1 — штатным ``apply_style_to_frames``, детям — тем же
+    ``compose_styled_prompt`` (см. ``_apply_style_to_kadry``). Реплики не
+    трогаются: стиль касается промтов, а не текста.
+    """
+    apply = _apply()
+
+    from app.services import frame_style
+
+    style_name, style_text = _resolve_style(project, node_key)
+    # Промт кадра живёт в бюджете валидатора кадров: тело ≤ 4000 символов,
+    # STYLE-блок ≤ 700 (R-STYLE-LEN). Полный файл стиля (≈3500) не влезает,
+    # поэтому берём сжатый блок и считаем от него бюджет сцены.
+    style_text = _compact_style(
+        style_text, _max_style_chars_v2()
+    )
+    body_limit = _CADR_BODY_MAX + len(style_text)
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — нечего стилить"
+        )
+    totals: dict[str, int] = {}
+    per_scene: list[dict[str, Any]] = []
+    for frame in scenes:
+        kadry = _frames_of(frame)
+        if not kadry:
+            per_scene.append({"номер": int(frame.number or 0), "кадров": 0, "styled": 0})
+            continue
+        _apply_style_to_kadry(frame_style, frame, style_text, style_name, body_limit)
+        counts = _STYLE_COUNTS["last"]
+        for key, value in counts.items():
+            if isinstance(value, int):
+                totals[key] = totals.get(key, 0) + value
+        per_scene.append(
+            {
+                "номер": int(frame.number or 0),
+                "кадров": counts.get("shots", 0),
+                "мастер": counts.get("master", 0),
+                "дети": counts.get("children", 0),
+                "обрезано": counts.get("trimmed", 0),
+            }
+        )
+    await session.flush()
+    # Стиль мог раздуть промты: после записи проверяем кадры тем же
+    # механическим валидатором, что и нода шотов (R-PROMPT-LEN, R-STYLE-LEN).
+    style_block_len = len(style_text)
+    problems: list[str] = []
+    for frame in scenes:
+        problems.extend(
+            _gates().shots_gate_problems(
+                _frames_of(frame),
+                vo_mode=False,
+                style_block_len=style_block_len,
+            )
+        )
+    report = {
+        "style": style_name,
+        "style_chars": len(style_text),
+        "style_file": str(frame_style.style_path(style_name) or ""),
+        "counts": totals,
+        "сцены": per_scene,
+        "проблемы": problems[:12],
+        "project_id": getattr(project, "id", None),
+        "node_key": node_key,
+    }
+    path = apply.save_artifact(project, node_key, ARTIFACT_STYLE, report)
+    if not totals.get("master") and not totals.get("children"):
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: стиль {style_name} не лёг ни на "
+            "один кадр — нет кадров или нет промтов (R-STYLE) — смотри "
+            f"{path}"
+        )
+    if problems:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: после стиля кадры не проходят "
+            f"валидатор — {json.dumps(problems[:5], ensure_ascii=False)}"
+        )
+    return NodeResult(
+        reply_text=(
+            f"стиль {style_name}: кадров {totals.get('shots', 0)}, "
+            f"мастеров {totals.get('master', 0)}, детей {totals.get('children', 0)}, "
+            f"обрезано {totals.get('trimmed', 0)}"
+        ),
+        output_paths=[path],
+    )
+
+
+async def _run_report(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг 9: HTML-отчёт сцен и кадров (код, без GPT).
+
+    Свой шаблон группы: общий ``shots_report`` описывает старую цепочку с
+    закадром, а здесь закадра нет вовсе — только план, сцены, речь, фоны и кадры.
+    """
+    from app.services.plan_cinema import report as plan_report
+
+    apply = _apply()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(f"#{getattr(project, 'id', '?')} {node_key}: нет сцен для отчёта")
+    characters = await apply.load_characters(session, project)
+    backgrounds = await apply.load_backgrounds(session, project)
+    path = plan_report.write_report(
+        project, scenes=scenes, characters=characters, backgrounds=backgrounds
+    )
+    shots_total = sum(len(_frames_of(frame)) for frame in scenes)
+    path_artifact = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_REPORT,
+        {
+            "отчёт": str(path),
+            "сцен": len(scenes),
+            "кадров": shots_total,
+            "персонажей": len(characters),
+            "фонов": len(backgrounds),
+        },
+    )
+    return NodeResult(
+        reply_text=f"отчёт: сцен {len(scenes)}, кадров {shots_total}, файл {path.name}",
+        output_paths=[path, path_artifact],
+    )
+
+
+_HANDLERS = {
+    "scenes": _run_scenes,
+    "cast": _run_cast,
+    "skeleton": _run_skeleton,
+    "dialogues": _run_dialogues,
+    "shots": _run_shots,
+    "backgrounds": _run_backgrounds,
+    "qc": _run_qc,
+    "style": _run_style,
+    "report": _run_report,
+}
+
+
+
+async def _finish_node(
+    session: Any,
+    project: Any,
+    *,
+    spec: PlanCinemaNodeSpec,
+    node_key: str,
+    slot_idx: int,
+    result: NodeResult,
+) -> None:
+    """Отметить ноду завершённой так же, как это делают старые код-ноды."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.services.gpt_operator import save_operator_result
+    from app.services.run_sync import complete_excel_gpt_node_by_key
+
+    save_operator_result(
+        project,
+        node_key,
+        input_paths=[],
+        output_paths=result.output_paths,
+        reply_text=result.reply_text,
+        gate_status=result.gate_status,
+    )
+    meta = dict(project.meta or {})
+    done_keys = [str(key) for key in (meta.get("excel_gpt_completed_keys") or [])]
+    if node_key not in done_keys:
+        done_keys.append(node_key)
+        meta["excel_gpt_completed_keys"] = done_keys
+    completed = [int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()]
+    if slot_idx not in completed:
+        completed.append(slot_idx)
+        completed.sort()
+        meta["enrich_completed_slots"] = completed
+    meta.pop("active_excel_gpt_node_key", None)
+    if result.meta_patch:
+        meta.update(result.meta_patch)
+    project.meta = meta
+    flag_modified(project, "meta")
+    await session.flush()
+    try:
+        await complete_excel_gpt_node_by_key(
+            session, project, node_key, enrich_slot=slot_idx
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "[#%s] %s: complete_excel_gpt_node_by_key failed",
+            getattr(project, "id", "?"),
+            node_key,
+        )
+
+
+async def run_plan_cinema_node(
+    session: Any,
+    project: Any,
+    *,
+    node_key: str,
+    slot_idx: int,
+) -> None:
+    """Исполнить ноду группы ``plan_cinema`` по её ``node_key``.
+
+    Хук раннера вызывает это после проверки ``is_plan_cinema_node``. Нода
+    проверяет активацию (``meta.source_mode == "plan"``, нет смеси групп),
+    диспетчеризует обработчик, отмечает завершение.
+    """
+    spec = plan_cinema_node_spec(node_key)
+    if spec is None:
+        raise RuntimeError(
+            f"run_plan_cinema_node: {node_key!r} не нода группы {GROUP_ID}"
+        )
+    meta = dict(project.meta or {})
+    assert_plan_cinema_activation(meta, node_key)
+    handler = _HANDLERS[spec.kind]
+    logger.info(
+        "[#%s] plan_cinema %s (%s): старт",
+        getattr(project, "id", "?"),
+        node_key,
+        spec.label,
+    )
+    result = await handler(session, project, node_key=node_key)
+    await _finish_node(
+        session,
+        project,
+        spec=spec,
+        node_key=node_key,
+        slot_idx=slot_idx,
+        result=result,
+    )
+    logger.info(
+        "[#%s] plan_cinema %s: %s",
+        getattr(project, "id", "?"),
+        node_key,
+        result.reply_text,
+    )
+
+
+__all__ = [
+    "ARTIFACT_QC",
+    "ARTIFACT_REPORT",
+    "ARTIFACT_SCENES",
+    "ARTIFACT_SHOTS",
+    "ARTIFACT_STYLE",
+    "GROUP_ID",
+    "LEGACY_SUFFIXES",
+    "MIN_SCENES",
+    "NODE_SPECS",
+    "NodeResult",
+    "PLAN_MODE",
+    "PlanCinemaNodeSpec",
+    "SOURCE_MODE_KEY",
+    "assert_plan_cinema_activation",
+    "is_plan_cinema_node",
+    "mixed_group_conflict_error",
+    "plan_cinema_node_ids",
+    "plan_cinema_node_kind",
+    "plan_cinema_node_spec",
+    "plan_cinema_node_specs",
+    "run_plan_cinema_node",
+    "source_mode",
+]

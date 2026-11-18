@@ -29,10 +29,13 @@ _MAX_ASSEMBLE_ATTEMPTS = 2
 
 
 async def _load_frames(session: AsyncSession, project: Project) -> list[Frame]:
+    """Живые кадры проекта; архив прежнего разбиения по плану не берём."""
+    from app.services.db_v2 import live_frames
+
     result = await session.execute(
         select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
     )
-    return list(result.scalars().all())
+    return live_frames(list(result.scalars().all()))
 
 
 def _sd_node_ids_by_marker(project: Project) -> dict[str, str]:

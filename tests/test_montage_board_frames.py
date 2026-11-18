@@ -55,7 +55,7 @@ def _ordered(frames: list[Frame]) -> list[Frame]:
 
 
 @pytest.mark.asyncio
-async def test_insert_between_keeps_neighbor_numbers(
+async def test_insert_between_renumbers_frames(
     session: AsyncSession, project: Project
 ) -> None:
     session.add(project)
@@ -69,7 +69,8 @@ async def test_insert_between_keeps_neighbor_numbers(
     )
     await session.commit()
     assert (inserted.voiceover_text or "") == "между"
-    assert inserted.number == 3
+    # number = порядок: вставка между #1 и #2 даёт #2, сосед сдвигается на #3.
+    assert inserted.number == 2
 
     rows = _ordered(
         list(
@@ -81,7 +82,7 @@ async def test_insert_between_keeps_neighbor_numbers(
         )
     )
     assert [fr.voiceover_text for fr in rows] == ["первый", "между", "второй"]
-    assert [fr.number for fr in rows] == [1, 3, 2]
+    assert [fr.number for fr in rows] == [1, 2, 3]
     texts = (
         await session.execute(
             select(FrameText).where(
@@ -119,7 +120,7 @@ async def test_insert_between_when_sort_key_missing(
         )
     )
     assert [fr.voiceover_text for fr in rows] == ["первый", "между", "второй"]
-    assert inserted.number == 3
+    assert inserted.number == 2
 
 
 @pytest.mark.asyncio
@@ -147,7 +148,7 @@ async def test_insert_child_stays_in_same_scene(
             ).scalars()
         )
     )
-    assert [fr.number for fr in rows] == [1, 3, 2]
+    assert [fr.number for fr in rows] == [1, 2, 3]
     assert is_shot_child(kid)
     assert rows[1].id == kid.id
     assert rows[2].voiceover_text == "дальше"
@@ -221,7 +222,8 @@ async def test_delete_parent_keeps_children(
             )
         ).scalars()
     )
-    assert [fr.number for fr in left] == [2, 3]
+    # После удаления номера снова сплошные 1..N (дыр нет).
+    assert [fr.number for fr in left] == [1, 2]
     assert left[0].voiceover_text == "кусок"
     assert left[1].voiceover_text == "дальше"
 
@@ -230,7 +232,7 @@ async def test_delete_parent_keeps_children(
 async def test_insert_does_not_steal_neighbor_image(
     session: AsyncSession, project: Project
 ) -> None:
-    """Новый кадр пустой: PNG соседа остаются на соседе, номер не сдвигается."""
+    """Новый кадр пустой: PNG соседа переезжает вместе с его номером, а не крадётся."""
     from app.services.montage_board import build_montage_board
 
     session.add(project)
@@ -248,9 +250,9 @@ async def test_insert_does_not_steal_neighbor_image(
     )
     await session.commit()
 
-    assert kid.number == 3
+    assert kid.number == 2
     live_b = await session.get(Frame, b.id)
-    assert live_b is not None and live_b.number == 2
+    assert live_b is not None and live_b.number == 3
 
     board = await build_montage_board(session, project)
     ordered = board["frames"]
@@ -259,8 +261,11 @@ async def test_insert_does_not_steal_neighbor_image(
     b_row = ordered[2]
     assert not kid_row["image_shot1_url"]
     assert not (kid_row.get("image_prompt_shot1") or "").strip()
+    # Номер кадра сдвинулся с #2 на #3 — файл PNG переехал вместе с кадром.
+    assert (scenes / "frame_002_b.png").exists() is False
+    assert (scenes / "frame_003_b.png").exists()
     assert b_row["image_shot1_url"]
-    assert "frame_002" in (b_row["image_shot1_url"] or "")
+    assert "frame_003" in (b_row["image_shot1_url"] or "")
 
 
 @pytest.mark.asyncio
@@ -333,7 +338,8 @@ async def test_delete_does_not_resurrect_from_disk_png(
     assert not png.exists()
     assert await ensure_frames_from_disk_media(session, project) == []
     board = await build_montage_board(session, project)
-    assert [row["number"] for row in board["frames"]] == [20]
+    # После удаления дыр в нумерации не остаётся: единственный кадр → #1.
+    assert [row["number"] for row in board["frames"]] == [1]
 
 
 @pytest.mark.asyncio
@@ -370,3 +376,95 @@ async def test_delete_other_frame_keeps_pending_ops(
     ops = montage_meta(project).get("pending_ops") or []
     assert [op["frame_number"] for op in ops] == [1]
     assert ops[0]["action"] == "оставить"
+
+
+@pytest.mark.asyncio
+async def test_insert_at_end_appends_last_with_step(
+    session: AsyncSession, project: Project
+) -> None:
+    """Кадр «в конец» встаёт последним: sort_key = max+10, number = max+1."""
+    session.add(project)
+    a = _vo_parent(project.id, 1, "aa" * 12, "первый")
+    b = _vo_parent(project.id, 2, "bb" * 12, "второй")
+    c = _vo_parent(project.id, 3, "cc" * 12, "третий")
+    session.add_all([a, b, c])
+    await session.flush()
+
+    inserted = await insert_montage_frame(
+        session, project, after_frame_id=c.id, voiceover="хвост"
+    )
+    await session.commit()
+    rows = _ordered(
+        list(
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id)
+                )
+            ).scalars()
+        )
+    )
+    assert [fr.voiceover_text for fr in rows] == ["первый", "второй", "третий", "хвост"]
+    assert [fr.number for fr in rows] == [1, 2, 3, 4]
+    assert inserted.sort_key == 40.0
+    assert inserted.number == 4
+
+
+@pytest.mark.asyncio
+async def test_insert_at_start_becomes_first(session: AsyncSession, project: Project) -> None:
+    session.add(project)
+    a = _vo_parent(project.id, 1, "aa" * 12, "первый")
+    b = _vo_parent(project.id, 2, "bb" * 12, "второй")
+    session.add_all([a, b])
+    await session.flush()
+
+    inserted = await insert_montage_frame(
+        session, project, after_frame_id=None, voiceover="голова"
+    )
+    await session.commit()
+    rows = _ordered(
+        list(
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id)
+                )
+            ).scalars()
+        )
+    )
+    assert [fr.voiceover_text for fr in rows] == ["голова", "первый", "второй"]
+    assert [fr.number for fr in rows] == [1, 2, 3]
+    assert inserted.sort_key < 10.0
+
+
+@pytest.mark.asyncio
+async def test_insert_between_slipped_keys_normalizes(
+    session: AsyncSession, project: Project
+) -> None:
+    """Слипшиеся sort_key (12.5 и 15) не мешают вставке: лента нормализуется шагом 10."""
+    session.add(project)
+    a = _vo_parent(project.id, 1, "aa" * 12, "первый")
+    b = _vo_parent(project.id, 2, "bb" * 12, "второй")
+    c = _vo_parent(project.id, 3, "cc" * 12, "третий")
+    # Ключи уже поедены дробными вставками: зазор меньше 0.5 — делить нечего.
+    a.sort_key, b.sort_key, c.sort_key = 10.0, 10.2, 10.4
+    session.add_all([a, b, c])
+    await session.flush()
+
+    await insert_montage_frame(
+        session, project, after_frame_id=a.id, voiceover="между"
+    )
+    await session.commit()
+    rows = _ordered(
+        list(
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id)
+                )
+            ).scalars()
+        )
+    )
+    assert [fr.voiceover_text for fr in rows] == ["первый", "между", "второй", "третий"]
+    keys = [float(fr.sort_key or 0.0) for fr in rows]
+    assert len(set(keys)) == 4 and keys == sorted(keys)
+    # после нормализации ключи целые, новый — ровно между соседями
+    assert keys[0] == 10.0 and keys[1] == 15.0 and keys[2] == 20.0 and keys[3] == 30.0
+    assert [fr.number for fr in rows] == [1, 2, 3, 4]

@@ -17,6 +17,7 @@ import {
   Settings2,
   Upload,
   X,
+  Braces,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -50,6 +51,9 @@ import {
   type ExcelGptNodeConfig,
 } from "@/lib/excel-gpt-config";
 import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-panel";
+import { NodeLlmJsonPanel } from "@/components/canvas/node-llm-json-dialog";
+import { NodeResultTable, type NodeTableState } from "@/components/canvas/node-result-table";
+import { isLlmNodeType } from "@/lib/node-llm-json";
 import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
 import { Nii67CardPanel } from "@/components/canvas/nii67-card-panel";
 import { projectUsesNii67Script } from "@/lib/nii67";
@@ -128,6 +132,14 @@ export function NodeStudio({
   const NodeIcon = getNodeIcon(spec.iconKey);
 
   const [tab, setTab] = useState<StudioTab>(initialTab);
+  // Полный JSON ответа ЛЛМ — показывается внутри вкладки «Результат» по кнопке.
+  const [showJson, setShowJson] = useState(false);
+  // Таблица ответа ЛЛМ: пока она грузится или уже есть — прежний вид не показываем.
+  const [llmTableState, setLlmTableState] = useState<NodeTableState>("loading");
+  useEffect(() => {
+    setShowJson(false);
+    setLlmTableState("loading");
+  }, [nodeKey]);
   const [catalogMode, setCatalogMode] = useState(true);
   useEffect(() => {
     if (open) setCatalogMode(initialTab !== "settings");
@@ -412,7 +424,9 @@ export function NodeStudio({
       // excel_gpt: SSoT — meta.prompt_slot_variants[nodeKey]. Не пишем в
       // prompt_overrides["excel_gpt"], иначе все ноды «Работа с GPT» шлют
       // один и тот же последний выбранный файл.
-      if (isExcelGptNode(nodeType) && activeSlot.kind === "gpt") {
+      // «Фоны» берут стиль из этой же библиотеки, но оверрайд excel_gpt у них
+      // общий с нодой «Стиль» и трогать его нельзя — только свой слот ноды.
+      if ((isExcelGptNode(nodeType) && activeSlot.kind === "gpt") || nodeType === "backgrounds") {
         await api.patchProject(projectId, { meta });
         return;
       }
@@ -833,6 +847,12 @@ export function NodeStudio({
         ["results", "Результат"],
       ] as const);
 
+  // «Результат» ЛЛМ-ноды: таблица заменяет прежний разбор, но если таблиц нет
+  // (пустой ответ) или запрос упал — показываем прежний вид как fallback.
+  const isLlmNode = isLlmNodeType(nodeType) && projectId != null;
+  const showLegacyResults =
+    !isLlmNode || llmTableState === "empty" || llmTableState === "error";
+
   return createPortal(
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
@@ -847,8 +867,13 @@ export function NodeStudio({
     >
       <aside
         className={cn(
-          "vp-menu nowheel nopan relative isolate flex max-h-[88vh] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl",
-          nodeType === "topic" ? "h-auto w-[min(680px,96vw)]" : "h-[720px] w-[min(880px,96vw)]",
+          "vp-menu nowheel nopan relative isolate flex max-h-[calc(100vh-2rem)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl",
+          nodeType === "topic"
+            ? "h-auto w-[min(680px,96vw)]"
+            : cn(
+                "w-[min(880px,96vw)]",
+                tab === "results" && isLlmNodeType(nodeType) ? "h-auto" : "h-[720px]",
+              ),
         )}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -914,7 +939,7 @@ export function NodeStudio({
         </div>
         )}
         {nodeType === "topic" ? (
-          <div className="nodrag flex flex-col gap-4 p-5 sm:p-6 overflow-y-auto max-h-[calc(88vh-80px)]">
+          <div className="nodrag flex flex-col gap-4 p-5 sm:p-6 overflow-y-auto max-h-[calc(100vh-5rem)]">
             {nodeDisabled ? (
               <div className="flex flex-col gap-2 rounded-[10px] border border-amber-400/30 px-4 py-3">
                 <p className="text-[13px] text-amber-300">Нода отключена в графе — шаг не запустится.</p>
@@ -1017,7 +1042,48 @@ export function NodeStudio({
             ) : null}
           </div>
         ) : inTab === "results" ? (
-          <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
+          <div className="nodrag flex min-h-0 flex-1 flex-col gap-2 p-3">
+            {projectId != null && nodeKey && isLlmNodeType(nodeType) ? (
+              <div className="flex shrink-0 items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowJson((prev) => !prev)}
+                  title="Показать полный JSON ответа"
+                  className={cn(
+                    "flex h-7 items-center gap-1.5 rounded border px-2.5 text-[11px] font-medium transition",
+                    showJson
+                      ? "border-primary/60 bg-primary/20 text-primary"
+                      : "border-white/15 bg-white/[0.04] text-white/85 hover:border-white/50 hover:text-white",
+                  )}
+                >
+                  <Braces className="h-3.5 w-3.5" />
+                  JSON
+                </button>
+              </div>
+            ) : null}
+            {showJson && projectId != null && nodeKey && isLlmNodeType(nodeType) ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <NodeLlmJsonPanel
+                  projectId={projectId}
+                  nodeKey={nodeKey}
+                  nodeType={nodeType}
+                  active={open && tab === "results" && showJson}
+                  snapshot={inlineResult}
+                />
+              </div>
+            ) : (
+            <>
+            {isLlmNodeType(nodeType) && projectId != null ? (
+              <NodeResultTable
+                projectId={projectId}
+                nodeKey={nodeKey}
+                nodeType={nodeType}
+                active={tab === "results"}
+                onState={setLlmTableState}
+              />
+            ) : null}
+            {showLegacyResults ? (
+            <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
                   {(nodeType === "hero" || nodeType === "items") && projectId ? (
@@ -1094,6 +1160,10 @@ export function NodeStudio({
                   )}
                 </div>
             </div>
+            </div>
+            ) : null}
+            </>
+            )}
           </div>
         ) : (
           <div className="nodrag flex min-h-0 flex-auto flex-col overflow-hidden p-3">

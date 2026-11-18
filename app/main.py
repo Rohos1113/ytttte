@@ -57,10 +57,10 @@ async def _backfill_from_disk() -> None:
     """
     from pathlib import Path
 
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
     from app.db import session_scope
-    from app.models import Frame, Project, ProjectStatus
+    from app.models import Project, ProjectStatus
     from app.services.ensure_frames_from_disk import (
         discover_frame_numbers_on_disk,
         ensure_frames_from_disk_media,
@@ -107,9 +107,9 @@ async def _backfill_from_disk() -> None:
                 # keep_fields=True — НЕ перезаписываем непустые
                 # general_plan / script_text. Бэкфилл только заполняет
                 # пустоты.
-                frame_count = (
-                    await s.execute(select(func.count(Frame.id)).where(Frame.project_id == p.id))
-                ).scalar_one() or 0
+                from app.services.db_v2 import count_live_frames
+
+                frame_count = await count_live_frames(s, p.id)
 
                 # Excel → DB только явный Import (excel_io). Startup auto-sync выключен.
                 if proj_xlsx.exists() and frame_count <= 0:

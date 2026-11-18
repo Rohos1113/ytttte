@@ -42,6 +42,8 @@ class ProjectStatus(str, enum.Enum):
     # ───── Шаг 4: «Объекты» — sub-menu внутри ────
     generating_hero = "generating_hero"  # шаг 4a: персонажи (former hero)
     generating_items = "generating_items"  # шаг 4b: предметы (new)
+    # Шаг 4c: фоны — PNG локаций из карточек «Фоны» (перед «Картинками»).
+    generating_backgrounds = "generating_backgrounds"
     # ───── Шаги 5-N: «Доп работа с EXCEL» (xlsx round-trip), N до 5 ────
     enriching_1 = "enriching_1"
     enriching_2 = "enriching_2"
@@ -68,6 +70,7 @@ class ProjectStatus(str, enum.Enum):
     scene_design_ready = "scene_design_ready"  # сцены собраны агентами
     hero_ready = "hero_ready"  # персонажи готовы
     items_ready = "items_ready"  # предметы готовы (new)
+    backgrounds_ready = "backgrounds_ready"  # PNG фонов готовы
     enrich_1_ready = "enrich_1_ready"
     enrich_2_ready = "enrich_2_ready"
     enrich_3_ready = "enrich_3_ready"
@@ -102,6 +105,7 @@ class FrameStatus(str, enum.Enum):
 class ArtifactKind(str, enum.Enum):
     hero_reference = "hero_reference"
     item_reference = "item_reference"  # реф-картинка предмета
+    background_reference = "background_reference"  # PNG фона-локации (f0N)
     scene_image = "scene_image"
     scene_video = "scene_video"
     music = "music"

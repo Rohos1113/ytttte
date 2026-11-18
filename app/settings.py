@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.project_root import find_project_root, resolve_project_path
@@ -137,15 +137,32 @@ class Settings(BaseSettings):
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
     vibecode_base_url: str = Field("https://vibecode.moe/v1", alias="VIBECODE_BASE_URL")
 
-    # 52pay.com — шлюз текстовых LLM и видео Seedance
+    # 52pay.com — шлюз текстовых LLM и видео Seedance.
+    # Имена ключей встречаются в двух видах (PAY52_GPT_KEY и PAY52_GPT_API_KEY):
+    # второй — как в панели 52pay и в .env раннеров. Без второго имени ключ
+    # молча не читается, и текст уходит в stub вместо модели.
     pay52_base_url: str = Field("https://api.52pay.com/v1", alias="PAY52_BASE_URL")
-    pay52_glm_key: str = Field("", alias="PAY52_GLM_KEY")
-    pay52_claude_low_key: str = Field("", alias="PAY52_CLAUDE_LOW_KEY")
-    pay52_claude_high_key: str = Field("", alias="PAY52_CLAUDE_HIGH_KEY")
-    pay52_gpt_key: str = Field("", alias="PAY52_GPT_KEY")
-    pay52_deepseek_key: str = Field("", alias="PAY52_DEEPSEEK_KEY")
-    pay52_kimi_key: str = Field("", alias="PAY52_KIMI_KEY")
-    pay52_gemini_key: str = Field("", alias="PAY52_GEMINI_KEY")
+    pay52_glm_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_GLM_KEY", "PAY52_GLM_API_KEY")
+    )
+    pay52_claude_low_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_CLAUDE_LOW_KEY", "PAY52_CLAUDE_LOW_API_KEY")
+    )
+    pay52_claude_high_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_CLAUDE_HIGH_KEY", "PAY52_CLAUDE_HIGH_API_KEY")
+    )
+    pay52_gpt_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_GPT_KEY", "PAY52_GPT_API_KEY")
+    )
+    pay52_deepseek_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_DEEPSEEK_KEY", "PAY52_DEEPSEEK_API_KEY")
+    )
+    pay52_kimi_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_KIMI_KEY", "PAY52_KIMI_API_KEY")
+    )
+    pay52_gemini_key: str = Field(
+        "", validation_alias=AliasChoices("PAY52_GEMINI_KEY", "PAY52_GEMINI_API_KEY")
+    )
     pay52_seedream_key: str = Field("", alias="PAY52_SEEDREAM_KEY")
     pay52_banana_key: str = Field("", alias="PAY52_BANANA_KEY")
     pay52_gpt_image_key: str = Field("", alias="PAY52_GPT_IMAGE_KEY")

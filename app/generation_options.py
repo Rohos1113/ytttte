@@ -237,6 +237,10 @@ VIDEO_RESOLUTIONS: list[OptionChoice] = [
 PROVIDER_REF_SLOTS: dict[str, int] = {
     "outsee": 2,
     "minimax": 1,
+    # pay52 (gpt-image-2, /images/edits с image[]): проверено живым
+    # запросом — 3 референса проходят. Слот нужен, чтобы в кадр влезали
+    # фон + 2 персонажа.
+    "pay52": 3,
 }
 
 #: Сколько слотов брать, если провайдер незнаком. Один — консервативно:

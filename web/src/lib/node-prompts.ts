@@ -99,6 +99,18 @@ const BASE: Record<string, NodePromptSlot[]> = {
   items: [
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },
   ],
+  // «Фоны» рисуют PNG локаций по карточкам pk_backgrounds и подмешивают
+  // STYLE-блок. Своего мастер-промта у ноды нет, стиль выбирается из той же
+  // библиотеки, что у ноды «Стиль» — слот живёт в meta.prompt_slot_variants.
+  backgrounds: [
+    {
+      id: "style",
+      title: "Стиль фонов",
+      kind: "gpt",
+      stepCode: "excel_gpt",
+      description: "STYLE-блок для фонов: тот же список, из которого выбирает нода «Стиль»",
+    },
+  ],
   excel_gpt: [
     { id: "main", title: "Промт режиссера", kind: "gpt", stepCode: "excel_gpt" },
   ],

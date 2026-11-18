@@ -36,6 +36,11 @@ from app.models import (
 
 _SORT_STEP = 10.0
 
+#: Минимальный зазор между соседними ключами, при котором дробная вставка
+#: (среднее) даёт стабильное место. Меньше — ключи слипаются, и после десятка
+#: вставок порядок ленты перестаёт совпадать с тем, куда жал пользователь.
+_MIN_SORT_GAP = 0.5
+
 _FRAME_V2_COLS: list[tuple[str, str]] = [
     ("uuid", "VARCHAR(64)"),
     ("sort_key", "FLOAT"),
@@ -315,6 +320,35 @@ async def _fill_missing_sort_keys(session: AsyncSession, frames: list[Frame]) ->
     await session.flush()
 
 
+async def normalize_live_sort_keys(session: AsyncSession, project: Project) -> list[Frame]:
+    """Переставить sort_key живых кадров целыми шагами (10, 20, 30, …).
+
+    Дробные ключи (15, 12.5, 12.25, …) копятся и лента начинает показывать
+    порядок не так, как пользователь добавлял кадры. Нормализация сохраняет
+    текущий порядок и возвращает предсказуемые зазоры под вставки.
+    """
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars()
+        )
+        if not frame_is_archived(fr)
+    ]
+    frames.sort(
+        key=lambda fr: (float(fr.sort_key or 0.0), int(fr.number or 0), int(fr.id or 0))
+    )
+    for i, fr in enumerate(frames, start=1):
+        fr.sort_key = float(i) * _SORT_STEP
+    await session.flush()
+    logger.info(
+        "[#{}] normalize sort_key: {} живых кадров шагом {}",
+        project.id,
+        len(frames),
+        _SORT_STEP,
+    )
+    return frames
+
+
 def sort_key_between(before: float | None, after: float | None) -> float:
     """Дробный ключ между соседями; края — с шагом _SORT_STEP."""
     if before is None and after is None:
@@ -470,17 +504,37 @@ async def insert_frame_after(
     before_key: float | None = None
     after_key: float | None = None
     want = None if after_frame_id is None else int(after_frame_id)
-    if want is None:
-        after_key = float(cast(float, frames[0].sort_key)) if frames else None
-    else:
+
+    def _locate() -> None:
+        nonlocal before_key, after_key
+        before_key = None
+        after_key = None
+        if want is None:
+            after_key = float(cast(float, frames[0].sort_key)) if frames else None
+            return
         for i, fr in enumerate(frames):
             if int(fr.id) == want:
                 before_key = float(fr.sort_key) if fr.sort_key is not None else None
                 nxt = frames[i + 1] if i + 1 < len(frames) else None
-                after_key = float(nxt.sort_key) if nxt is not None and nxt.sort_key is not None else None
-                break
-        else:
-            raise ValueError(f"frame {after_frame_id} не найден в проекте {project.id}")
+                after_key = (
+                    float(nxt.sort_key)
+                    if nxt is not None and nxt.sort_key is not None
+                    else None
+                )
+                return
+        raise ValueError(f"frame {after_frame_id} не найден в проекте {project.id}")
+
+    _locate()
+    if (
+        before_key is not None
+        and after_key is not None
+        and float(after_key) - float(before_key) < _MIN_SORT_GAP
+    ):
+        # Соседи слиплись (ключи 15 и 12.5 уже некуда делить): сначала
+        # нормализуем ленту шагом 10, потом вставляем между соседями заново.
+        frames = await normalize_live_sort_keys(session, project)
+        frames.sort(key=lambda fr: (float(fr.sort_key or 0.0), int(fr.number or 0)))
+        _locate()
 
     key = sort_key_between(before_key, after_key)
     if scene_id is None and want is not None:
@@ -761,8 +815,19 @@ async def project_graph(session: AsyncSession, project: Project) -> dict[str, An
 
 ARCHIVE_NUMBER_FROM = 1_000_000
 
+#: Источник архивной ячейки прежнего разбиения по плану
+#: (``app/services/plan_cinema/nodes.py::_ensure_scene_cells``). Такие кадры
+#: живут с номерами ``100000 + id``, то есть НИЖЕ ``ARCHIVE_NUMBER_FROM``,
+#: поэтому номером их не отличить — смотрим attrs.
+PK_ARCHIVED_SOURCE = "pk_archived"
+
 
 def frame_is_archived(frame: Any) -> bool:
+    """Архивная ячейка: прежнее разбиение по плану или парковочный номер.
+
+    Не путать с кадром, помеченным пользователем в корзину (``attrs["удалён"]``
+    без ``источник == "pk_archived"``) — корзина остаётся видимой на доске.
+    """
     if frame is None:
         return False
     if isinstance(frame, dict):
@@ -773,6 +838,34 @@ def frame_is_archived(frame: Any) -> bool:
         attrs = getattr(frame, "attrs", None)
     if isinstance(number, (int, float)) and number >= ARCHIVE_NUMBER_FROM:
         return True
-    if isinstance(attrs, dict) and attrs.get("archived"):
-        return True
+    if isinstance(attrs, dict):
+        if attrs.get("archived"):
+            return True
+        if str(attrs.get("источник") or "") == PK_ARCHIVED_SOURCE:
+            return True
     return False
+
+
+def live_frames(frames: list[Any]) -> list[Any]:
+    """Только живые кадры: архив прежнего разбиения по плану выкидываем."""
+    return [frame for frame in frames if not frame_is_archived(frame)]
+
+
+async def count_live_frames(
+    session: AsyncSession,
+    project_id: int,
+    *conditions: Any,
+) -> int:
+    """Сколько живых кадров у проекта (архив по плану не считаем).
+
+    Счётчики/статусы проекта и объём шага не должны видеть архивные ячейки:
+    иначе «кадров 54» при 22 живых и платная генерация считает лишнее.
+    """
+    rows = (
+        await session.execute(
+            select(Frame.number, Frame.attrs).where(Frame.project_id == project_id, *conditions)
+        )
+    ).all()
+    return sum(
+        1 for number, attrs in rows if not frame_is_archived({"number": number, "attrs": attrs})
+    )

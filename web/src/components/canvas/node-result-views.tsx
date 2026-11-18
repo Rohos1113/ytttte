@@ -63,6 +63,9 @@ export function NodeResultViewBody({
   if (nodeType === "items") {
     return <ItemResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} />;
   }
+  if (nodeType === "backgrounds") {
+    return <BackgroundsResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} />;
+  }
   switch (snapshot.viewMode) {
     case "director_plan":
     case "xlsx_general_plan":
@@ -1345,6 +1348,269 @@ function HeroResultsView({
 }
 
 /**
+ * Фоны: та же сетка и то же меню, что у персонажей — карточка 16:9 на локацию,
+ * код `f01` в углу, «Промт фона», «Перерисовать фон», «Загрузить свой PNG»,
+ * «Скачать», клик по картинке — во весь экран. Плитки «Добавить» нет: список
+ * локаций приходит из карточек ноды pk_backgrounds, а не заводится руками.
+ */
+function backgroundCodeFromItem(item: NodeResultItem, fallback: number): string {
+  const raw = `${item.filePath ?? ""} ${item.id ?? ""} ${item.previewUrl ?? ""}`;
+  const m = raw.match(/f(\d{1,3})\.png/i);
+  if (m) return `f${m[1].padStart(2, "0")}`;
+  return `#${fallback + 1}`;
+}
+
+function BackgroundsResultsView({
+  projectId,
+  nodeKey,
+  items,
+}: {
+  projectId: number;
+  nodeKey?: string | null;
+  items: NodeResultItem[];
+}) {
+  const qc = useQueryClient();
+  const styles = useQuery({
+    queryKey: ["background-styles", projectId],
+    queryFn: () => api.listBackgroundStyles(projectId),
+    refetchInterval: 30_000,
+  });
+  const cards = useMemo(
+    () => items.filter((item) => item.kind !== "text" && !item.id.startsWith("background_style")),
+    [items],
+  );
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [promptCode, setPromptCode] = useState<string | null>(null);
+  const bgPrompt = useQuery({
+    queryKey: ["bg-prompt", projectId, promptCode],
+    queryFn: () => api.getBackgroundPrompt(projectId, promptCode!),
+    enabled: Boolean(promptCode),
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+    qc.invalidateQueries({ queryKey: ["project", projectId] });
+    qc.invalidateQueries({ queryKey: ["background-styles", projectId] });
+  };
+
+  /** Перерисовка одной PNG: бэкенд рисует сразу и возвращает итоговый промт. */
+  const regen = useMutation({
+    mutationFn: (code: string) => api.regenerateBackground(projectId, code),
+    onSuccess: (data) => {
+      toast.success(`Фон ${data.code} перерисован`);
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const replace = useMutation({
+    mutationFn: ({ file, code }: { file: File; code: string }) =>
+      api.replaceBackgroundImage(projectId, file, code),
+    onSuccess: () => {
+      toast.success("PNG фона загружен");
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const styleName = styles.data?.style.name ?? "";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {cards.length ? `${cards.length} готово` : "фонов пока нет"}
+        </span>
+        {styleName ? (
+          <span
+            className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-white/60"
+            title={styles.data?.style.source ? `источник: ${styles.data.style.source}` : undefined}
+          >
+            стиль: {styleName}
+          </span>
+        ) : null}
+      </div>
+
+      {cards.length === 0 ? (
+        <p className="px-1 text-[13px] text-white/50">
+          Фоны ещё не сгенерированы — запусти шаг «Фоны» кнопкой ▶.
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3">
+        {cards.map((item, i) => {
+          const code = backgroundCodeFromItem(item, i);
+          const hasCode = !code.startsWith("#");
+          return (
+            <div
+              key={item.id || `bg-slot-${i}`}
+              className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 p-2"
+            >
+              <div
+                className={cn(
+                  "relative w-full overflow-hidden rounded-lg border bg-black/40",
+                  item.previewUrl ? "border-white/10" : "border-dashed border-white/15",
+                )}
+                style={item.previewUrl ? undefined : { aspectRatio: "16 / 9" }}
+              >
+                {item.previewUrl ? (
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer"
+                    title="Открыть на весь экран"
+                    onClick={() => setZoom(item.previewUrl ?? null)}
+                  >
+                    <img
+                      src={item.previewUrl}
+                      alt=""
+                      className="block h-auto w-full object-contain"
+                      loading="lazy"
+                    />
+                  </button>
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 select-none">
+                    <span className="text-[13px] uppercase tracking-[0.22em] text-white/30">empty</span>
+                    <span className="text-[10px] tracking-[0.12em] text-white/20">16:9</span>
+                  </div>
+                )}
+                <span
+                  className="pointer-events-none absolute right-1.5 top-1.5 z-[2] rounded bg-black/75 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
+                  title="Код фона"
+                >
+                  {code}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 flex-1 gap-1.5 text-[11px]"
+                  disabled={!hasCode}
+                  onClick={() => setPromptCode(hasCode ? code : null)}
+                >
+                  <ScrollText className="h-3.5 w-3.5" />
+                  Промт фона
+                </Button>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-primary/60 hover:text-white disabled:opacity-50"
+                  title="Перерисовать этот фон"
+                  disabled={!hasCode || regen.isPending}
+                  onClick={() => regen.mutate(code)}
+                >
+                  {regen.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </button>
+                <label
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-white/35 hover:text-white",
+                    (!hasCode || replace.isPending) && "pointer-events-none opacity-50",
+                  )}
+                  title="Загрузить свой PNG фона (перезапишет картинку локации)"
+                >
+                  {replace.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f && hasCode) replace.mutate({ file: f, code });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {item.downloadUrl || item.previewUrl ? (
+                  <a
+                    href={item.downloadUrl || item.previewUrl || "#"}
+                    download
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/50 hover:border-white/35 hover:text-white"
+                    title="Скачать"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {promptCode
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+              onClick={() => setPromptCode(null)}
+            >
+              <div
+                className="flex max-h-[88vh] w-[min(760px,94vw)] flex-col gap-3 overflow-y-auto rounded-xl border border-white/10 bg-[#0c0c0e] p-4 text-white"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-[15px] font-semibold">Промт фона {promptCode}</h4>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setPromptCode(null)}>
+                    ✕
+                  </Button>
+                </div>
+                {bgPrompt.isLoading ? (
+                  <div className="flex items-center gap-2 text-[13px] text-white/60">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Читаю промт…
+                  </div>
+                ) : bgPrompt.isError ? (
+                  <p className="text-[13px] text-rose-300">Промт не прочитался.</p>
+                ) : (
+                  <>
+                    <div className="text-[11.5px] text-white/50">
+                      стиль: {bgPrompt.data?.style || "—"} · символов: {bgPrompt.data?.final_prompt_chars ?? 0}
+                    </div>
+                    <Textarea
+                      className="nowheel min-h-[260px] font-mono text-[12px] leading-snug"
+                      value={bgPrompt.data?.final_prompt ?? ""}
+                      readOnly
+                      spellCheck={false}
+                    />
+                    <div className="text-[11px] text-white/40">
+                      Карточка локации + STYLE-блок — ровно это уходит в генерацию.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {zoom
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+              onClick={() => setZoom(null)}
+            >
+              <div
+                className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img src={zoom} alt="" className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" />
+                <div className="absolute right-2 top-2 flex items-center gap-2">
+                  <Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs" asChild>
+                    <a href={zoom} target="_blank" rel="noreferrer">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      В новой вкладке
+                    </a>
+                  </Button>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom(null)}>
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
  * Предметы: та же раскладка, что и у персонажей — сетка по 2 в ряд, рамка
  * 16:9 пока картинки нет, ID в углу, под картинкой кнопка «Характеристики
  * предмета» (раскрывает данные предмета), перегенерация, загрузка референса,
@@ -2165,18 +2431,6 @@ function ExcelGptResultView({
   nodeType?: string | null;
   snapshot: NodeResultSnapshot;
 }) {
-  const resolve = useQuery({
-    queryKey: ["gpt-operator-resolve", projectId, nodeKey],
-    queryFn: () => api.resolveGptOperator(projectId, nodeKey!),
-    enabled: Boolean(nodeKey),
-    staleTime: 5000,
-  });
-  const replyFromMeta = snapshot.items.find((i) => i.kind === "text")?.content?.trim();
-  const replyFromApi =
-    typeof resolve.data?.lastResult?.replyPreview === "string"
-      ? String(resolve.data.lastResult.replyPreview).trim()
-      : "";
-  const reply = replyFromMeta || replyFromApi;
   const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
@@ -2189,23 +2443,6 @@ function ExcelGptResultView({
       {xlsxItem ? (
         <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
       ) : null}
-      {resolve.isLoading && !reply ? (
-        <LoadingBlock />
-      ) : reply ? (
-        <div
-          tabIndex={0}
-          className="max-h-[520px] min-h-[140px] overflow-y-auto overflow-x-auto rounded-lg border border-white/10 bg-black/40 p-3.5 select-text outline-none focus:border-white/25 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent"
-        >
-          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90">
-            {reply}
-          </pre>
-        </div>
-      ) : (
-        <p className="py-4 text-sm text-muted-foreground">
-          Ответа GPT пока нет. Запустите ноду — после прогона здесь появится
-          текст из gpt_reply.txt.
-        </p>
-      )}
     </div>
   );
 }

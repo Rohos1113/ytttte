@@ -16,8 +16,14 @@ def http_image_primary() -> bool:
     """True — картинки идут по HTTP, браузерная сессия не нужна."""
     from app.bots.minimax import minimax_enabled
     from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
+    from app.bots.pay52_images import pay52_images_configured
 
-    return bool(minimax_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
+    return bool(
+        pay52_images_configured()
+        or minimax_enabled()
+        or outsee_api_enabled_for_image()
+        or outsee_api_configured()
+    )
 
 
 def http_video_primary() -> bool:

@@ -304,7 +304,11 @@ async def _primary_image_prompt_counts(session, project_id: int) -> tuple[int, i
     «промты готовы» смотрит на primary (shot_index=1), иначе recompute
     вечно видит fr_with < fr_total → enrich_1_ready → auto hero loop.
     """
-    rows = (await session.execute(select(Frame).where(Frame.project_id == project_id))).scalars().all()
+    from app.services.db_v2 import live_frames
+
+    rows = live_frames(
+        (await session.execute(select(Frame).where(Frame.project_id == project_id))).scalars().all()
+    )
     primary_total = 0
     primary_with = 0
     all_with = 0
@@ -402,9 +406,9 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
     has_script = bool((project.script_text or "").strip())
     has_hero_descr = bool(project.hero_description)
 
-    fr_total = (
-        await session.execute(select(func.count(Frame.id)).where(Frame.project_id == pid))
-    ).scalar_one()
+    from app.services.db_v2 import count_live_frames
+
+    fr_total = await count_live_frames(session, pid)
     (
         fr_primary_total,
         fr_primary_with_img_prompt,
@@ -692,9 +696,9 @@ async def recompute_status(
     # или кадры. Именно это месяцами ломало auto_advance после разбивки
     # (frames_ready → new из‑за пустого general_plan / гонки web_get).
     if new is ProjectStatus.new and old is not ProjectStatus.new:
-        fr_n = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        fr_n = await count_live_frames(session, project.id)
         has_script = bool((project.script_text or "").strip())
         if int(fr_n or 0) >= 1 or has_script:
             logger.warning(

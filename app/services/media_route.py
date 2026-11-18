@@ -7,6 +7,12 @@
 - Veo 3.1 Lite → OUTSEE_API_KEY
 - Kling 2.6 → KIE_API_KEY
 - Flux 2 Pro / Seedream 5 Pro / Z-Image / Qwen Image 3 → KIE_API_KEY
+
+Одна поправка к первой строке (2026-11-16): если задан
+`PAY52_GPT_IMAGE_KEY`, GPT Image 2 идёт через 52pay
+(app/bots/pay52_images.py), потому что outsee.io с рабочей машины перестал
+отвечать — TLS handshake timeout и напрямую, и через socks. Приоритет
+pay52 выше outsee: иначе живой ключ 52pay не использовался бы вовсе.
 """
 
 from __future__ import annotations
@@ -34,6 +40,14 @@ KIE_IMAGE_IDS = frozenset(
         "flux-2-pro",
         "seedream-5-pro",
         "qwen3-image",
+    }
+)
+# Модели, которые 52pay отдаёт как GPT Image 2 (app/bots/pay52_images.py).
+PAY52_IMAGE_IDS = frozenset(
+    {
+        "gpt-image-2",
+        "gpt-image-2-vip",
+        "gpt-image-1.5",
     }
 )
 OUTSEE_VIDEO_IDS = frozenset(
@@ -83,6 +97,8 @@ def is_nano_banana_pro(model_slug: str | None) -> bool:
 
 def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
+    if cid in PAY52_IMAGE_IDS and (getattr(settings, "pay52_gpt_image_key", "") or "").strip():
+        return "pay52"
     if cid in KIE_IMAGE_IDS:
         return "kie"
     if cid in OUTSEE_IMAGE_IDS:

@@ -751,6 +751,31 @@ async def montage_board(
         ) from e
 
 
+@router.get("/{project_id}/montage/variables")
+async def montage_variables(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Переменные проекта по нодам графа — данные для панели «Переменные проекта».
+
+    Отдельно от доски: доска тяжёлая и обновляется на каждую правку, а панель
+    нужна только по клику «+». Собирает `app/services/montage_variables.py`.
+    """
+    p = _project_or_404(await session.get(Project, project_id))
+    from app.services.montage_variables import build_montage_variables
+
+    try:
+        return await build_montage_variables(session, p)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.exception("GET /montage/variables failed project_id={}", project_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось собрать переменные проекта: {type(e).__name__}: {e}",
+        ) from e
+
+
 @router.post("/{project_id}/montage-board/frames/insert")
 async def montage_board_insert_frame(
     project_id: int,
@@ -1867,14 +1892,14 @@ async def montage_board_upload_music(
 @router.get("/{project_id}/assets")
 async def list_project_assets(
     project_id: int,
-    kind: str = Query("all", pattern="^(all|hero|items|images|videos|audio|final|text)$"),
+    kind: str = Query("all", pattern="^(all|hero|items|backgrounds|images|videos|audio|final|text)$"),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     p = _project_or_404(await session.get(Project, project_id))
     out: list[dict] = []
 
     # DB artifacts
-    if kind in ("all", "hero", "items", "images", "videos", "audio", "final"):
+    if kind in ("all", "hero", "items", "backgrounds", "images", "videos", "audio", "final"):
         from sqlalchemy import select
 
         arts = (
@@ -1883,6 +1908,7 @@ async def list_project_assets(
         kind_map = {
             "hero": {ArtifactKind.hero_reference},
             "items": {ArtifactKind.item_reference},
+            "backgrounds": {ArtifactKind.background_reference},
             "images": {ArtifactKind.scene_image},
             "videos": {ArtifactKind.scene_video},
             "audio": {ArtifactKind.audio, ArtifactKind.subtitle},
@@ -1898,7 +1924,11 @@ async def list_project_assets(
                     "id": a.uuid,
                     "kind": a.kind.value if hasattr(a.kind, "value") else str(a.kind),
                     "path": a.path,
-                    "preview_url": f"/api/artifacts/{a.uuid}/file" if a.uuid else None,
+                    "preview_url": (
+                        f"/api/artifacts/{a.uuid}/file{_file_version(a.path, sep='?')}"
+                        if a.uuid
+                        else None
+                    ),
                     "frame_id": a.frame_id,
                     "meta": a.meta or {},
                 }
@@ -2180,6 +2210,34 @@ async def regenerate_hero_character(
         event_type="project_updated",
         payload={"hero_regenerate": clean},
     )
+    # Кнопка «перегенерировать» раньше только сносила файл: в excel-режиме шаг
+    # никто не запускал, и персонаж оставался без картинки до ручного ▶.
+    # Живой случай 2026-11-16 (c08): картинка удаляется, новой нет.
+    started = False
+    if excel_mode:
+        from app.services.project_steps import start_step
+        from app.services.run_sync import sync_run_for_project
+
+        try:
+            await start_step(
+                session,
+                p,
+                "hero",
+                require_node_fsm=True,
+                explicit_ui_start=True,
+            )
+            await commit_with_retry(session)
+            await session.refresh(p)
+            await sync_run_for_project(p.id)
+            try:
+                from app.services.pipeline_worker import wake_worker
+
+                wake_worker()
+            except Exception:  # noqa: BLE001
+                logger.debug("[#{}] hero regenerate: wake_worker не поднял воркер", p.id)
+            started = True
+        except ValueError as e:
+            logger.warning("[#{}] hero regenerate: шаг не запущен ({})", p.id, e)
     return {
         "ok": True,
         "code": clean,
@@ -2187,6 +2245,336 @@ async def regenerate_hero_character(
         "excel_mode": excel_mode,
         "removed_artifacts": removed_artifacts,
         "removed_files": removed_files,
+        "started": started,
+    }
+
+
+@router.get("/{project_id}/backgrounds")
+async def list_background_images(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Карточки фонов: текст локации + PNG + действующий стиль, как карточки персонажей.
+
+    Промт карточки отдаём готовым к рисованию (карточка + STYLE-блок стиля
+    проекта), но генерацию не запускаем: это просмотр.
+    """
+    from app.services.plan_cinema import apply as plan_apply
+    from app.services.plan_cinema.backgrounds_render import (
+        background_path,
+        build_background_prompt,
+        style_state,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    rows = await plan_apply.load_backgrounds(session, p)
+    style = style_state(p)
+    items: list[dict] = []
+    for code in sorted((rows or {}).keys()):
+        attrs = dict(rows[code] or {})
+        path = background_path(p, code)
+        exists = path.is_file() and path.stat().st_size > 32
+        info = build_background_prompt(p, attrs)
+        items.append(
+            {
+                "code": code,
+                "название": str(attrs.get("название") or attrs.get("место") or ""),
+                "описание": str(attrs.get("описание") or ""),
+                "свет": str(attrs.get("свет") or ""),
+                "время": str(attrs.get("время") or ""),
+                "промт": str(attrs.get("промт") or attrs.get("prompt") or ""),
+                "style": info.get("style") or None,
+                "style_source": info.get("style_source") or None,
+                "style_chars": int(info.get("style_chars") or 0),
+                "final_prompt": info["prompt"],
+                "final_prompt_chars": len(info["prompt"]),
+                "final_prompt_trimmed": bool(info.get("trimmed")),
+                "file_path": str(path),
+                "exists": exists,
+                "size": path.stat().st_size if exists else 0,
+                "preview_url": (
+                    f"/api/files?path={path}{_file_version(str(path))}" if exists else None
+                ),
+                "regenerate_url": f"/api/projects/{project_id}/backgrounds/{code}/regenerate",
+            }
+        )
+    return {
+        "project_id": project_id,
+        "dir": str(p.data_dir / "backgrounds"),
+        "total": len(items),
+        "ready": sum(1 for item in items if item["exists"]),
+        "style": {
+            "name": style.get("name"),
+            "source": style.get("source"),
+            "chars": style.get("chars", 0),
+            "node_key": style.get("node_key"),
+            "bound_variant": style.get("bound_variant"),
+        },
+        "items": items,
+    }
+
+
+@router.post("/{project_id}/backgrounds/{code}/regenerate")
+async def regenerate_background_image(
+    project_id: int,
+    code: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Перерисовать PNG одного фона: снести файл и нарисовать заново со стилем проекта."""
+    from app.services.plan_cinema import apply as plan_apply
+    from app.services.plan_cinema.backgrounds_render import (
+        background_path,
+        build_background_prompt,
+        record_artifact,
+        remember_style,
+        render_one,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    clean = (code or "").strip()
+    rows = await plan_apply.load_backgrounds(session, p)
+    attrs = dict((rows or {}).get(clean) or {})
+    if not attrs:
+        raise HTTPException(status_code=404, detail=f"фона {clean} нет в реестре")
+    # Промт = карточка + STYLE-блок стиля проекта (тот же, что у кадров).
+    info = build_background_prompt(p, attrs)
+    prompt = str(info.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail=f"у фона {clean} пустой промт")
+    path = background_path(p, clean)
+    removed = False
+    try:
+        if path.is_file():
+            path.unlink()
+            removed = True
+    except OSError as e:  # noqa: BLE001
+        logger.warning("[#{}] фон {}: файл не удалён ({})", p.id, clean, e)
+    made = await render_one(
+        session,
+        p,
+        code=clean,
+        prompt=prompt,
+        force=True,
+        style=info.get("style") or None,
+    )
+    if made is not None:
+        await record_artifact(session, p, code=clean, path=made)
+        remember_style(p, info)
+        await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"background_regenerate": clean, "ok": made is not None},
+    )
+    return {
+        "ok": made is not None,
+        "code": clean,
+        "removed": removed,
+        "file_path": str(path),
+        "size": path.stat().st_size if path.is_file() else 0,
+        "preview_url": f"/api/files?path={path}" if path.is_file() else None,
+        "style": info.get("style") or None,
+        "style_source": info.get("style_source") or None,
+        "style_chars": int(info.get("style_chars") or 0),
+        "final_prompt": prompt,
+        "final_prompt_chars": len(prompt),
+        "final_prompt_trimmed": bool(info.get("trimmed")),
+    }
+
+
+@router.post("/{project_id}/backgrounds/{code}/image")
+async def replace_background_image(
+    project_id: int,
+    code: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Поставить свой PNG на место фона — кнопка «загрузить», как у персонажей.
+
+    Код фона не меняется (``f01.png``): перезаписываем файл и обновляем
+    артефакт ``background_reference``, чтобы UI увидел новую картинку без
+    перегенерации.
+    """
+    import io
+
+    from PIL import Image
+
+    from app.services.plan_cinema import apply as plan_apply
+    from app.services.plan_cinema.backgrounds_render import (
+        background_path,
+        record_artifact,
+        style_state,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    clean = (code or "").strip()
+    rows = await plan_apply.load_backgrounds(session, p)
+    if clean not in dict(rows or {}):
+        raise HTTPException(status_code=404, detail=f"фона {clean} нет в реестре")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="empty filename")
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(status_code=400, detail="empty file")
+    path = background_path(p, clean)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with Image.open(io.BytesIO(blob)) as img:
+            img.load()
+            img.convert("RGBA").save(path, format="PNG")
+    except Exception as e:  # noqa: BLE001 — не-картинка это 400, а не 500
+        raise HTTPException(status_code=400, detail=f"not an image: {e}") from e
+    state = style_state(p)
+    await record_artifact(
+        session,
+        p,
+        code=clean,
+        path=path,
+        extra={"source": "manual", "style": state.get("name") or ""},
+    )
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"background_replaced": clean},
+    )
+    return {
+        "ok": True,
+        "code": clean,
+        "path": str(path),
+        "preview_url": f"/api/files?path={path}",
+        "size": path.stat().st_size,
+    }
+
+
+@router.get("/{project_id}/backgrounds/{code}/prompt")
+async def preview_background_prompt(
+    project_id: int,
+    code: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Итоговый промт фона без генерации: карточка + STYLE-блок стиля проекта."""
+    from app.services.plan_cinema import apply as plan_apply
+    from app.services.plan_cinema.backgrounds_render import build_background_prompt
+
+    p = _project_or_404(await session.get(Project, project_id))
+    clean = (code or "").strip()
+    rows = await plan_apply.load_backgrounds(session, p)
+    attrs = dict((rows or {}).get(clean) or {})
+    if not attrs:
+        raise HTTPException(status_code=404, detail=f"фона {clean} нет в реестре")
+    info = build_background_prompt(p, attrs)
+    return {
+        "project_id": project_id,
+        "code": clean,
+        "card_prompt": info.get("card") or "",
+        "card_chars": int(info.get("card_chars") or 0),
+        "style": info.get("style") or None,
+        "style_source": info.get("style_source") or None,
+        "style_chars": int(info.get("style_chars") or 0),
+        "final_prompt": info.get("prompt") or "",
+        "final_prompt_chars": len(str(info.get("prompt") or "")),
+        "final_prompt_trimmed": bool(info.get("trimmed")),
+        "limit": int(info.get("limit") or 0),
+    }
+
+
+@router.get("/{project_id}/backgrounds/styles")
+async def list_background_styles(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Варианты стиля для ноды «Фоны» и что выбрано сейчас (без генерации).
+
+    Список — те же ``styles/style_*.md``, из которых выбирает нода «Стиль»;
+    ``bound_variant`` — своя привязка ноды «Фоны», ``style`` — действующий стиль
+    (привязка ноды, иначе выбранный вариант ноды «Стиль»).
+    """
+    from app.services import frame_style
+    from app.services.plan_cinema.backgrounds_render import style_state
+
+    p = _project_or_404(await session.get(Project, project_id))
+    state = style_state(p)
+    variants: list[dict] = []
+    for name in frame_style.list_style_names():
+        path = frame_style.style_path(name)
+        if path is None:
+            continue
+        variants.append(
+            {
+                "name": name,
+                "path": str(path),
+                "chars": len(
+                    frame_style.normalize_style_text(
+                        path.read_text(encoding="utf-8", errors="replace")
+                    )
+                ),
+            }
+        )
+    return {
+        "project_id": project_id,
+        "style": state,
+        "variants": variants,
+    }
+
+
+@router.post("/{project_id}/backgrounds/style")
+async def bind_background_style(
+    project_id: int,
+    payload: dict = Body(default_factory=dict),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Привязать вариант стиля к ноде «Фоны» — как слот ``style`` у «Персонажей».
+
+    Без привязки нода берёт стиль проекта (выбранный вариант ноды «Стиль»).
+    Пустой ``variant`` снимает привязку и возвращает наследование стиля проекта.
+    """
+    from app.services import frame_style
+    from app.services.node_config import set_prompt_slot
+    from app.services.plan_cinema.backgrounds_render import (
+        STYLE_PROMPT_STEP,
+        STYLE_SLOT_ID,
+        backgrounds_node_key,
+        style_state,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    node_key = backgrounds_node_key(p)
+    if not node_key:
+        raise HTTPException(status_code=400, detail="в графе проекта нет ноды «Фоны»")
+    raw = str(payload.get("variant") or "").strip()
+    variant = ""
+    if raw:
+        variant = frame_style.clean_style_name(raw)
+        if frame_style.style_path(variant) is None:
+            # Не файл styles/: пикер ноды «Фоны» показывает ту же библиотеку,
+            # что у ноды «Стиль», — принимаем и имя промта из неё.
+            from app.services.prompt_library import prompt_exists
+
+            if not prompt_exists(STYLE_PROMPT_STEP, variant):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"стиля {raw!r} нет ни в {frame_style.styles_dir()}, "
+                        f"ни среди промтов шага {STYLE_PROMPT_STEP}"
+                    ),
+                )
+    meta = dict(p.meta or {})
+    set_prompt_slot(meta, node_key, STYLE_SLOT_ID, variant or None)
+    p.meta = meta
+    state = style_state(p)
+    await commit_with_retry(session)
+    await publish_project_event(
+        p.id,
+        event_type="project_updated",
+        payload={"background_style": variant or "", "style": state.get("name") or ""},
+    )
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "node_key": node_key,
+        "bound_variant": state.get("bound_variant"),
+        "style": state,
     }
 
 
@@ -2388,6 +2776,21 @@ def _rel_path(path: str | None) -> str:
         return str(p.resolve().relative_to(data))
     except Exception:
         return path
+
+
+def _file_version(path: str | None, *, sep: str = "&") -> str:
+    """Хвост ``v=<mtime>`` к URL файла.
+
+    Без этого после перерисовки фона/персонажа браузер отдаёт старую картинку
+    из кэша: URL тот же, а у миниатюр кэш был вообще immutable на год. С
+    версией адрес меняется вместе с файлом — UI показывает свежий кадр сразу.
+    """
+    if not path:
+        return ""
+    try:
+        return f"{sep}v={int(Path(path).stat().st_mtime)}"
+    except OSError:
+        return ""
 
 
 @router.patch("/{project_id}/excel-gpt/{node_key}")

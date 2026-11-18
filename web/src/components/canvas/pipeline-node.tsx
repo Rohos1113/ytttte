@@ -45,7 +45,6 @@ import { StyleExtractPanel } from "./style-extract-panel";
 import { HitlStylePanel } from "./hitl-style-panel";
 import { ShotsReportPanel } from "./shots-report-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
-import { AssembleMontageTrigger } from "./assemble-montage-board";
 import { ShotMenuPanel, ShotMenuTrigger } from "./shot-menu-panel";
 import { Nii67CardPanel } from "./nii67-card-panel";
 import { NodeModelPicker } from "./node-model-picker";
@@ -243,7 +242,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const isItems = d.type === "items";
   const isExcelGpt = isExcelGptNode(d.type);
   const isGptWork = isExcelGpt || isSdAgent;
-  const isAssemble = d.type === "assemble";
   const anchorRef = useRef<HTMLDivElement>(null);
   const openSettings = useCallback(() => {
     window.dispatchEvent(
@@ -311,19 +309,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
   return (
     <>
       <div className="relative">
-        {isAssemble && actions?.projectId && (
-          <AssembleMontageTrigger
-            active={actions.montageBoardOpen}
-            busy={actions.montageBusy}
-            onClick={() => {
-              if (actions.montageBoardOpen) {
-                actions.onCloseMontageBoard();
-              } else {
-                actions.onOpenMontageBoard();
-              }
-            }}
-          />
-        )}
         {isShotMenu && actions?.projectId && (
           <ShotMenuTrigger
             active={actions.shotMenuOpen}
@@ -928,6 +913,7 @@ function PosterTile({
   onOpenSettings,
   nodeKey,
   projectId,
+  nodeType,
 }: {
   title: string;
   customBg?: string;
@@ -953,6 +939,7 @@ function PosterTile({
   onOpenSettings: () => void;
   nodeKey: string;
   projectId?: number | null;
+  nodeType?: string;
 }) {
   const genBg = useNodeBg(nodeKey, projectId ?? null);
   const fixedBg = customBg && customBg.startsWith("/api/files?path=") && /[\\:]/.test(customBg.slice(16)) ? "/api/files?path=" + encodeURIComponent(customBg.slice(16)) : customBg;
@@ -1262,6 +1249,8 @@ function PosterTile({
           </button>
         ) : null}
       </div>
+
+
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, FrameStatus, Project
@@ -104,11 +104,16 @@ async def ensure_frames_from_disk_media(
     if not numbers:
         return []
 
+    from app.services.db_v2 import frame_is_archived
+
     existing = {
-        int(n)
-        for n in (await session.execute(select(Frame.number).where(Frame.project_id == project.id)))
-        .scalars()
-        .all()
+        int(number)
+        for number, attrs in (
+            await session.execute(
+                select(Frame.number, Frame.attrs).where(Frame.project_id == project.id)
+            )
+        ).all()
+        if not frame_is_archived({"number": number, "attrs": attrs})
     }
     if existing and not fill_gaps:
         return []
@@ -164,12 +169,10 @@ async def ensure_frames_from_disk_media(
 
 
 async def _count_project_frames(session: AsyncSession, project_id: int) -> int:
-    return int(
-        (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project_id))
-        ).scalar_one()
-        or 0
-    )
+    """Живые кадры проекта (архив прежнего разбиения по плану не в счёт)."""
+    from app.services.db_v2 import count_live_frames
+
+    return await count_live_frames(session, project_id)
 
 
 async def bootstrap_project_frames_from_disk(

@@ -460,6 +460,26 @@ def read_node_media_fields(node: dict[str, Any] | None) -> dict[str, str | None]
     }
 
 
+def _pay52_native_aspect_needed(model_slug: str | None) -> bool:
+    """Картинки этой модели идут через 52pay (там нет 16:9/9:16)?"""
+    try:
+        from app.bots.pay52_images import pay52_images_configured
+        from app.services.media_route import image_provider_for
+
+        return pay52_images_configured() and image_provider_for(model_slug) == "pay52"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _pay52_native_aspect(aspect_slug: str | None) -> str:
+    try:
+        from app.bots.pay52_images import native_aspect
+
+        return native_aspect(aspect_slug)
+    except Exception:  # noqa: BLE001
+        return aspect_slug or "3:2"
+
+
 def resolve_node_media_settings(
     project: Any,
     *,
@@ -487,6 +507,19 @@ def resolve_node_media_settings(
     aspect_id = fields["aspect_ratio"] or getattr(project, "aspect_ratio", None) or DEFAULTS["aspect_ratio"]
     ar = ASPECT_RATIOS_BY_ID.get(aspect_id)
     aspect_slug = fields["aspect_slug"] or (ar.outsee_slug if ar else None) or "9:16"
+    # gpt-image-2 через 52pay физически отдаёт только 1:1 / 3:2 / 2:3 — 16:9 и
+    # 9:16 он не умеет. Приёмка кадра сверяет пропорцию PNG с aspect_slug и
+    # бракует по aspect_mismatch (живой прогон 2026-11-16). Поэтому настройку
+    # приводим к нативному аспекту: генерация и приёмка говорят об одном и том
+    # же, картинку после генерации не режем.
+    from app.generation_options import IMAGE_GENERATORS_BY_ID
+
+    ig_probe = IMAGE_GENERATORS_BY_ID.get(img_gid)
+    if _pay52_native_aspect_needed(getattr(ig_probe, "outsee_slug", None)):
+        native = _pay52_native_aspect(aspect_slug)
+        if native != aspect_slug:
+            logger.info("media: аспект {} → {} (gpt-image-2 через 52pay)", aspect_slug, native)
+            aspect_slug = native
 
     quality_raw = fields["image_quality"] or getattr(project, "image_quality", None)
     quality_slug = resolve_image_quality_slug(img_gid, quality_raw)

@@ -26,6 +26,10 @@ _TEXT: dict[str, tuple[str, str]] = {
     # OpenAI / GPT-6
     "gpt-6.1-sol": ("pay52_gpt_key", "gpt-6.1-sol"),
     "gpt-6.1-sol-pay52": ("pay52_gpt_key", "gpt-6.1-sol"),
+    # Канвас группы plan_cinema хранит id с обратным порядком суффикса
+    # («gpt-6.1-sol-52pay»). Без алиаса маршрут 52pay не находился, запрос
+    # уходил в kie и падал «unknown model» — все pk_* ноды стояли.
+    "gpt-6.1-sol-52pay": ("pay52_gpt_key", "gpt-6.1-sol"),
     "gpt-6-sol": ("pay52_gpt_key", "gpt-6.1-sol"),
     "gpt-6-astra": ("pay52_gpt_key", "gpt-6-astra"),
     "gpt-6-astra-pay52": ("pay52_gpt_key", "gpt-6-astra"),

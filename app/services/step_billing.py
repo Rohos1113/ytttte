@@ -338,9 +338,9 @@ async def step_volume(session: Any, project_id: int, step_code: str) -> tuple[in
     if kind is None:
         return (None, None)
     if kind == "frames":
-        total = (
-            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project_id))
-        ).scalar_one()
+        from app.services.db_v2 import count_live_frames
+
+        total = await count_live_frames(session, project_id)
         return (int(total or 0) or None, None)
     chars = (
         await session.execute(

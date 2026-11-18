@@ -137,7 +137,10 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Any = None
         await session.flush()
         raise RuntimeError(f"сборка невозможна: {reason}. Статус → {project.status.value}")
 
-    frames_all = list(
+    from app.services.db_v2 import live_frames
+
+    # Архив прежнего разбиения по плану (1000xx) в сборку не идёт.
+    frames_all = live_frames(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()
@@ -152,7 +155,7 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Any = None
                 project.id,
                 boot["frames_created"],
             )
-        frames_all = list(
+        frames_all = live_frames(
             (
                 await session.execute(
                     select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)

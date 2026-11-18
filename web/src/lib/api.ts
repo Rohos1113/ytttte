@@ -16,6 +16,7 @@ import type {
   MontageBoardParentRef,
   MontageImproveReport,
   MontageRefAsset,
+  MontageVariablesDTO,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
   HITLDTO,
@@ -1751,6 +1752,14 @@ export const api = {
       120_000,
     ),
 
+  /** Переменные проекта по нодам графа — панель «+» на доске монтажа. */
+  getMontageVariables: (projectId: number) =>
+    http<MontageVariablesDTO>(
+      `/api/projects/${projectId}/montage/variables`,
+      {},
+      60_000,
+    ),
+
   mergeMontageScenes: (
     projectId: number,
     leftFrameId: number,
@@ -3005,6 +3014,76 @@ export const api = {
       `/api/projects/${projectId}/items/${index}/regenerate`,
       { method: "POST" },
     ),
+
+  /** Стили для ноды «Фоны»: список styles/style_*.md и что выбрано сейчас. */
+  listBackgroundStyles: (projectId: number) =>
+    http<{
+      project_id: number;
+      style: {
+        node_key?: string | null;
+        bound_variant?: string | null;
+        name?: string | null;
+        source?: string | null;
+        chars?: number;
+        block_chars?: number;
+        file?: string;
+        styles_dir?: string;
+      };
+      variants: { name: string; path: string; chars: number }[];
+    }>(`/api/projects/${projectId}/backgrounds/styles`),
+
+  /** Перерисовать PNG одного фона сразу (карточка + STYLE-блок). */
+  regenerateBackground: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      removed: boolean;
+      file_path: string;
+      size: number;
+      preview_url: string | null;
+      style: string | null;
+      style_source: string | null;
+      style_chars: number;
+      final_prompt: string;
+      final_prompt_chars: number;
+      final_prompt_trimmed: boolean;
+    }>(`/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/regenerate`, {
+      method: "POST",
+    }),
+
+  /** Итоговый промт фона (карточка + STYLE) без генерации. */
+  getBackgroundPrompt: (projectId: number, code: string) =>
+    http<{
+      project_id: number;
+      code: string;
+      card_prompt: string;
+      card_chars: number;
+      style: string | null;
+      style_source: string | null;
+      style_chars: number;
+      final_prompt: string;
+      final_prompt_chars: number;
+      final_prompt_trimmed: boolean;
+      limit: number;
+    }>(`/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/prompt`),
+
+  /** Загрузить свой PNG на место фона (как «загрузить референс» у персонажей). */
+  replaceBackgroundImage: async (projectId: number, file: File, code: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(
+      `/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/image`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{
+      ok: boolean;
+      code: string;
+      path: string;
+      preview_url: string;
+      size: number;
+    }>;
+  },
 
   deleteItem: (projectId: number, index: number) =>
     http<{

@@ -31,7 +31,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         await session.commit()
         return
 
-    frames = list(
+    from app.services.db_v2 import live_frames
+
+    frames = live_frames(
         (
             await session.execute(
                 select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)

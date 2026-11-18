@@ -19,7 +19,7 @@ export type ProjectStatus =
 
 export type NodeType =
   | "plan" | "script" | "split" | "scene_design" | "sd_agent" | "sd_assemble"
-  | "hero" | "items"
+  | "hero" | "items" | "backgrounds"
   | "enrich_1" | "enrich_2" | "enrich_3" | "enrich"
   | "image_prompts" | "images"
   | "animation_prompts" | "videos"
@@ -293,6 +293,14 @@ export interface MontageBoardParentRef {
   image_url: string | null;
 }
 
+/** Фон кадра: код локации (`f01`) и картинка `backgrounds/f01.png`. */
+export interface MontageBoardBackgroundRef {
+  id: string;
+  code: string;
+  name: string;
+  image_url: string | null;
+}
+
 /** Реф, приложенный кадру на доске: вид + имя, видное в монтаже. */
 export interface MontageManualRef {
   id: string;
@@ -359,6 +367,32 @@ export interface MontageImproveReport {
   warnings?: string[];
 }
 
+export interface MontageBoardShot {
+  /** ID шота из attrs кадра: S1-K1, S22-K3. */
+  id: string;
+  parent_id?: string | null;
+  порядок?: number | null;
+  номер?: number | null;
+  сцена?: number | null;
+  действие: string;
+  фон?: string;
+  фон_код?: string;
+  кто?: string;
+  где?: string;
+  место?: string;
+  план?: string;
+  позы?: string;
+  старт?: string | number | null;
+  конец?: string | number | null;
+  длительность?: number | null;
+  закадр?: string;
+  /** Still шота: images/<Sx-Ky>.png, пока файла нет — null. */
+  image_url?: string | null;
+  character_refs?: MontageBoardCharacterRef[];
+  item_refs?: MontageBoardCharacterRef[];
+  background_ref?: MontageBoardBackgroundRef | null;
+}
+
 export interface MontageBoardFrame {
   frame_id: number;
   number: number;
@@ -369,6 +403,8 @@ export interface MontageBoardFrame {
   voiceover_excel: string;
   characters: string;
   character_refs: MontageBoardCharacterRef[];
+  /** Фон кадра: код локации (`f01`) и картинка `backgrounds/f01.png`. */
+  background_ref?: MontageBoardBackgroundRef | null;
   /** Still VO-родителя ячейки — реф покрытия для всех шотов группы. */
   ref_parent?: MontageBoardParentRef | null;
   /** Персонажи всей VO-ячейки, не только этой колонки. */
@@ -468,6 +504,8 @@ export interface MontageBoardFrame {
   vo_scene_size?: number;
   /** leftover-клей (не живой шот). Живых детей не режем по scene_chain.length. */
   shot_leftover?: boolean;
+  /** Запланированные шоты кадра из attrs["кадры"]: колонка на каждый. */
+  planned_shots?: MontageBoardShot[];
 }
 
 export interface MontageBoardMeta {
@@ -494,6 +532,10 @@ export interface MontageBoardMeta {
 export interface MontageBoardDTO {
   frames: MontageBoardFrame[];
   frame_count: number;
+  /** Всего запланированных шотов (сумма planned_shots по кадрам). */
+  shots_total?: number;
+  /** Ширина доски в колонках: подпись строки + по колонке на шот. */
+  board_columns?: number;
   meta: MontageBoardMeta;
   /** Формат кадра проекта («9:16», «16:9», …) для картинки на доске. */
   frame_aspect?: string | null;
@@ -507,6 +549,91 @@ export interface MontageBoardDTO {
   coverage_stitch_choices?: Array<{ id: string; label: string }>;
   coverage_template_choices?: MontageTemplateChoice[];
   ref_kind_choices?: MontageRefKindChoice[];
+}
+
+/** Вид переменной — управляет тем, как панель её рисует. */
+export type MontageVariableKind =
+  | "text"
+  | "longtext"
+  | "list"
+  | "frames"
+  | "image"
+  | "video"
+  | "audio"
+  | "json"
+  | "number"
+  | "bool";
+
+/** Элемент списка: подпись, а у файлов ещё и ссылка на `/api/files` / артефакт. */
+export interface MontageVariableItem {
+  label: string;
+  url?: string;
+}
+
+/** Строка таблицы «кадр → значение» (`kind === "frames"`). */
+export interface MontageVariableFrameRow {
+  frame: number;
+  value: string;
+}
+
+/**
+ * Одна переменная ноды. Значения собирает бэкенд
+ * (`GET /api/projects/{id}/montage/variables`) — фронт ничего не хардкодит.
+ */
+export interface MontageVariable {
+  key: string;
+  label: string;
+  kind: MontageVariableKind;
+  /** Откуда значение: `projects.general_plan`, `frames.image_prompt`, `disk:scenes`… */
+  source: string;
+  value:
+    | string
+    | number
+    | boolean
+    | null
+    | Array<string | MontageVariableItem | MontageVariableFrameRow>
+    | Record<string, unknown>;
+  /** Первые ~300 символов — то, что видно в свёрнутом виде. */
+  preview: string;
+  /** Длина текста в символах, число элементов списка / строк / файлов. */
+  count: number;
+  /** Текст длиннее лимита: полного `value` нет, только preview. */
+  truncated?: boolean;
+  /** Переменная не собралась — показываем причину, а не пустоту. */
+  error?: string;
+}
+
+/** Состояние ноды в терминах панели (failed → error, skipped → disabled). */
+export type MontageVariableNodeState = "done" | "running" | "pending" | "error" | "disabled";
+
+export interface MontageVariableNode {
+  node_key: string;
+  node_type: string;
+  label: string;
+  step_code: string | null;
+  state: MontageVariableNodeState;
+  /** Строки доски, которые питает шаг (`image1`, `video1`, `voiceover`, …). */
+  montage_rows: string[];
+  vars: MontageVariable[];
+}
+
+export interface MontageVariablesTotals {
+  frames: number;
+  images: number;
+  videos: number;
+  heroes: number;
+  backgrounds: number;
+}
+
+/** Ответ `GET /api/projects/{id}/montage/variables` — переменные по нодам графа. */
+export interface MontageVariablesDTO {
+  project_id: number;
+  slug: string;
+  status: string;
+  generated_at: string;
+  frames_total: number;
+  nodes: MontageVariableNode[];
+  totals: MontageVariablesTotals;
 }
 
 /** Формат сцены из каталога `templates/shot_templates/shot_templates.json`. */

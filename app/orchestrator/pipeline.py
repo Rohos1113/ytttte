@@ -14,6 +14,7 @@
   scene_designing                → scene_design.run (5 агентов параллельно)
   scene_assembling               → scene_design.run_assemble (сборщик)
   generating_hero                → generate_hero
+  generating_backgrounds         → generate_backgrounds
   generating_image_prompts       → generate_image_prompts (только промты)
   generating_images              → generate_images        (только картинки)
   generating_animation_prompts   → make_animation_prompts
@@ -35,6 +36,7 @@ from app.orchestrator.steps import (
     assemble,
     enrich_xlsx,
     generate_audio,
+    generate_backgrounds,
     generate_hero,
     generate_image_prompts,
     generate_images,
@@ -151,7 +153,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
         if _step_code:
             _lease_key = f"step:{_step_code}"
             _lease_me = _wl.current_owner()
-            if not await _wl.acquire(project.id, _lease_key, owner=_lease_me, ttl_s=3600):
+            if not await _wl.acquire(project.id, _lease_key, owner=_lease_me, ttl_s=_wl.STEP_LEASE_TTL_S):
                 logger.info(
                     "[#{}] advance: {} занят живым step-lease (другой процесс) — пропуск такта",
                     project.id,
@@ -163,7 +165,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
             async def _renew_loop() -> None:
                 while True:
                     await asyncio.sleep(600)
-                    if not await _wl.renew(project.id, _lease_key, owner=_lease_me, ttl_s=3600):
+                    if not await _wl.renew(project.id, _lease_key, owner=_lease_me, ttl_s=_wl.STEP_LEASE_TTL_S):
                         logger.warning(
                             "[#{}] advance: step-lease {} потерян",
                             project.id,
@@ -207,6 +209,8 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
                 await generate_hero.run(session, project, bot)
             elif status is ProjectStatus.generating_items:
                 await generate_items.run(session, project, bot)
+            elif status is ProjectStatus.generating_backgrounds:
+                await generate_backgrounds.run(session, project, bot)
             elif status in (
                 ProjectStatus.enriching_1,
                 ProjectStatus.enriching_2,

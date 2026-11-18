@@ -100,6 +100,9 @@ from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
+    node_llm as node_llm_router,
+)
+from app.web.routers import (
     node_reviews as node_reviews_router,
 )
 from app.web.routers import (
@@ -625,6 +628,7 @@ def create_app() -> FastAPI:
     app.include_router(studio_chat_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
+    app.include_router(node_llm_router.router, prefix=API_PREFIX)
     app.include_router(stages_router.router, prefix=API_PREFIX)
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)

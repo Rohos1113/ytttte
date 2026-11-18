@@ -370,6 +370,23 @@ _SCRIPT_FRAMES_QC_SUFFIXES = (
 )
 # Ноды группы, после которых excel_gpt→excel_gpt идет по стрелкам без auto_mode.
 _SCRIPT_FRAMES_QC_CHAIN_SUFFIXES = (*_SCRIPT_FRAMES_QC_SUFFIXES, "_fw_boundaries")
+
+
+def _chains_like_overflow_group(node_key: str | None) -> bool:
+    """Группы из одних excel_gpt-нод (slotIndex=0), которые идут по стрелкам сами.
+
+    Это «Кадры» (fw_*) и «Кино по плану» (pk_*): у их нод нет слотов 1..5, а
+    цепочка — смысл группы. Без этого plan_cinema останавливалась после первой
+    ноды: статус висел в enriching_1, и следующие pk_* никто не запускал.
+    """
+    nk = str(node_key or "").strip()
+    if not nk:
+        return False
+    if nk.endswith(_SCRIPT_FRAMES_QC_CHAIN_SUFFIXES):
+        return True
+    from app.services.plan_cinema.nodes import is_plan_cinema_node
+
+    return is_plan_cinema_node(nk)
 # Ноды, которые на каждом прогоне пишут свой выход заново (не fw_frames).
 _SCRIPT_FRAMES_QC_REWRITE_SUFFIXES = (
     "_fw_script",
@@ -1041,8 +1058,9 @@ async def _after_excel_gpt_done(
             ready_status.value,
         )
         # Новая линия: без auto_mode обычный excel_gpt дальше не цепляет.
-        # Исключение — группа «Кадры» (fw_*): ее хвост идет по стрелкам сам.
-        if not str(node_key or "").endswith(_SCRIPT_FRAMES_QC_CHAIN_SUFFIXES):
+        # Исключение — группы «Кадры» (fw_*) и «Кино по плану» (pk_*):
+        # их хвост идет по стрелкам сам.
+        if not _chains_like_overflow_group(node_key):
             return
 
     # ▶ «только эта нода» (only_node=true в /steps/excel_gpt/run): без цепочки.
@@ -1131,11 +1149,9 @@ async def _maybe_auto_chain_excel_gpt(
     from app.services.excel_gpt_node import running_status_for_slot
     from app.services.run_sync import prepare_node_for_step_start
 
-    # Overflow-цепочка (slotIndex=0 -> enriching_1) только для группы «Кадры».
-    # Обычный excel_gpt новой линии: как в main, slot_idx+1.
-    overflow_next = (next_slot is None or next_slot < 1) and str(next_key).endswith(
-        _SCRIPT_FRAMES_QC_CHAIN_SUFFIXES
-    )
+    # Overflow-цепочка (slotIndex=0 -> enriching_1) для групп «Кадры» и
+    # «Кино по плану»: у них все ноды slotIndex=0.
+    overflow_next = (next_slot is None or next_slot < 1) and _chains_like_overflow_group(next_key)
     if not overflow_next and (next_slot is None or next_slot < 1):
         next_slot = slot_idx + 1 if slot_idx < 5 else 5
     if overflow_next:
@@ -1248,7 +1264,7 @@ def _hold_pipeline_after_excel_gpt(project: Project, *, finished_key: str | None
     """
     if not getattr(project, "auto_mode", False):
         return
-    if finished_key is not None and not str(finished_key).endswith(_SCRIPT_FRAMES_QC_CHAIN_SUFFIXES):
+    if finished_key is not None and not _chains_like_overflow_group(finished_key):
         return
     from app.services.project_control import arm_auto_await_manual_start
 
@@ -1851,6 +1867,23 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if is_plan_cinema_node(node_key):
         await run_plan_cinema_node(
             session, project, node_key=str(node_key), slot_idx=slot_idx
+        )
+        # Как fw_*-ноды: слот 0 живёт в enriching_1 → enrich_1_ready, и только
+        # потом цепочка по стрелкам (иначе статус висит «в работе» и группа
+        # останавливается после первой ноды).
+        if project.status is running_status:
+            _apply_enrich_ready_status(
+                project,
+                running_status=running_status,
+                ready_status=ready_status,
+            )
+            await session.flush()
+        await _after_excel_gpt_done(
+            session,
+            project,
+            node_key=str(node_key),
+            slot_idx=slot_idx,
+            ready_status=ready_status,
         )
         return
     prompt_step_code = EXCEL_GPT_STEP_CODE

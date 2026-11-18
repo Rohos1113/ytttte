@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 export type MediaFrameItem = {
   frame_id: number;
   number: number;
+  /** Код кадра-шота (S1-K1…): у сцены несколько картинок. */
+  label?: string | null;
   voiceover_text?: string | null;
   image_prompt?: string | null;
   animation_prompt?: string | null;
@@ -120,12 +122,12 @@ export function MediaFrameGallery({
         const rejected = frame.status === "failed";
         return (
           <div
-            key={frame.frame_id}
+            key={frame.label ?? frame.frame_id}
             className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-black/40 backdrop-blur-md shadow-sm"
           >
             <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.02] px-2.5 py-1.5">
               <Badge variant="muted" className="font-mono text-[10px] text-cyan-300">
-                #{frame.number}
+                {frame.label ?? `#${frame.number}`}
               </Badge>
               <span className="text-[9px] text-muted-foreground">{frame.status}</span>
             </div>

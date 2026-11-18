@@ -17,6 +17,12 @@ export type NodeResultItemKind =
   | "xlsx"
   | "frames";
 
+/** Место единицы результата на доске монтажа. */
+export type NodeResultPlacement =
+  | { kind: "frame"; frameNumbers: number[] }
+  | { kind: "scene"; sceneIndex: number }
+  | { kind: "full" };
+
 export interface NodeResultItem {
   id: string;
   label: string;
@@ -27,6 +33,8 @@ export interface NodeResultItem {
   /** Путь на диске — для замены hero-файла. */
   filePath?: string | null;
   frameNumber?: number;
+  /** Куда на доске ложится единица (кадр/сцена/общая строка). */
+  placement?: NodeResultPlacement;
 }
 
 export type NodeResultReplaceMode = "text" | "xlsx" | "assets" | "studio" | "none";
@@ -152,13 +160,22 @@ function artifactItems(arts: ArtifactDTO[]): NodeResultItem[] {
     const metaIdx = typeof meta.item_index === "number"
       ? meta.item_index
       : (typeof meta.hero_index === "number" ? meta.hero_index : undefined);
+    // Картинка конкретного кадра-шота (S1-K1…): подпись — код кадра, иначе в
+    // сетке все карточки выглядели одинаково как «scene_image».
+    const shotId = typeof meta.shot_id === "string" ? meta.shot_id.trim() : "";
+    // Версия картинки: uuid при перерисовке не меняется, поэтому без `?v=mtime`
+    // браузер держит старый файл/миниатюру из кэша.
+    const version = typeof meta.mtime === "number" ? meta.mtime : null;
+    const fileUrl = version
+      ? `${api.artifactFileUrl(a.uuid)}?v=${version}`
+      : api.artifactFileUrl(a.uuid);
 
     return {
       id: a.uuid,
-      label: metaIdx ? `№${metaIdx}` : a.kind,
+      label: shotId || (metaIdx ? `№${metaIdx}` : a.kind),
       kind: mediaKind(path, a.kind || ""),
-      previewUrl: api.artifactFileUrl(a.uuid),
-      downloadUrl: api.artifactFileUrl(a.uuid),
+      previewUrl: fileUrl,
+      downloadUrl: fileUrl,
       filePath: path || null,
       content: metaDesc,
       frameNumber: typeof metaIdx === "number" ? metaIdx : undefined,
@@ -451,6 +468,58 @@ function computeNodeResult(
       return empty("Персонажи ещё не сгенерированы", "assets");
     }
 
+    case "backgrounds": {
+      // Фоны локаций: PNG в data/videos/<slug>/backgrounds/f0N.png лежат и
+      // артефактами background_reference, и файлами на диске. Показываем те же
+      // карточки с картинкой, что у персонажей, — владелец просил одинаковый
+      // интерфейс и механику («результаты как в персонажах»).
+      const isBgAsset = (a: ProjectAsset) =>
+        a.kind.includes("background") || /[/\\]backgrounds[/\\]/i.test(a.path ?? "");
+      const bgAssets = ctx.assets.filter(isBgAsset);
+      const bgItems = dedupeResultItems([
+        ...artifactItems(arts.filter((a) => a.kind.includes("background"))),
+        ...assetItems(bgAssets),
+      ]).sort((a, b) => {
+        const code = (it: NodeResultItem) =>
+          (it.filePath || it.downloadUrl || it.previewUrl || it.id || "").match(/f(\d{2})\.png/i);
+        const ai = code(a);
+        const bi = code(b);
+        return ai && bi ? parseInt(ai[1], 10) - parseInt(bi[1], 10) : 0;
+      });
+      // Стиль, в котором рисуются фоны. Бэкенд пишет его в meta артефакта
+      // (`/api/projects/{id}/backgrounds` отдаёт тот же стиль) и кэширует в
+      // project.meta.background_style. Показываем в результатах, чтобы было
+      // видно: фон ушёл в визуал проекта, а не в реализм.
+      const cachedStyle = (project?.meta as Record<string, unknown> | undefined)
+        ?.background_style;
+      const cachedStyleName =
+        cachedStyle && typeof cachedStyle === "object"
+          ? String((cachedStyle as Record<string, unknown>).name ?? "").trim()
+          : "";
+      const artifactStyleName = ctx.artifacts
+        .filter((a) => a.kind.includes("background"))
+        .map((a) => String((a.meta as Record<string, unknown> | undefined)?.style ?? "").trim())
+        .find((name) => name.length > 0);
+      const styleName = cachedStyleName || artifactStyleName || "";
+      if (bgItems.length) {
+        const styleItems: NodeResultItem[] = styleName
+          ? [
+              {
+                id: "background_style",
+                label: "Стиль фонов",
+                kind: "text",
+                content: `Стиль проекта: ${styleName}`,
+              },
+            ]
+          : [];
+        const summary = styleName
+          ? `${bgItems.length} фонов локаций · стиль ${styleName}`
+          : `${bgItems.length} фонов локаций`;
+        return ready([...styleItems, ...bgItems], summary, "assets", "frame_images");
+      }
+      return empty("Фоны ещё не сгенерированы", "assets", "frame_images");
+    }
+
     case "items": {
       // Только предметы: kind item_* или файл в папке items/objects. Подстрочный
       // `includes("item")` ловил лишнее (например, путь со словом в имени
@@ -672,8 +741,12 @@ function computeNodeResult(
           content: (a as { voiceover?: string }).voiceover || fr?.voiceover_text || base.content,
         };
       });
-      const fromArts = artifactItems(arts);
-      const items = (fromMedia.length ? fromMedia : fromArts).filter((i) => i.previewUrl);
+      const fromArts = artifactItems(arts.filter((a) => a.kind === "scene_image"));
+      // Кадров-шотов больше, чем сцен: если по артефактам картинок больше —
+      // показываем их, иначе остаётся старая раскладка по кадрам-сценам.
+      const items = (fromArts.length >= fromMedia.length ? fromArts : fromMedia).filter(
+        (i) => i.previewUrl,
+      );
       if (items.length) {
         return ready(items, `${items.length} картинок`, "assets", "frame_images");
       }

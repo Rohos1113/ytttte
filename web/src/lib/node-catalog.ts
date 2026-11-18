@@ -147,6 +147,15 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     accent: "270 55% 64%",
     iconKey: "sparkles",
   },
+  backgrounds: {
+    type: "backgrounds",
+    label: "Фоны",
+    description:
+      "PNG локаций по карточкам «Фоны»: рисуются до кадров, чтобы каждый кадр строился от готового фона.",
+    category: "media",
+    accent: "160 40% 55%",
+    iconKey: "image",
+  },
   hero: {
     type: "hero",
     label: "Персонажи",

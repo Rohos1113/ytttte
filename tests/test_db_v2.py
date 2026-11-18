@@ -147,3 +147,51 @@ async def test_sort_key_between_edges(session: AsyncSession):
     assert db_v2.sort_key_between(10.0, None) == 20.0
     assert db_v2.sort_key_between(10.0, 20.0) == 15.0
     _ = (FrameText, Scene)  # импорты используются в фикстурах выше
+
+
+async def test_insert_frame_at_end_uses_max_plus_step(session: AsyncSession):
+    """Добавление «в конец» — последний кадр: max(sort_key)+10, без 12.5/15.0."""
+    p = await _mk_project_with_frames(session, 3)
+    await db_v2.backfill_project_v2(session, p)
+    await session.commit()
+    frames = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
+
+    tail = await db_v2.insert_frame_after(session, p, after_frame_id=frames[-1].id)
+    await session.commit()
+    assert tail.sort_key == 40.0
+    ordered = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
+    assert ordered[-1].id == tail.id
+
+
+async def test_insert_frame_between_slipped_keys_normalizes(session: AsyncSession):
+    """Слипшиеся соседи (зазор < 0.5) нормализуются шагом 10, вставка — между ними."""
+    p = await _mk_project_with_frames(session, 3)
+    await db_v2.backfill_project_v2(session, p)
+    await session.commit()
+    frames = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
+    frames[1].sort_key = 10.2
+    frames[2].sort_key = 10.4
+    await session.flush()
+
+    new = await db_v2.insert_frame_after(session, p, after_frame_id=frames[0].id)
+    await session.commit()
+    ordered = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
+    keys = [float(fr.sort_key or 0.0) for fr in ordered]
+    assert keys == [10.0, 15.0, 20.0, 30.0]
+    assert ordered[1].id == new.id
+
+
+async def test_live_frames_without_sort_key_get_step(session: AsyncSession):
+    """Старые кадры без sort_key не выталкивают вставку в конец."""
+    p = await _mk_project_with_frames(session, 2)
+    await session.commit()
+    frames = list((await session.execute(select(Frame).order_by(Frame.number))).scalars())
+    for fr in frames:
+        fr.sort_key = None
+    await session.flush()
+
+    new = await db_v2.insert_frame_after(session, p, after_frame_id=frames[0].id)
+    await session.commit()
+    ordered = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
+    assert float(new.sort_key or 0.0) > 0.0
+    assert [fr.id for fr in ordered] == [frames[0].id, new.id, frames[1].id]

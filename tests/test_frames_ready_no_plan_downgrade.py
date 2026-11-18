@@ -17,6 +17,8 @@ def _session_with_frame_count(n: int) -> AsyncMock:
     async def mock_execute(stmt):
         m = MagicMock()
         m.scalar_one.return_value = n
+        # count_live_frames читает (number, attrs): отдаём n живых кадров.
+        m.all.return_value = [(index + 1, {"источник": "pk"}) for index in range(n)]
         m.scalars.return_value.all.return_value = []
         m.scalar_one_or_none.return_value = None
         return m

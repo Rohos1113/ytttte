@@ -572,3 +572,36 @@ def test_shot_kind_parent_from_explicit_coverage_kind() -> None:
     assert kind == "parent"
     assert parent_n is None
 
+
+@pytest.mark.asyncio
+async def test_montage_board_reads_refs_from_frame_attrs(
+    montage_project: Project,
+    session: AsyncSession,
+) -> None:
+    """Персонажи/предметы/фон кадра видны на доске даже без листа «план»."""
+    for sub, name in (("characters", "c01.png"), ("characters", "c02.png"), ("items", "i01.png"), ("backgrounds", "f01.png")):
+        d = montage_project.data_dir / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_bytes(b"png")
+
+    session.add(montage_project)
+    session.add(
+        Frame(
+            project_id=montage_project.id,
+            number=1,
+            voiceover_text="Кадр 1",
+            attrs={"персонажи": ["c01", "c02"], "предметы": ["i01"], "фон": "f01"},
+            status="planned",
+        )
+    )
+    await session.flush()
+
+    board = await build_montage_board(session, montage_project)
+    row = board["frames"][0]
+    assert row["characters"] == "c01, c02"
+    assert [ref["id"] for ref in row["character_refs"]] == ["c01", "c02"]
+    assert row["character_refs"][0]["image_url"] is not None
+    assert [ref["id"] for ref in row["item_refs"]] == ["i01"]
+    assert row["item_refs"][0]["image_url"] is not None
+    assert row["background_ref"]["code"] == "f01"
+    assert row["background_ref"]["image_url"] is not None
