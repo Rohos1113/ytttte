@@ -1098,10 +1098,10 @@ function PosterTile({
                   { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
                   { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
                   { k: "copy", t: "Скопировать ноду", icon: FlyCopy, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => onFlyCopy?.(), show: !!onFlyCopy },
-                  { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-amber-600 text-white hover:bg-amber-500", fn: () => onFlyRestart?.(), show: !!onFlyRestart },
+                  { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => onFlyRestart?.(), show: !!onFlyRestart },
                 ]
                   .filter((b) => b.show)
-                  .map((b, i) => ({ ...b, x: 2, y: 2 + i * 26 }))
+                  .map((b, i) => ({ ...b, x: 2, y: 2 + i * 34 }))
                   .map((b, i) => {
                     const Icon = b.icon;
                     return (
