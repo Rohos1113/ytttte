@@ -2,11 +2,13 @@
 
 import type React from "react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { PLANS, PLAN_GROUPS, fmtRub, limitRows, type Plan } from "@/lib/pricing";
+import { PLANS, fmtRub, limitRows, getPlanGroupInfo, type Plan } from "@/lib/pricing";
 import { FactoryCard, FactoryStyles, IndustrialDivider } from "@/components/home/factory-cards";
-
+import { LanguageSwitcher } from "@/components/ui/language-switcher";
+import { useTranslation, type Locale } from "@/lib/i18n";
 
 const N = (t: string) => `/prompt-bg/node/${t}.webp`;
+
 /**
  * Слоты изображений главной. Чтобы заполнить — укажите src (например "/home/hero.webp").
  * Пустой src = заготовка-плейсхолдер. Индексы 1..12 используются по всей странице.
@@ -65,43 +67,156 @@ function Slot({ i, className = "", style }: { i: number; className?: string; sty
   );
 }
 
-const PIPE: [string, string, string][] = [
-  ["topic", "Тема", "Идея или список тем на неделю"],
-  ["plan", "План", "Структура ролика и тайминг сцен"],
-  ["script", "Сценарий", "Закадровый текст под формат и тон"],
-  ["audio", "Озвучка", "Голос диктора по сценарию"],
-  ["hero", "Персонажи", "Единые герои на весь сериал"],
-  ["images", "Картинки", "Кадры для каждой сцены"],
-  ["videos", "Анимация", "Оживление кадров в видео"],
-  ["music", "Музыка", "Подложка под настроение"],
-  ["sfx_gen", "Звуки", "SFX по событиям в кадре"],
-  ["assemble", "Сборка", "Монтаж, субтитры, финальный рендер"],
-  ["publish", "Публикация", "Выгрузка на площадки"],
-];
+const NAV_IDS = ["pipeline", "formats", "features", "who", "pricing", "faq", "contacts"] as const;
 
-const FORMATS = [
-  ["Мультсериалы", "Одни и те же герои из серии в серию, стиль держится через ноду персонажей."],
-  ["Shorts и Reels", "Вертикальные ролики пачками: одна тема — десятки вариантов."],
-  ["Объясняющие видео", "Сложное простым языком: план, схема, диктор, иллюстрации."],
-  ["Истории и документалки", "Длинные рассказы с атмосферными кадрами и музыкой."],
-  ["Факты и подборки", "Быстрые форматы, которые легко штамповать каждый день."],
-  ["Любой свой формат", "Собираете цепочку нод под себя и сохраняете как шаблон."],
-];
+const NAV_LABELS: Record<Locale, Record<string, string>> = {
+  ru: {
+    pipeline: "Пайплайн",
+    formats: "Форматы",
+    features: "Возможности",
+    who: "Для кого",
+    pricing: "Тарифы",
+    faq: "FAQ",
+    contacts: "Контакты",
+  },
+  en: {
+    pipeline: "Pipeline",
+    formats: "Formats",
+    features: "Features",
+    who: "Who it's for",
+    pricing: "Pricing",
+    faq: "FAQ",
+    contacts: "Contacts",
+  },
+};
 
-const FEATURES: [string, string, string][] = [
-  ["excel_gpt", "Нодовый холст", "Весь пайплайн виден как схема: каждая нода — шаг, связи — поток данных. Можно перезапустить любой шаг, не трогая остальные."],
-  ["image_prompts", "Каталог промтов", "У каждой ноды готовые промты с описанием, названием и оценкой. Переменные стиля вынесены в настройки — меняете без правки текста."],
-  ["animation_prompts", "Параллельная генерация", "Кадры, озвучка и анимация идут в несколько потоков одновременно. Число потоков выбирается прямо на ноде."],
-  ["items", "Библиотека и группы", "Встроенные, пользовательские и свои ноды, готовые группы-цепочки. Собрали удачный процесс — переиспользуете его в каждом проекте."],
-];
+const PIPE_DATA: Record<Locale, [string, string, string][]> = {
+  ru: [
+    ["topic", "Тема", "Идея или список тем на неделю"],
+    ["plan", "План", "Структура ролика и тайминг сцен"],
+    ["script", "Сценарий", "Закадровый текст под формат и тон"],
+    ["audio", "Озвучка", "Голос диктора по сценарию"],
+    ["hero", "Персонажи", "Единые герои на весь сериал"],
+    ["images", "Картинки", "Кадры для каждой сцены"],
+    ["videos", "Анимация", "Оживление кадров в видео"],
+    ["music", "Музыка", "Подложка под настроение"],
+    ["sfx_gen", "Звуки", "SFX по событиям в кадре"],
+    ["assemble", "Сборка", "Монтаж, субтитры, финальный рендер"],
+    ["publish", "Публикация", "Выгрузка на площадки"],
+  ],
+  en: [
+    ["topic", "Topic", "Idea or weekly topic list"],
+    ["plan", "Plan", "Video structure & scene timing"],
+    ["script", "Script", "Voiceover tailored to format and tone"],
+    ["audio", "Voiceover", "Voice narration from script"],
+    ["hero", "Characters", "Consistent heroes across the series"],
+    ["images", "Images", "Key frames for each scene"],
+    ["videos", "Animation", "Bringing stills to life as video"],
+    ["music", "Music", "Soundtrack matching mood"],
+    ["sfx_gen", "SFX", "Sound effects for visual action"],
+    ["assemble", "Assembly", "Editing, captions, final render"],
+    ["publish", "Publishing", "Export and release to channels"],
+  ],
+};
 
-const FAQ = [
-  ["Что такое контент-завод?", "Это когда ролики выпускаются не по одному вручную, а потоком: один настроенный пайплайн превращает список тем в готовые видео."],
-  ["Можно ли делать мультфильмы с одними и теми же героями?", "Да. Нода «Персонажи» фиксирует внешность героев, и дальше все кадры генерируются с ними."],
-  ["Нужно ли уметь монтировать?", "Нет. Сборка, субтитры, музыка и звуки собираются автоматически. Любой шаг можно открыть и поправить вручную."],
-  ["Какие модели используются?", "Текстовые LLM для плана и сценария, генераторы изображений и видео для кадров и анимации. Модель выбирается на каждой ноде."],
-  ["Сколько стоит?", "Тарифы ещё формируются — цены ниже указаны как заглушки."],
-  ["Можно ли менять промты?", "Да: просматривать, редактировать, сохранять свои версии и выбирать активный промт прямо в настройках ноды."],
+const FORMATS_DATA: Record<Locale, [string, string][]> = {
+  ru: [
+    ["Мультсериалы", "Одни и те же герои из серии в серию, стиль держится через ноду персонажей."],
+    ["Shorts и Reels", "Вертикальные ролики пачками: одна тема — десятки вариантов."],
+    ["Объясняющие видео", "Сложное простым языком: план, схема, диктор, иллюстрации."],
+    ["Истории и документалки", "Длинные рассказы с атмосферными кадрами и музыкой."],
+    ["Факты и подборки", "Быстрые форматы, которые легко штамповать каждый день."],
+    ["Любой свой формат", "Собираете цепочку нод под себя и сохраняете как шаблон."],
+  ],
+  en: [
+    ["Animated Series", "Same heroes episode after episode, visual style preserved via character node."],
+    ["Shorts & Reels", "Vertical videos in batches: one core idea — dozens of variations."],
+    ["Explainer Videos", "Complex made simple: outline, diagrams, voiceover, illustrations."],
+    ["Stories & Documentaries", "Long-form storytelling with atmospheric visuals and music."],
+    ["Facts & Compilations", "High-cadence formats easy to produce daily at scale."],
+    ["Any Custom Format", "Assemble your own node chain and save it as a reusable template."],
+  ],
+};
+
+const FEATURES_DATA: Record<Locale, [string, string, string][]> = {
+  ru: [
+    ["excel_gpt", "Нодовый холст", "Весь пайплайн виден как схема: каждая нода — шаг, связи — поток данных. Можно перезапустить любой шаг, не трогая остальные."],
+    ["image_prompts", "Каталог промтов", "У каждой ноды готовые промты с описанием, названием и оценкой. Переменные стиля вынесены в настройки — меняете без правки текста."],
+    ["animation_prompts", "Параллельная генерация", "Кадры, озвучка и анимация идут в несколько потоков одновременно. Число потоков выбирается прямо на ноде."],
+    ["items", "Библиотека и группы", "Встроенные, пользовательские и свои ноды, готовые группы-цепочки. Собрали удачный процесс — переиспользуете его в каждом проекте."],
+  ],
+  en: [
+    ["excel_gpt", "Node Canvas", "The entire pipeline is mapped as a graph: each node is a step, links represent data flow. Rerun any step without touching the rest."],
+    ["image_prompts", "Prompt Catalog", "Every node features pre-built prompts with descriptions, names and ratings. Style variables are exposed in settings — tweak without touching text."],
+    ["animation_prompts", "Parallel Generation", "Frames, voiceover and animation generate across multiple concurrent streams. Select concurrency directly on the node."],
+    ["items", "Library & Groups", "Built-in, user and custom nodes, plus pre-built chain groups. Build a great workflow once, reuse it across all projects."],
+  ],
+};
+
+const SCALE_DATA: Record<Locale, [string, string][]> = {
+  ru: [
+    ["Время", "Рутинные шаги — генерация кадров, озвучка, сборка — идут без вашего участия и параллельно."],
+    ["Деньги", "Вы платите за генерации, а не за часы работы людей на каждом этапе."],
+    ["Качество", "Удачные промты и стиль сохраняются, поэтому каждый следующий ролик не хуже предыдущего."],
+  ],
+  en: [
+    ["Time", "Repetitive steps — frame generation, voiceover, assembly — run in parallel without manual supervision."],
+    ["Cost", "You pay for compute and generation, not for billable human hours at every stage."],
+    ["Quality", "Proven prompts and artistic direction are locked in, ensuring every video meets consistent standards."],
+  ],
+};
+
+const WHO_DATA: Record<Locale, string[]> = {
+  ru: [
+    "Авторы YouTube-каналов",
+    "Сети faceless-каналов",
+    "Студии анимации и продакшены",
+    "Маркетологи и SMM-команды",
+  ],
+  en: [
+    "YouTube Creators",
+    "Faceless Channel Networks",
+    "Animation Studios & Productions",
+    "Marketing & SMM Teams",
+  ],
+};
+
+const FAQ_DATA: Record<Locale, [string, string][]> = {
+  ru: [
+    ["Что такое контент-завод?", "Это когда ролики выпускаются не по одному вручную, а потоком: один настроенный пайплайн превращает список тем в готовые видео."],
+    ["Можно ли делать мультфильмы с одними и теми же героями?", "Да. Нода «Персонажи» фиксирует внешность героев, и дальше все кадры генерируются с ними."],
+    ["Нужно ли уметь монтировать?", "Нет. Сборка, субтитры, музыка и звуки собираются автоматически. Любой шаг можно открыть и поправить вручную."],
+    ["Какие модели используются?", "Текстовые LLM для плана и сценария, генераторы изображений и видео для кадров и анимации. Модель выбирается на каждой ноде."],
+    ["Сколько стоит?", "Тарифы представлены ниже — выберите стартовый пакет или ежемесячный завод."],
+    ["Можно ли менять промты?", "Да: просматривать, редактировать, сохранять свои версии и выбирать активный промт прямо в настройках ноды."],
+  ],
+  en: [
+    ["What is a content factory?", "It's when videos are produced not one-by-one manually, but in continuous flow: one configured pipeline turns a list of topics into finished videos."],
+    ["Can I create cartoons with consistent characters?", "Yes. The 'Characters' node locks character appearance, and all subsequent frames are generated with those characters."],
+    ["Do I need video editing skills?", "No. Assembly, subtitles, music and sound effects are assembled automatically. Any step can also be inspected and tweaked manually."],
+    ["Which AI models are used?", "Text LLMs for outline and script, image and video models for frames and animation. The model is chosen independently on each node."],
+    ["How much does it cost?", "Pricing packages are outlined below — choose a trial pack or monthly factory plan."],
+    ["Can I customize prompts?", "Yes: view, edit, save your own versions, and choose the active prompt directly in node parameters."],
+  ],
+};
+
+const CONTACT_CARDS_DATA: Record<Locale, [string, string, string, string][]> = {
+  ru: [
+    ["Попробовать студию", "Зарегистрируйтесь и соберите первый ролик на готовом пайплайне.", "/register", "Регистрация"],
+    ["Уже есть аккаунт", "Войдите, чтобы продолжить проекты и настроить ноды.", "/login", "Войти"],
+    ["Нашли проблему", "В студии есть чат оркестратора — задайте вопрос или опишите проблему прямо в проекте.", "/", "Открыть студию"],
+  ],
+  en: [
+    ["Try the Studio", "Sign up and create your first video on a ready-made pipeline.", "/register", "Register"],
+    ["Already have an account", "Sign in to continue your projects and configure nodes.", "/login", "Sign In"],
+    ["Found an issue", "The studio features an AI orchestrator chat — ask questions or report issues right inside the project.", "/", "Open Studio"],
+  ],
+};
+
+/** Публичные контакты. Пустое value — не показывается. */
+const CONTACTS: { label: string; value: string; href: string }[] = [
+  { label: "Email", value: "", href: "" },
+  { label: "Telegram", value: "", href: "" },
 ];
 
 function Reveal({ children, delay = 0, className = "" }: { children: ReactNode; delay?: number; className?: string }) {
@@ -127,11 +242,8 @@ const Btn = ({ href, children, solid }: { href: string; children: ReactNode; sol
   </a>
 );
 
-/** «Начать проект»: ведёт в студию с открытым окном нового проекта.
- *  Если вход требуется и сессии нет — сначала на страницу входа, с возвратом
- *  в ту же студию. Раньше это была простая ссылка на «/», и у анонима она
- *  выглядела мёртвой: студия отправляла его обратно на лендинг. */
-function StartProjectBtn() {
+/** «Начать проект»: ведёт в студию с открытым окном нового проекта. */
+function StartProjectBtn({ isEn = false }: { isEn?: boolean }) {
   const [busy, setBusy] = useState(false);
   async function go(ev: React.MouseEvent<HTMLAnchorElement>) {
     ev.preventDefault();
@@ -157,35 +269,38 @@ function StartProjectBtn() {
   return (
     <a href="/?new=1" onClick={go} data-testid="start-project"
       className="inline-flex h-14 items-center rounded-2xl bg-[#2bb8a0]/25 px-8 text-lg font-medium text-[#bff3e8] ring-1 ring-[#2bb8a0]/40 transition duration-300 hover:bg-[#2bb8a0]/35">
-      Начать проект
+      {isEn ? "Start project" : "Начать проект"}
     </a>
   );
 }
 
-const PlanCard = ({ p, i }: { p: Plan; i: number }) => (
-  <Reveal delay={i * 70} className="h-full">
-    <div className={`group flex h-full flex-col rounded-[1.6rem] p-6 ring-1 transition duration-300 hover:-translate-y-1 hover:bg-[#2bb8a0]/[0.06] hover:ring-[#2bb8a0]/35 ${p.hot ? "bg-[#2bb8a0]/[0.06] ring-[#2bb8a0]/30" : "bg-white/[0.03] ring-white/[0.07]"}`}>
-      <div className="flex items-center justify-between">
-        <div className="text-xl font-medium text-white">{p.name}</div>
-        {p.hot && <span className="rounded-full bg-[#2bb8a0]/15 px-2.5 py-0.5 text-xs text-[#9fe9da]">популярный</span>}
+const PlanCard = ({ p, i, locale = "ru" }: { p: Plan; i: number; locale?: Locale }) => {
+  const isEn = locale === "en";
+  return (
+    <Reveal delay={i * 70} className="h-full">
+      <div className={`group flex h-full flex-col rounded-[1.6rem] p-6 ring-1 transition duration-300 hover:-translate-y-1 hover:bg-[#2bb8a0]/[0.06] hover:ring-[#2bb8a0]/35 ${p.hot ? "bg-[#2bb8a0]/[0.06] ring-[#2bb8a0]/30" : "bg-white/[0.03] ring-white/[0.07]"}`}>
+        <div className="flex items-center justify-between">
+          <div className="text-xl font-medium text-white">{p.name}</div>
+          {p.hot && <span className="rounded-full bg-[#2bb8a0]/15 px-2.5 py-0.5 text-xs text-[#9fe9da]">{isEn ? "popular" : "популярный"}</span>}
+        </div>
+        <div className="mt-1 text-sm text-white/45">{p.note}</div>
+        <div className="mt-5 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40">{p.group === "factory" ? (isEn ? " / month" : " / месяц") : (isEn ? " one-time" : " разово")}</span></div>
+        <dl className="mt-5 space-y-1.5 text-sm">
+          {limitRows(p.limits, locale).map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3 border-b border-white/[0.05] pb-1.5"><dt className="text-white/50">{k}</dt><dd className="text-white/85">{v}</dd></div>
+          ))}
+        </dl>
+        {p.perks && (
+          <ul className="mt-5 space-y-1.5 text-sm text-white/70">
+            {p.base && <li className="text-[#5fd6bf]/80">{isEn ? `Everything in ${p.base}, plus:` : `Всё из ${p.base}, плюс:`}</li>}
+            {p.perks.map((x) => <li key={x} className="flex gap-2"><span className="text-[#5fd6bf]">✓</span>{x}</li>)}
+          </ul>
+        )}
+        <div className="mt-auto pt-6"><a href={`/register?plan=${p.id}`} className={`flex h-11 w-full items-center justify-center rounded-xl text-[15px] font-medium ring-1 transition duration-300 ${p.hot ? "bg-[#2bb8a0]/20 text-[#bff3e8] ring-[#2bb8a0]/40 hover:bg-[#2bb8a0]/30" : "bg-white/[0.04] text-white/75 ring-white/10 hover:bg-[#2bb8a0]/15 hover:text-[#bff3e8] hover:ring-[#2bb8a0]/30"}`}>{isEn ? "Select" : "Выбрать"}</a></div>
       </div>
-      <div className="mt-1 text-sm text-white/45">{p.note}</div>
-      <div className="mt-5 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40">{p.group === "factory" ? " / месяц" : " разово"}</span></div>
-      <dl className="mt-5 space-y-1.5 text-sm">
-        {limitRows(p.limits).map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-3 border-b border-white/[0.05] pb-1.5"><dt className="text-white/50">{k}</dt><dd className="text-white/85">{v}</dd></div>
-        ))}
-      </dl>
-      {p.perks && (
-        <ul className="mt-5 space-y-1.5 text-sm text-white/70">
-          {p.base && <li className="text-[#5fd6bf]/80">Всё из {p.base}, плюс:</li>}
-          {p.perks.map((x) => <li key={x} className="flex gap-2"><span className="text-[#5fd6bf]">✓</span>{x}</li>)}
-        </ul>
-      )}
-      <div className="mt-auto pt-6"><a href={`/register?plan=${p.id}`} className={`flex h-11 w-full items-center justify-center rounded-xl text-[15px] font-medium ring-1 transition duration-300 ${p.hot ? "bg-[#2bb8a0]/20 text-[#bff3e8] ring-[#2bb8a0]/40 hover:bg-[#2bb8a0]/30" : "bg-white/[0.04] text-white/75 ring-white/10 hover:bg-[#2bb8a0]/15 hover:text-[#bff3e8] hover:ring-[#2bb8a0]/30"}`}>Выбрать</a></div>
-    </div>
-  </Reveal>
-);
+    </Reveal>
+  );
+};
 
 const H2 = ({ k, t, s }: { k: string; t: string; s?: string }) => (
   <Reveal className="mb-8 max-w-3xl">
@@ -195,24 +310,11 @@ const H2 = ({ k, t, s }: { k: string; t: string; s?: string }) => (
   </Reveal>
 );
 
-const NAV = [
-  { id: "pipeline", label: "Пайплайн" },
-  { id: "formats", label: "Форматы" },
-  { id: "features", label: "Возможности" },
-  { id: "who", label: "Для кого" },
-  { id: "pricing", label: "Тарифы" },
-  { id: "faq", label: "FAQ" },
-  { id: "contacts", label: "Контакты" },
-];
-
-/** Публичные контакты. Пустое value — не показывается. */
-const CONTACTS: { label: string; value: string; href: string }[] = [
-  { label: "Email", value: "", href: "" },
-  { label: "Telegram", value: "", href: "" },
-];
-
-function HomeHeader({ active }: { active: string }) {
+function HomeHeader({ active, locale }: { active: string; locale: Locale }) {
   const [menu, setMenu] = useState(false);
+  const isEn = locale === "en";
+  const nav = NAV_IDS.map((id) => ({ id, label: NAV_LABELS[locale]?.[id] || NAV_LABELS.ru[id] }));
+
   const link = (n: { id: string; label: string }, mobile = false) => (
     <a key={n.id} href={`#${n.id}`} onClick={() => setMenu(false)}
       className={`relative rounded-xl transition duration-300 ${mobile ? "px-4 py-3 text-xl" : "px-3 py-2 text-base"} ${active === n.id ? "bg-[#2bb8a0]/[0.12] text-[#bff3e8]" : "text-white/55 hover:bg-white/[0.04] hover:text-white"}`}>
@@ -220,6 +322,7 @@ function HomeHeader({ active }: { active: string }) {
       {!mobile && <span className={`absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-[#5fd6bf] transition-opacity duration-300 ${active === n.id ? "opacity-100" : "opacity-0"}`} />}
     </a>
   );
+
   return (
     <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#101516]/75 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex h-20 max-w-7xl items-center gap-6 px-6">
@@ -227,24 +330,40 @@ function HomeHeader({ active }: { active: string }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/via-logo.png" alt="VIA" className="h-9" />
         </a>
-        <nav className="hidden items-center gap-1 lg:flex">{NAV.map((n) => link(n))}</nav>
+        <nav className="hidden items-center gap-1 lg:flex">{nav.map((n) => link(n))}</nav>
         <div className="ml-auto hidden items-center gap-3 lg:flex">
-          <a href="/login" className="rounded-xl px-4 py-2.5 text-base text-white/70 transition hover:bg-white/[0.05] hover:text-white">Войти</a>
-          <a href="/register" className="rounded-xl bg-[#2bb8a0]/20 px-5 py-2.5 text-base text-[#bff3e8] ring-1 ring-[#2bb8a0]/35 transition hover:bg-[#2bb8a0]/30">Регистрация</a>
+          <LanguageSwitcher variant="segmented" className="h-9 border-white/10 bg-white/[0.04]" />
+          <a href="/login" className="rounded-xl px-4 py-2.5 text-base text-white/70 transition hover:bg-white/[0.05] hover:text-white">
+            {isEn ? "Sign In" : "Войти"}
+          </a>
+          <a href="/register" className="rounded-xl bg-[#2bb8a0]/20 px-5 py-2.5 text-base text-[#bff3e8] ring-1 ring-[#2bb8a0]/35 transition hover:bg-[#2bb8a0]/30">
+            {isEn ? "Register" : "Регистрация"}
+          </a>
         </div>
-        <button aria-label="Меню" onClick={() => setMenu(!menu)} className="ml-auto flex h-11 w-11 items-center justify-center rounded-xl text-white/75 ring-1 ring-white/10 lg:hidden">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            {menu ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-          </svg>
-        </button>
+        <div className="ml-auto flex items-center gap-2 lg:hidden">
+          <LanguageSwitcher variant="compact" className="h-9 w-9 border-white/10 bg-white/[0.04]" />
+          <button aria-label="Меню" onClick={() => setMenu(!menu)} className="flex h-11 w-11 items-center justify-center rounded-xl text-white/75 ring-1 ring-white/10">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              {menu ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
+          </button>
+        </div>
       </div>
       <div className="grid transition-all duration-500 lg:hidden" style={{ gridTemplateRows: menu ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <nav className="flex flex-col gap-1 border-t border-white/[0.06] px-6 py-4">
-            {NAV.map((n) => link(n, true))}
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <a href="/login" className="rounded-xl bg-white/[0.04] py-3 text-center text-lg text-white/75 ring-1 ring-white/10">Войти</a>
-              <a href="/register" className="rounded-xl bg-[#2bb8a0]/20 py-3 text-center text-lg text-[#bff3e8] ring-1 ring-[#2bb8a0]/35">Регистрация</a>
+            {nav.map((n) => link(n, true))}
+            <div className="my-2 flex items-center justify-between border-y border-white/[0.06] py-3">
+              <span className="text-sm text-white/55">{isEn ? "Language" : "Язык"}</span>
+              <LanguageSwitcher variant="segmented" />
+            </div>
+            <div className="mt-1 grid grid-cols-2 gap-3">
+              <a href="/login" className="rounded-xl bg-white/[0.04] py-3 text-center text-lg text-white/75 ring-1 ring-white/10">
+                {isEn ? "Sign In" : "Войти"}
+              </a>
+              <a href="/register" className="rounded-xl bg-[#2bb8a0]/20 py-3 text-center text-lg text-[#bff3e8] ring-1 ring-[#2bb8a0]/35">
+                {isEn ? "Register" : "Регистрация"}
+              </a>
             </div>
           </nav>
         </div>
@@ -257,10 +376,21 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
   const [open, setOpen] = useState<number | null>(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState("");
+  const { locale, isEn } = useTranslation();
+
+  const nav = NAV_IDS.map((id) => ({ id, label: NAV_LABELS[locale]?.[id] || NAV_LABELS.ru[id] }));
+  const pipe = PIPE_DATA[locale] || PIPE_DATA.ru;
+  const formats = FORMATS_DATA[locale] || FORMATS_DATA.ru;
+  const features = FEATURES_DATA[locale] || FEATURES_DATA.ru;
+  const scale = SCALE_DATA[locale] || SCALE_DATA.ru;
+  const who = WHO_DATA[locale] || WHO_DATA.ru;
+  const faq = FAQ_DATA[locale] || FAQ_DATA.ru;
+  const contacts = CONTACT_CARDS_DATA[locale] || CONTACT_CARDS_DATA.ru;
+
   useEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
-    const ids = NAV.map((n) => n.id);
+    const ids = NAV_IDS as readonly string[];
     const onScroll = () => {
       let cur = "";
       for (const id of ids) {
@@ -275,19 +405,35 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
     if (location.hash) setTimeout(() => document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: "smooth" }), 300);
     return () => root.removeEventListener("scroll", onScroll);
   }, []);
+
   return (
     <div ref={scrollRef} className={`${fontClass} fixed inset-0 overflow-y-auto scroll-smooth scroll-pt-24 bg-[#101516] text-white`} style={{ backgroundImage: "radial-gradient(1200px 600px at 70% -10%, rgba(43,184,160,.16), transparent 60%), radial-gradient(900px 500px at 0% 40%, rgba(43,184,160,.06), transparent 60%)" }}>
       <style>{`@keyframes viaFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}@keyframes viaPan{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes viaRun{from{left:-10rem}to{left:100%}}`}</style>
 
-      <HomeHeader active={active} />
+      <HomeHeader active={active} locale={locale} />
 
       {/* HERO */}
       <section id="top" className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-12 pt-12 lg:grid-cols-[1.1fr_1fr]">
         <Reveal>
-          <div className="mb-6 inline-flex rounded-full bg-[#2bb8a0]/10 px-4 py-2 text-sm text-[#7fe3cf] ring-1 ring-[#2bb8a0]/25">Контент-завод для видео</div>
-          <h1 className="text-5xl font-bold leading-[1.05] md:text-7xl">Любые мультфильмы, сериалы и ролики — <span className="text-[#5fd6bf]">потоком</span></h1>
-          <p className="mt-7 max-w-xl text-xl leading-relaxed text-white/60">VIA превращает тему в готовое видео: план, сценарий, озвучка, персонажи, кадры, анимация, музыка, звуки, сборка и публикация — в одном пайплайне на нодовом холсте.</p>
-          <div className="mt-10 flex flex-wrap gap-4"><StartProjectBtn /><Btn href="#pipeline">Как это работает</Btn></div>
+          <div className="mb-6 inline-flex rounded-full bg-[#2bb8a0]/10 px-4 py-2 text-sm text-[#7fe3cf] ring-1 ring-[#2bb8a0]/25">
+            {isEn ? "Content factory for video" : "Контент-завод для видео"}
+          </div>
+          <h1 className="text-5xl font-bold leading-[1.05] md:text-7xl">
+            {isEn ? (
+              <>Any cartoons, series and videos — <span className="text-[#5fd6bf]">in continuous flow</span></>
+            ) : (
+              <>Любые мультфильмы, сериалы и ролики — <span className="text-[#5fd6bf]">потоком</span></>
+            )}
+          </h1>
+          <p className="mt-7 max-w-xl text-xl leading-relaxed text-white/60">
+            {isEn
+              ? "VIA turns a topic into a finished video: plan, script, voiceover, characters, frames, animation, music, sound effects, assembly, and publishing — all in one pipeline on a node canvas."
+              : "VIA превращает тему в готовое видео: план, сценарий, озвучка, персонажи, кадры, анимация, музыка, звуки, сборка и публикация — в одном пайплайне на нодовом холсте."}
+          </p>
+          <div className="mt-10 flex flex-wrap gap-4">
+            <StartProjectBtn isEn={isEn} />
+            <Btn href="#pipeline">{isEn ? "How it works" : "Как это работает"}</Btn>
+          </div>
         </Reveal>
         <Reveal delay={150} className="relative h-[420px]">
           {[[1, "left-0 top-6 w-[62%] rotate-[-3deg]", 0], [3, "right-0 top-0 w-[52%] rotate-[4deg]", 1.2], [5, "left-[18%] bottom-0 w-[60%] rotate-[1deg]", 2.4]].map(([i, cls, d]) => (
@@ -306,11 +452,15 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
             <div className="absolute inset-0 bg-gradient-to-br from-[#2bb8a0]/15 via-transparent to-transparent mix-blend-screen" />
             <div className="absolute bottom-0 left-0 right-0 flex flex-wrap items-end justify-between gap-4 p-7">
               <div>
-                <div className="text-sm uppercase tracking-[0.25em] text-[#7fe3cf]/80">Кадры из реальных проектов</div>
-                <div className="mt-2 text-3xl font-bold md:text-4xl">Всё это собрано на заводе VIA</div>
+                <div className="text-sm uppercase tracking-[0.25em] text-[#7fe3cf]/80">
+                  {isEn ? "Frames from real projects" : "Кадры из реальных проектов"}
+                </div>
+                <div className="mt-2 text-3xl font-bold md:text-4xl">
+                  {isEn ? "All created in the VIA factory" : "Всё это собрано на заводе VIA"}
+                </div>
               </div>
               <div className="flex gap-2">
-                {["Персонажи", "Кадры", "Анимация"].map((t) => (
+                {(isEn ? ["Characters", "Frames", "Animation"] : ["Персонажи", "Кадры", "Анимация"]).map((t) => (
                   <span key={t} className="rounded-full bg-black/40 px-4 py-1.5 text-sm text-white/75 ring-1 ring-white/10 backdrop-blur">{t}</span>
                 ))}
               </div>
@@ -339,9 +489,13 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
       {/* PIPELINE */}
       <section id="pipeline" className="relative mx-auto max-w-7xl px-6 py-12">
         <div className="grid items-end gap-6 lg:grid-cols-[1fr_auto]">
-          <H2 k="Один пайплайн" t="От темы до публикации" s="Каждый шаг — нода со своей моделью, промтом и настройками. Результат одного шага сразу уходит в следующий, независимые шаги идут параллельно." />
+          <H2
+            k={isEn ? "One pipeline" : "Один пайплайн"}
+            t={isEn ? "From topic to publishing" : "От темы до публикации"}
+            s={isEn ? "Every step is a node with its own model, prompt and settings. Results of one step feed directly into the next, independent steps run in parallel." : "Каждый шаг — нода со своей моделью, промтом и настройками. Результат одного шага сразу уходит в следующий, независимые шаги идут параллельно."}
+          />
           <Reveal className="mb-10 hidden gap-3 lg:flex">
-            {["11 шагов", "1 холст", "N потоков"].map((t) => (
+            {(isEn ? ["11 steps", "1 canvas", "N streams"] : ["11 шагов", "1 холст", "N потоков"]).map((t) => (
               <span key={t} className="rounded-2xl bg-white/[0.04] px-5 py-3 text-lg text-white/70 ring-1 ring-white/10">{t}</span>
             ))}
           </Reveal>
@@ -351,7 +505,7 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
           <div className="pointer-events-none absolute left-0 right-0 top-1/2 hidden h-px bg-gradient-to-r from-transparent via-[#2bb8a0]/40 to-transparent lg:block" />
           <div className="pointer-events-none absolute top-1/2 hidden h-px w-40 bg-gradient-to-r from-transparent via-[#7fe3cf] to-transparent lg:block" style={{ animation: "viaRun 6s linear infinite" }} />
           <div className="relative grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            {PIPE.map(([t, name, d], i) => (
+            {pipe.map(([t, name, d], i) => (
               <Reveal key={t} delay={i * 45}>
                 <div className="group relative h-44 overflow-hidden rounded-2xl bg-[#0d1314] ring-1 ring-white/[0.08] transition duration-500 hover:-translate-y-1 hover:shadow-[0_18px_40px_-12px_rgba(43,184,160,.35)] hover:ring-[#2bb8a0]/45">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -365,10 +519,10 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
                 </div>
               </Reveal>
             ))}
-            <Reveal delay={PIPE.length * 45}>
+            <Reveal delay={pipe.length * 45}>
               <a href="/" className="flex h-44 flex-col justify-end rounded-2xl border border-dashed border-[#2bb8a0]/35 bg-[#2bb8a0]/[0.06] p-4 transition duration-500 hover:bg-[#2bb8a0]/[0.12]">
-                <div className="text-xl font-medium text-[#7fe3cf]">+ Свой шаг</div>
-                <div className="mt-0.5 text-sm text-white/55">Любая нода из библиотеки</div>
+                <div className="text-xl font-medium text-[#7fe3cf]">{isEn ? "+ Custom step" : "+ Свой шаг"}</div>
+                <div className="mt-0.5 text-sm text-white/55">{isEn ? "Any node from library" : "Любая нода из библиотеки"}</div>
               </a>
             </Reveal>
           </div>
@@ -377,9 +531,13 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* FORMATS */}
       <section id="formats" className="mx-auto max-w-7xl px-6 py-12">
-        <H2 k="Любой контент" t="Мультфильмы, сериалы, шортсы, объяснялки" s="VIA не привязан к одному жанру. Меняете промты и стиль — получаете другой формат на том же заводе." />
+        <H2
+          k={isEn ? "Any content" : "Любой контент"}
+          t={isEn ? "Cartoons, series, shorts, explainers" : "Мультфильмы, сериалы, шортсы, объяснялки"}
+          s={isEn ? "VIA is not bound to a single genre. Adjust prompts and style — produce a completely different format in the same factory." : "VIA не привязан к одному жанру. Меняете промты и стиль — получаете другой формат на том же заводе."}
+        />
         <div className="grid gap-6 md:grid-cols-3">
-          {FORMATS.map(([t, d], i) => (
+          {formats.map(([t, d], i) => (
             <Reveal key={t} delay={i * 70}>
               <div className="overflow-hidden rounded-3xl bg-white/[0.03] ring-1 ring-white/[0.07]">
                 <FormatSlot i={i + 1} className="aspect-video w-full" />
@@ -392,9 +550,9 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* FEATURES */}
       <section id="features" className="mx-auto max-w-7xl px-6 py-12">
-        <H2 k="Возможности" t="Как устроен завод" />
+        <H2 k={isEn ? "Features" : "Возможности"} t={isEn ? "How the factory works" : "Как устроен завод"} />
         <div className="space-y-6">
-          {FEATURES.map(([img, t, d], i) => (
+          {features.map(([img, t, d], i) => (
             <Reveal key={t}>
               <div className={`grid items-center gap-10 rounded-[2rem] bg-white/[0.025] p-6 ring-1 ring-white/[0.06] md:grid-cols-2 md:p-10 ${i % 2 ? "md:[&>*:first-child]:order-2" : ""}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -408,9 +566,13 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* SCALE & SAVINGS */}
       <section className="mx-auto max-w-7xl px-6 py-12">
-        <H2 k="Масштаб" t="Много роликов в день без команды монтажёров" s="Вместо сценариста, иллюстратора, диктора и монтажёра на каждый ролик — один настроенный пайплайн, который вы запускаете на список тем." />
+        <H2
+          k={isEn ? "Scale" : "Масштаб"}
+          t={isEn ? "Many videos daily without an editing team" : "Много роликов в день без команды монтажёров"}
+          s={isEn ? "Instead of hiring a scriptwriter, illustrator, voice talent and video editor for every video — one configured pipeline running through a list of topics." : "Вместо сценариста, иллюстратора, диктора и монтажёра на каждый ролик — один настроенный пайплайн, который вы запускаете на список тем."}
+        />
         <div className="grid gap-6 md:grid-cols-3">
-          {[["Время", "Рутинные шаги — генерация кадров, озвучка, сборка — идут без вашего участия и параллельно."], ["Деньги", "Вы платите за генерации, а не за часы работы людей на каждом этапе."], ["Качество", "Удачные промты и стиль сохраняются, поэтому каждый следующий ролик не хуже предыдущего."]].map(([t, d], i) => (
+          {scale.map(([t, d], i) => (
             <Reveal key={t} delay={i * 80}><div className="h-full rounded-3xl bg-gradient-to-b from-[#2bb8a0]/[0.08] to-transparent p-8 ring-1 ring-[#2bb8a0]/15"><div className="text-3xl font-bold text-[#7fe3cf]">{t}</div><p className="mt-4 text-lg leading-relaxed text-white/60">{d}</p></div></Reveal>
           ))}
         </div>
@@ -418,9 +580,9 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* WHO */}
       <section id="who" className="mx-auto max-w-7xl px-6 py-12">
-        <H2 k="Для кого" t="Кому подойдёт VIA" />
+        <H2 k={isEn ? "Who it's for" : "Для кого"} t={isEn ? "Who VIA is built for" : "Кому подойдёт VIA"} />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {["Авторы YouTube-каналов", "Сети faceless-каналов", "Студии анимации и продакшены", "Маркетологи и SMM-команды"].map((t, i) => (
+          {who.map((t, i) => (
             <Reveal key={t} delay={i * 60}><div className="rounded-3xl bg-white/[0.03] p-7 text-xl font-medium ring-1 ring-white/[0.07]">{t}</div></Reveal>
           ))}
         </div>
@@ -429,18 +591,23 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
       {/* PRICING */}
       <section id="pricing" className="mx-auto max-w-7xl px-6 py-12">
         <FactoryStyles />
-        <H2 k="Тарифы" t="Тарифы" s="Начните с пробного пакета или запустите свой завод контента." />
+        <H2
+          k={isEn ? "Pricing" : "Тарифы"}
+          t={isEn ? "Plans & Pricing" : "Тарифы"}
+          s={isEn ? "Start with a trial package or launch your own content factory." : "Начните с пробного пакета или запустите свой завод контента."}
+        />
         {(["trial", "factory"] as const).map((g) => {
           const list = PLANS.filter((p) => p.group === g);
+          const groupInfo = getPlanGroupInfo(g, locale);
           return (
             <div key={g} className="mb-12">
               {g === "factory" && <IndustrialDivider />}
               <div className="mb-5 flex flex-wrap items-baseline gap-3">
-                <h3 className={g === "factory" ? "text-4xl font-bold tracking-tight text-white" : "text-xl font-medium text-white/80"}>{PLAN_GROUPS[g].title}</h3>
-                <span className="text-white/45">{PLAN_GROUPS[g].sub}</span>
+                <h3 className={g === "factory" ? "text-4xl font-bold tracking-tight text-white" : "text-xl font-medium text-white/80"}>{groupInfo.title}</h3>
+                <span className="text-white/45">{groupInfo.sub}</span>
               </div>
               <div className={`grid gap-4 ${g === "trial" ? "md:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4"}`}>
-                {list.map((p, i) => g === "factory" ? <Reveal key={p.id} delay={i * 80} className="h-full"><FactoryCard p={p} /></Reveal> : <PlanCard key={p.id} p={p} i={i} />)}
+                {list.map((p, i) => g === "factory" ? <Reveal key={p.id} delay={i * 80} className="h-full"><FactoryCard p={p} locale={locale} /></Reveal> : <PlanCard key={p.id} p={p} i={i} locale={locale} />)}
               </div>
             </div>
           );
@@ -449,9 +616,9 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-4xl px-6 py-12">
-        <H2 k="FAQ" t="Частые вопросы" />
+        <H2 k="FAQ" t={isEn ? "Frequently Asked Questions" : "Частые вопросы"} />
         <div className="space-y-3">
-          {FAQ.map(([q, a], i) => (
+          {faq.map(([q, a], i) => (
             <div key={q} className="rounded-3xl bg-white/[0.03] ring-1 ring-white/[0.07]">
               <button onClick={() => setOpen(open === i ? null : i)} className="flex w-full items-center justify-between px-7 py-6 text-left text-xl font-medium">
                 {q}<span className={`text-[#5fd6bf] transition duration-300 ${open === i ? "rotate-45" : ""}`}>+</span>
@@ -466,13 +633,13 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
 
       {/* CONTACTS */}
       <section id="contacts" className="mx-auto max-w-7xl px-6 py-12">
-        <H2 k="Контакты" t="Связаться с командой VIA" s="Вопросы по студии, тарифам и подключению — выберите удобный путь." />
+        <H2
+          k={isEn ? "Contacts" : "Контакты"}
+          t={isEn ? "Get in touch with VIA team" : "Связаться с командой VIA"}
+          s={isEn ? "Questions about the studio, pricing or integrations — pick the best route." : "Вопросы по студии, тарифам и подключению — выберите удобный путь."}
+        />
         <div className="grid gap-4 md:grid-cols-3">
-          {[
-            ["Попробовать студию", "Зарегистрируйтесь и соберите первый ролик на готовом пайплайне.", "/register", "Регистрация"],
-            ["Уже есть аккаунт", "Войдите, чтобы продолжить проекты и настроить ноды.", "/login", "Войти"],
-            ["Нашли проблему", "В студии есть чат оркестратора — задайте вопрос или опишите проблему прямо в проекте.", "/", "Открыть студию"],
-          ].map(([t, d, href, cta], i) => (
+          {contacts.map(([t, d, href, cta], i) => (
             <Reveal key={t} delay={i * 70}>
               <div className="flex h-full flex-col rounded-3xl bg-white/[0.03] p-7 ring-1 ring-white/[0.07]">
                 <div className="text-2xl font-medium">{t}</div>
@@ -499,9 +666,17 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
             <img src={N("publish")} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
             <div className="absolute inset-0 bg-[#101516]/60" />
             <div className="relative">
-              <h2 className="text-4xl font-bold md:text-6xl">Запустите свой контент-завод</h2>
-              <p className="mx-auto mt-6 max-w-2xl text-xl text-white/60">Одна тема на входе — готовый ролик на выходе. Дальше — сколько угодно.</p>
-              <div className="mt-10"><Btn href="/" solid>Открыть студию VIA</Btn></div>
+              <h2 className="text-4xl font-bold md:text-6xl">
+                {isEn ? "Launch your content factory" : "Запустите свой контент-завод"}
+              </h2>
+              <p className="mx-auto mt-6 max-w-2xl text-xl text-white/60">
+                {isEn
+                  ? "One topic in — a finished video out. Scale as much as you need."
+                  : "Одна тема на входе — готовый ролик на выходе. Дальше — сколько угодно."}
+              </p>
+              <div className="mt-10">
+                <Btn href="/" solid>{isEn ? "Open VIA Studio" : "Открыть студию VIA"}</Btn>
+              </div>
             </div>
           </div>
         </Reveal>
@@ -511,9 +686,12 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-8 px-6 py-10 text-white/40">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/via-logo.png" alt="VIA" className="h-7 opacity-70" />
-          <span>Контент-завод для видео</span>
-          {NAV.map((n) => <a key={n.id} href={`#${n.id}`} className="hover:text-white">{n.label}</a>)}
-          <span className="ml-auto flex gap-6"><a href="/login" className="hover:text-white">Войти</a><a href="/register" className="hover:text-white">Регистрация</a></span>
+          <span>{isEn ? "Content factory for video" : "Контент-завод для видео"}</span>
+          {nav.map((n) => <a key={n.id} href={`#${n.id}`} className="hover:text-white">{n.label}</a>)}
+          <span className="ml-auto flex gap-6">
+            <a href="/login" className="hover:text-white">{isEn ? "Sign In" : "Войти"}</a>
+            <a href="/register" className="hover:text-white">{isEn ? "Register" : "Регистрация"}</a>
+          </span>
         </div>
       </footer>
     </div>

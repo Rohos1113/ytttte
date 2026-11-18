@@ -24,12 +24,24 @@ export const PLANS: Plan[] = [
     perks: ["Интеграция собственных API", "Экспорт без брендинга VIA", "Приоритетная поддержка 24/7"] },
 ];
 
-export const limitRows = (l: PlanLimits): [string, string][] => [
-  ["Кредиты", fmtNum(l.credits)],
-  ...(l.videos ? [["Видео", `до ${l.videos}`] as [string, string]] : []),
-  ["Потоки LLM", String(l.llm)],
-  ...(l.agents ? [["Агенты через оркестратор", String(l.agents)] as [string, string]] : []),
-  ["Потоки картинок", String(l.img)],
-  ["Потоки видео", String(l.vid)],
-  ["Хранилище", l.storage],
-];
+export const limitRows = (l: PlanLimits, locale: string = "ru"): [string, string][] => {
+  const isEn = locale === "en";
+  return [
+    [isEn ? "Credits" : "Кредиты", fmtNum(l.credits)],
+    ...(l.videos ? [[isEn ? "Videos" : "Видео", isEn ? `up to ${l.videos}` : `до ${l.videos}`] as [string, string]] : []),
+    [isEn ? "LLM streams" : "Потоки LLM", String(l.llm)],
+    ...(l.agents ? [[isEn ? "Orchestrator agents" : "Агенты через оркестратор", String(l.agents)] as [string, string]] : []),
+    [isEn ? "Image streams" : "Потоки картинок", String(l.img)],
+    [isEn ? "Video streams" : "Потоки видео", String(l.vid)],
+    [isEn ? "Storage" : "Хранилище", isEn ? l.storage.replace("ГБ", "GB").replace("ТБ", "TB") : l.storage],
+  ];
+};
+
+export const getPlanGroupInfo = (g: "trial" | "factory", locale: string = "ru") => {
+  if (locale === "en") {
+    return g === "trial"
+      ? { title: "Trial Packs", sub: "One-time generation packs" }
+      : { title: "Factories", sub: "Monthly · content production with orchestrator" };
+  }
+  return PLAN_GROUPS[g];
+};

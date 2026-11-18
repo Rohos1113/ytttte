@@ -65,8 +65,12 @@ const Gauge = ({ k, v, max, lvl }: { k: string; v: number; max: number; lvl: num
   </div>
 );
 
-export function FactoryCard({ p }: { p: Plan }) {
+export function FactoryCard({ p, locale = "ru" }: { p: Plan; locale?: string }) {
   const t = TIER[p.id]; const l = p.limits; const flag = p.id === "conveyor";
+  const isEn = locale === "en";
+  const tag = isEn
+    ? (p.id === "workshop" ? "Handcrafted" : p.id === "manufactory" ? "Batch Production" : p.id === "factory" ? "Industrial Scale" : "Flagship")
+    : t.tag;
   return (
     <div className="group relative flex h-full flex-col overflow-hidden rounded-[1.6rem] p-6 transition duration-500 hover:-translate-y-1"
       style={{ background: t.bg, boxShadow: `inset 0 0 0 1px ${t.ring}, ${t.glow}` }}>
@@ -75,27 +79,27 @@ export function FactoryCard({ p }: { p: Plan }) {
       {flag && <div className="via-flag pointer-events-none absolute -inset-px rounded-[1.6rem]" style={{ boxShadow: "inset 0 0 0 1px rgba(95,214,191,0.7), inset 0 0 40px -18px rgba(95,214,191,0.6)" }} />}
       <div className="relative flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.2em] text-[#5fd6bf]/70">{"▮".repeat(t.lvl)}<span className="text-white/15">{"▮".repeat(4 - t.lvl)}</span> · {t.tag}</div>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-[#5fd6bf]/70">{"▮".repeat(t.lvl)}<span className="text-white/15">{"▮".repeat(4 - t.lvl)}</span> · {tag}</div>
           <div className="mt-1 text-2xl font-semibold text-white">{p.name}</div>
           <div className="text-sm text-white/45">{p.note}</div>
         </div>
-        {flag && <span className="rounded-full px-2.5 py-0.5 text-xs text-[#062a24]" style={{ background: "linear-gradient(90deg,#5fd6bf,#2bb8a0)" }}>Флагман</span>}
+        {flag && <span className="rounded-full px-2.5 py-0.5 text-xs text-[#062a24]" style={{ background: "linear-gradient(90deg,#5fd6bf,#2bb8a0)" }}>{isEn ? "Flagship" : "Флагман"}</span>}
       </div>
       <div className="relative mt-3 opacity-90 transition duration-500 group-hover:opacity-100"><Emblem id={p.id} size={110} /></div>
-      <div className="relative mt-2 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40"> / месяц</span></div>
-      <div className="relative text-sm text-white/55">{fmtNum(l.credits)} кредитов · {l.storage}</div>
+      <div className="relative mt-2 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40">{isEn ? " / month" : " / месяц"}</span></div>
+      <div className="relative text-sm text-white/55">{fmtNum(l.credits)} {isEn ? "credits" : "кредитов"} · {isEn ? l.storage.replace("ГБ", "GB").replace("ТБ", "TB") : l.storage}</div>
       <div className="relative mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl bg-black/20 p-3 ring-1 ring-white/[0.05]">
-        <div className="col-span-2 text-[11px] uppercase tracking-[0.2em] text-[#5fd6bf]/70">Потоки и агенты</div>
-        <Gauge k="Потоки LLM" v={l.llm} max={MAX.llm} lvl={t.lvl} />
-        <Gauge k="Агентов" v={l.agents ?? 0} max={MAX.agents ?? 1} lvl={t.lvl} />
-        <Gauge k="Потоки картинок" v={l.img} max={MAX.img} lvl={t.lvl} />
-        <Gauge k="Потоки видео" v={l.vid} max={MAX.vid} lvl={t.lvl} />
+        <div className="col-span-2 text-[11px] uppercase tracking-[0.2em] text-[#5fd6bf]/70">{isEn ? "Streams & Agents" : "Потоки и агенты"}</div>
+        <Gauge k={isEn ? "LLM Streams" : "Потоки LLM"} v={l.llm} max={MAX.llm} lvl={t.lvl} />
+        <Gauge k={isEn ? "Agents" : "Агентов"} v={l.agents ?? 0} max={MAX.agents ?? 1} lvl={t.lvl} />
+        <Gauge k={isEn ? "Image Streams" : "Потоки картинок"} v={l.img} max={MAX.img} lvl={t.lvl} />
+        <Gauge k={isEn ? "Video Streams" : "Потоки видео"} v={l.vid} max={MAX.vid} lvl={t.lvl} />
       </div>
       <ul className="relative mt-4 space-y-1.5 text-sm text-white/75">
-        {p.base && <li className="text-[#5fd6bf]/80">Всё из {p.base}, плюс:</li>}
+        {p.base && <li className="text-[#5fd6bf]/80">{isEn ? `Everything in ${p.base}, plus:` : `Всё из ${p.base}, плюс:`}</li>}
         {p.perks?.map((x) => <li key={x} className="flex items-center gap-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-[#2bb8a0]/10 ring-1 ring-[#2bb8a0]/20">{PERK_ICON(x)}</span>{x}</li>)}
       </ul>
-      <div className="relative mt-auto pt-6"><a href={`/register?plan=${p.id}`} className={`flex h-11 w-full items-center justify-center rounded-xl text-[15px] font-medium ring-1 transition duration-300 ${flag ? "bg-[#2bb8a0]/25 text-[#d5f8f0] ring-[#5fd6bf]/50 hover:bg-[#2bb8a0]/35" : "bg-white/[0.04] text-white/80 ring-[#2bb8a0]/25 hover:bg-[#2bb8a0]/15 hover:text-[#bff3e8]"}`}>Запустить {p.name.toLowerCase()}</a></div>
+      <div className="relative mt-auto pt-6"><a href={`/register?plan=${p.id}`} className={`flex h-11 w-full items-center justify-center rounded-xl text-[15px] font-medium ring-1 transition duration-300 ${flag ? "bg-[#2bb8a0]/25 text-[#d5f8f0] ring-[#5fd6bf]/50 hover:bg-[#2bb8a0]/35" : "bg-white/[0.04] text-white/80 ring-[#2bb8a0]/25 hover:bg-[#2bb8a0]/15 hover:text-[#bff3e8]"}`}>{isEn ? `Launch ${p.name}` : `Запустить ${p.name.toLowerCase()}`}</a></div>
     </div>
   );
 }
