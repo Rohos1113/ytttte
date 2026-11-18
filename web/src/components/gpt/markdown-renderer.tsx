@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import { Check, Copy, FileCode, Terminal } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Check, Copy, FileCode, Table as TableIcon, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { InteractiveTable } from "./interactive-table";
 
 interface CodeBlockProps {
   language: string;
@@ -11,6 +12,9 @@ interface CodeBlockProps {
 
 export function CodeBlock({ language, code }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const displayLang = (language || "text").toLowerCase();
+  const isTabular = displayLang === "tsv" || displayLang === "csv";
+  const [viewMode, setViewMode] = useState<"table" | "code">(isTabular ? "table" : "code");
 
   const onCopy = async () => {
     try {
@@ -22,9 +26,45 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     }
   };
 
-  const displayLang = (language || "text").toLowerCase();
   const lines = code.split("\n");
   const showLineNumbers = lines.length > 2;
+
+  // Парсинг TSV/CSV для интерактивной таблицы
+  const tableData = useMemo(() => {
+    if (!isTabular) return null;
+    const nonEmptyLines = lines.map((l) => l.trim()).filter(Boolean);
+    if (nonEmptyLines.length < 2) return null;
+    const delimiter = displayLang === "tsv" ? "\t" : nonEmptyLines[0].includes(";") ? ";" : ",";
+    const parsed = nonEmptyLines.map((l) => l.split(delimiter).map((c) => c.trim()));
+    if (!parsed[0] || parsed[0].length < 2) return null;
+    return {
+      headers: parsed[0],
+      rows: parsed.slice(1),
+    };
+  }, [code, isTabular, displayLang]);
+
+  if (isTabular && viewMode === "table" && tableData) {
+    return (
+      <div className="relative">
+        <InteractiveTable
+          headers={tableData.headers}
+          rows={tableData.rows}
+          title={displayLang.toUpperCase()}
+          renderCellContent={(cell) => parseInlineFormatting(cell)}
+        />
+        <div className="flex justify-end -mt-1 mb-2 pr-1">
+          <button
+            type="button"
+            onClick={() => setViewMode("code")}
+            className="flex items-center gap-1 text-[11px] text-white/40 hover:text-[#2dd4bf] transition outline-none"
+          >
+            <FileCode className="h-3 w-3" />
+            <span>Показать как исходный код</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-white/[0.12] bg-[#121216]/95 shadow-lg group">
@@ -40,29 +80,42 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
             ({lines.length} {lines.length === 1 ? "строка" : lines.length < 5 ? "строки" : "строк"})
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onCopy}
-          className={cn(
-            "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-all outline-none",
-            copied
-              ? "bg-[#2dd4bf]/20 text-[#2dd4bf] border border-[#2dd4bf]/40"
-              : "text-white/60 hover:bg-white/[0.08] hover:text-white"
+        <div className="flex items-center gap-2">
+          {isTabular && tableData && (
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-white/60 hover:text-[#2dd4bf] hover:bg-white/[0.06] transition outline-none"
+              title="Открыть как интерактивную таблицу"
+            >
+              <TableIcon className="h-3 w-3 text-[#2dd4bf]" />
+              <span>Таблица</span>
+            </button>
           )}
-          title="Копировать код"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3 w-3 text-[#2dd4bf]" />
-              <span>Скопировано</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3 w-3" />
-              <span>Копировать код</span>
-            </>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={onCopy}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-all outline-none",
+              copied
+                ? "bg-[#2dd4bf]/20 text-[#2dd4bf] border border-[#2dd4bf]/40"
+                : "text-white/60 hover:bg-white/[0.08] hover:text-white"
+            )}
+            title="Копировать код"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3 text-[#2dd4bf]" />
+                <span>Скопировано</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" />
+                <span>Копировать код</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
       <div className="overflow-x-auto p-3.5 font-mono text-[12px] leading-relaxed text-white/90 selection:bg-[#2dd4bf]/30">
         {showLineNumbers ? (
@@ -164,30 +217,12 @@ export function MarkdownRenderer({ content }: { content: string }) {
     const body = tableRows.slice(1);
 
     nodes.push(
-      <div key={key} className="my-3 overflow-x-auto rounded-xl border border-white/15 bg-[#121216]/95 shadow-md">
-        <table className="w-full text-left text-xs text-white/80">
-          <thead className="border-b border-white/10 bg-white/[0.04] font-semibold text-white">
-            <tr>
-              {header.map((col, idx) => (
-                <th key={idx} className="px-3.5 py-2.5">
-                  {parseInlineFormatting(col.trim())}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.06]">
-            {body.map((row, rIdx) => (
-              <tr key={rIdx} className={cn("transition-colors hover:bg-white/[0.03]", rIdx % 2 === 1 && "bg-white/[0.015]")}>
-                {row.map((cell, cIdx) => (
-                  <td key={cIdx} className="px-3.5 py-2">
-                    {parseInlineFormatting(cell.trim())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <InteractiveTable
+        key={key}
+        headers={header}
+        rows={body}
+        renderCellContent={(cell) => parseInlineFormatting(cell)}
+      />
     );
     tableRows = [];
     inTable = false;
@@ -238,6 +273,43 @@ export function MarkdownRenderer({ content }: { content: string }) {
       continue;
     } else if (inTable) {
       flushTable(`table-${i}`);
+    }
+
+    // Check # Лист: SheetName (TSV table from GPT / Excel mode)
+    if (line.trim().startsWith("# Лист:") || line.trim().startsWith("# Лист：")) {
+      if (inTable) flushTable(`table-${i}`);
+      const sheetName = line.trim().replace(/^#\s*Лист[:：]\s*/i, "").trim();
+      const tsvRows: string[][] = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const nextLine = lines[j];
+        if (!nextLine.trim()) {
+          if (tsvRows.length > 0) break;
+          j++;
+          continue;
+        }
+        if (nextLine.includes("\t")) {
+          tsvRows.push(nextLine.split("\t").map((c) => c.trim()));
+          j++;
+        } else if (tsvRows.length > 0 && nextLine.trim().startsWith("#")) {
+          break;
+        } else {
+          break;
+        }
+      }
+      if (tsvRows.length >= 2) {
+        nodes.push(
+          <InteractiveTable
+            key={`sheet-${i}`}
+            title={sheetName ? `Лист: ${sheetName}` : "Таблица Excel"}
+            headers={tsvRows[0]}
+            rows={tsvRows.slice(1)}
+            renderCellContent={(cell) => parseInlineFormatting(cell)}
+          />
+        );
+        i = j - 1;
+        continue;
+      }
     }
 
     // Headers

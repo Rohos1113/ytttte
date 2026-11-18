@@ -25,6 +25,7 @@ import {
   FileSpreadsheet,
   FileText,
   FolderOutput,
+  Headphones,
   Image as ImageIcon,
   Loader2,
   Maximize2,
@@ -118,6 +119,13 @@ function isImageFile(f: GptWorkspaceFile | undefined, fallbackName?: string): bo
   return /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|ico)$/i.test(n);
 }
 
+function isAudioFile(f: GptWorkspaceFile | undefined, fallbackName?: string): boolean {
+  if (f?.kind === "audio") return true;
+  if (f?.mime?.startsWith("audio/")) return true;
+  const n = f ? fileLabel(f) : fallbackName || "";
+  return /\.(mp3|wav|m4a|ogg|flac|aac|opus|wma|webm)$/i.test(n);
+}
+
 function downloadHref(f: GptWorkspaceFile): string {
   if (f.download_url) return f.download_url;
   return `${f.url}${f.url.includes("?") ? "&" : "?"}download=1`;
@@ -146,6 +154,9 @@ function getFileIcon(name: string) {
   }
   if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
     return <FileSpreadsheet className="h-4 w-4 text-[#2dd4bf]" />;
+  }
+  if (["mp3", "wav", "m4a", "ogg", "flac", "aac", "opus", "wma"].includes(ext)) {
+    return <Headphones className="h-4 w-4 text-purple-400" />;
   }
   if (
     [
@@ -1250,6 +1261,45 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                               </button>
                             );
                           }
+                          const isAud = isAudioFile(f, name);
+                          if (isAud && f?.url) {
+                            return (
+                              <div
+                                key={name}
+                                className="flex flex-col gap-1.5 rounded-xl bg-black/60 p-2 text-xs text-white/90 border border-purple-500/30 shadow-md min-w-[200px] max-w-xs"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Headphones className="h-4 w-4 text-purple-400 shrink-0" />
+                                    <span className="truncate text-[11px] font-medium text-white/95" title={name}>
+                                      {name}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {f.size ? (
+                                      <span className="text-[10px] text-white/40 font-mono">
+                                        {formatBytes(f.size)}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerDownload(f)}
+                                      className="text-white/40 hover:text-purple-300 transition outline-none"
+                                      title="Скачать аудио"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <audio
+                                  controls
+                                  src={f.url}
+                                  preload="metadata"
+                                  className="h-7 w-full rounded-md outline-none"
+                                />
+                              </div>
+                            );
+                          }
                           return (
                             <div
                               key={name}
@@ -1590,7 +1640,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*,.pdf,.docx,.xlsx,.xls,.csv,.tsv,.txt,.md,.py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.xml,.html,.css,.sql,.sh,.bat,.ps1,.zip"
+                    accept="image/*,audio/*,.pdf,.docx,.xlsx,.xls,.csv,.tsv,.txt,.md,.py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.xml,.html,.css,.sql,.sh,.bat,.ps1,.zip,.mp3,.wav,.m4a,.ogg,.flac,.aac"
                     className="hidden"
                     onChange={(e) => {
                       if (e.target.files?.length) {
@@ -1605,7 +1655,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={busy || uploadMut.isPending}
                     className="flex items-center gap-1.5 rounded-xl border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2.5 py-1 text-xs font-semibold text-[#2dd4bf] hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/50 transition shadow-sm outline-none"
-                    title="Прикрепить файлы (картинки, Excel, PDF, Word, скрипты)"
+                    title="Прикрепить файлы (картинки, аудио, Excel, PDF, Word, скрипты)"
                   >
                     {uploadMut.isPending ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2dd4bf]" />

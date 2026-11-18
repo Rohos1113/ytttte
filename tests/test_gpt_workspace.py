@@ -1193,3 +1193,12 @@ def test_legacy_session_auto_migrates_sent_attachments() -> None:
     assert got["history_attachments"][0]["name"] == "old_screen.png"
     assert not (att / "old_screen.png").exists()
     assert (d / "uploads" / "old_screen.png").is_file()
+
+
+def test_save_attachment_audio_file() -> None:
+    s = gw.create_session()
+    att = gw.save_attachment(s["id"], "sample.mp3", b"\xff\xfb\x90\x00" * 20)
+    assert att["kind"] == "audio"
+    assert att["mime"] == "audio/mpeg"
+    got = gw.get_session(s["id"])
+    assert got["attachments"][0]["kind"] == "audio"

@@ -63,11 +63,13 @@ _FILE_DELIVERY_NUDGE = (
 # Короткий запрос + документ → не тащить в API километровые прошлые промты сцен.
 _ATTACHMENT_FOCUS_RE = re.compile(
     r"(?i)("
-    r"перевед|перевод|translate|суммар|разбер|прочитай|что\s+в\s+(этом\s+)?(файл|pdf|приложен)|"
-    r"из\s+приложен|по\s+файл|этот\s+pdf|эту\s+презентац|содержим"
+    r"перевед|перевод|translate|суммар|разбер|прочитай|что\s+в\s+(этом\s+)?(файл|pdf|приложен|аудио|запис)|"
+    r"из\s+приложен|по\s+файл|этот\s+pdf|эту\s+презентац|содержим|расшифр|транскриб|голос|озвучк"
     r")"
 )
-_DOC_SUFFIXES_FOCUS = frozenset({".pdf", ".docx", ".doc", ".xlsx", ".xlsm", ".txt", ".md"})
+_DOC_SUFFIXES_FOCUS = frozenset(
+    {".pdf", ".docx", ".doc", ".xlsx", ".xlsm", ".txt", ".md", ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
+)
 _HISTORY_LONG_MSG_CHARS = 1200
 
 # Пользователь хочет файл в «Результаты» (не обязательно исходник).
@@ -758,8 +760,8 @@ def _file_entry(path: Path) -> dict[str, Any]:
 
     fixed = ensure_correct_extension(path)
     display_name, mime = suggested_name_and_mime(fixed)
-    kind = "image" if (mime or "").startswith("image/") else "file"
-    if kind != "image" and fixed.suffix.lower() in {
+    low_suf = fixed.suffix.lower()
+    if (mime or "").startswith("image/") or low_suf in {
         ".png",
         ".jpg",
         ".jpeg",
@@ -772,6 +774,20 @@ def _file_entry(path: Path) -> dict[str, Any]:
         ".ico",
     }:
         kind = "image"
+    elif (mime or "").startswith("audio/") or low_suf in {
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".flac",
+        ".aac",
+        ".wma",
+        ".opus",
+        ".webm",
+    }:
+        kind = "audio"
+    else:
+        kind = "file"
     return {
         "name": fixed.name,
         "display_name": display_name or fixed.name,

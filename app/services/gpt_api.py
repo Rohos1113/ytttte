@@ -112,6 +112,9 @@ _TEXT_SUFFIXES = frozenset(
 _IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".heic", ".ico"}
 )
+_AUDIO_SUFFIXES = frozenset(
+    {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".webm"}
+)
 _CODE_LANGUAGES: dict[str, str] = {
     ".py": "python",
     ".pyw": "python",
@@ -927,6 +930,24 @@ def _docx_to_text(path: Path) -> str:
     return "\n\n".join(lines).strip() or f"[docx {path.name}: пустой текст]"
 
 
+def audio_to_text(path: Path, *, max_chars: int = 40_000) -> str:
+    """Транскрибация аудиофайла через платформенный ASR (Whisper / NeMo)."""
+    try:
+        from app.services.asr import transcribe_words
+
+        words = transcribe_words(path, language="ru")
+        if not words:
+            return f"[аудио {path.name}: речь не обнаружена или файл пуст]"
+        duration = words[-1].end if words else 0.0
+        text = " ".join(w.word for w in words).strip()
+        if len(text) > max_chars:
+            text = text[:max_chars] + " … [текст обрезан по лимиту]"
+        return f"[расшифровка аудио {path.name}, длительность ~{duration:.1f}с]:\n{text}"
+    except Exception as e:
+        logger.warning("gpt_api: transcribe audio {}: {}", path.name, e)
+        return f"[аудио {path.name}: не удалось транскрибировать ({e})]"
+
+
 def file_to_context(
     path: Path,
     *,
@@ -949,6 +970,8 @@ def file_to_context(
         lang = _CODE_LANGUAGES.get(suffix)
         if lang and body and not body.startswith("[") and not body.startswith("```"):
             body = f"```{lang}\n{body}\n```"
+    elif suffix in _AUDIO_SUFFIXES:
+        body = audio_to_text(path)
     elif suffix in _IMAGE_SUFFIXES:
         try:
             size = path.stat().st_size
@@ -4009,6 +4032,9 @@ _WEAK_SUFFIXES = frozenset({"", ".bin", ".dat", ".tmp", ".octet-stream", ".unkno
 _IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".heic", ".ico"}
 )
+_AUDIO_SUFFIXES = frozenset(
+    {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".webm"}
+)
 _SNIFF_MIME = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -4026,6 +4052,13 @@ _SNIFF_MIME = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".html": "text/html",
     ".txt": "text/plain",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".aac": "audio/aac",
+    ".opus": "audio/opus",
 }
 
 

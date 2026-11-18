@@ -1347,3 +1347,27 @@ def test_parse_choice_empty_content_is_retryable() -> None:
     assert text == "Plan step 2: 10 scenes"
     assert finish == "stop"
 
+
+def test_file_to_context_audio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.gpt_api import file_to_context
+    import app.services.asr as asr
+    from app.services.whisper import WordTS
+
+    def fake_transcribe(audio_path, **kwargs):
+        return [
+            WordTS(word="Привет,", start=0.0, end=0.8),
+            WordTS(word="это", start=0.9, end=1.2),
+            WordTS(word="тестовая", start=1.3, end=1.8),
+            WordTS(word="озвучка.", start=1.9, end=2.5),
+        ]
+
+    monkeypatch.setattr(asr, "transcribe_words", fake_transcribe)
+
+    audio_file = tmp_path / "voice.mp3"
+    audio_file.write_bytes(b"FAKE-MP3-BYTES")
+
+    ctx = file_to_context(audio_file)
+    assert "[расшифровка аудио voice.mp3" in ctx
+    assert "Привет, это тестовая озвучка." in ctx
+    assert "длительность ~2.5с" in ctx
+
