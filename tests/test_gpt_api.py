@@ -1349,8 +1349,8 @@ def test_parse_choice_empty_content_is_retryable() -> None:
 
 
 def test_file_to_context_audio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services.gpt_api import file_to_context
     import app.services.asr as asr
+    from app.services.gpt_api import file_to_context
     from app.services.whisper import WordTS
 
     def fake_transcribe(audio_path, **kwargs):
