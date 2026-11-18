@@ -7,8 +7,6 @@ import {
   ChevronDown,
   Eye,
   Loader2,
-  RefreshCw,
-  SlidersHorizontal,
   Upload,
   X,
 } from "lucide-react";
@@ -20,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { ExcelGptNodeConfig } from "@/lib/excel-gpt-config";
-import { EXCEL_GPT_MAX_SLOTS } from "@/lib/excel-gpt-slots";
 import {
   EMIT_OPTIONS,
   OUTPUT_OPTIONS,
@@ -71,22 +68,6 @@ export function ExcelGptSettingsPanel({
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
-  // Смена слота: конфиг ноды (meta.excel_gpt_nodes) + канвас (data.slotIndex).
-  // Оба места — источник истины для слота, поэтому пишем в оба.
-  const setSlot = useMutation({
-    mutationFn: (slotIndex: number) =>
-      api.patchExcelGptConfig(projectId, nodeKey, { slotIndex }),
-    onSuccess: (_res, slotIndex) => {
-      onConfigChange({ slotIndex });
-      void qc.invalidateQueries({ queryKey: ["project", projectId] });
-      void qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
-      }, 60);
-    },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
-  });
-
   const data = resolve.data;
   const role = (data?.role || "assist") as OperatorRole;
   const checkMode = data?.checkMode === true;
@@ -109,34 +90,6 @@ export function ExcelGptSettingsPanel({
     queryFn: () => api.getProject(projectId),
     enabled: Boolean(projectId),
   });
-
-  // Слоты заняты другими нодами «Работа с GPT» проекта: подсказываем это
-  // при выборе слота (две ноды на одном слоте — ошибка графа, её отвергает
-  // серверная валидация с текстом «перенумеруйте ноды»).
-  const slotOwners = useMemo(() => {
-    const meta = (project.data?.meta || {}) as {
-      canvas_graph?: { nodes?: { id?: string; type?: string; data?: Record<string, unknown> }[] };
-    };
-    const nodes = meta.canvas_graph?.nodes || [];
-    const owners = new Map<number, string[]>();
-    for (const n of nodes) {
-      if (!n?.id || n.type !== "excel_gpt" || n.id === nodeKey) continue;
-      const data = n.data || {};
-      if (typeof data.sd_agent === "string" || data.slotOverflow === true) continue;
-      const raw = data.slotIndex;
-      const slot =
-        typeof raw === "number"
-          ? raw
-          : typeof raw === "string" && /^\d+$/.test(raw.trim())
-            ? Number.parseInt(raw.trim(), 10)
-            : undefined;
-      if (slot === undefined || slot < 1 || slot > EXCEL_GPT_MAX_SLOTS) continue;
-      const list = owners.get(slot) || [];
-      list.push(n.id);
-      owners.set(slot, list);
-    }
-    return owners;
-  }, [project.data?.meta, nodeKey]);
 
   const [formatDraft, setFormatDraft] = useState("");
   const [formatDirty, setFormatDirty] = useState(false);
@@ -222,59 +175,8 @@ export function ExcelGptSettingsPanel({
     patch.mutate({ emitKinds: safe, transport: "api" });
   };
 
-  const currentSlot = config.slotIndex ?? 1;
-
   return (
     <div className="flex flex-col gap-4">
-      {/* Слот ноды: её связь с шагом DAG (enrich_1..5). Перетаскивание на
-          холсте слот НЕ меняет — только здесь. */}
-      <section className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-        <h3 className="text-sm font-semibold text-foreground">Слот сцены</h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Номер шага «ИИ-редактор сцен» в пайплайне (1–5). Слот определяет,
-          каким статусом нода запускается; перетаскивание ноды на холсте его
-          не меняет.
-        </p>
-        <div className="mt-2.5 grid gap-2 sm:grid-cols-5">
-          {Array.from({ length: EXCEL_GPT_MAX_SLOTS }, (_, i) => i + 1).map((slot) => {
-            const busy = slotOwners.get(slot) || [];
-            const busyOther = busy.filter((id) => id !== nodeKey);
-            const active = currentSlot === slot;
-            return (
-              <button
-                key={slot}
-                type="button"
-                title={
-                  busyOther.length
-                    ? `Слот ${slot} занят: ${busyOther.join(", ")}`
-                    : `Слот ${slot}`
-                }
-                onClick={() => setSlot.mutate(slot)}
-                className={cn(
-                  "rounded-lg border px-3 py-2 text-sm transition",
-                  active
-                    ? "border-cyan-500 bg-cyan-600/20 text-cyan-100"
-                    : "border-white/10 bg-black/20 text-muted-foreground hover:border-cyan-500/50 hover:text-foreground",
-                )}
-              >
-                <span className="font-mono">{slot}</span>
-                {busyOther.length > 0 && (
-                  <span className="mt-0.5 block text-[10px] text-amber-300">
-                    занят
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        {slotOwners.get(currentSlot)?.filter((id) => id !== nodeKey).length ? (
-          <p className="mt-2 text-[11px] text-amber-300">
-            Слот {currentSlot} уже занят другой нодой «ИИ-редактор сцен» —
-            сохранение графа будет отклонено, пока не выберете свободный.
-          </p>
-        ) : null}
-      </section>
-
       {/* 3. Check Mode Section (Only when checkMode is active) */}
       {checkMode && (
         <section className="rounded-xl border border-cyan-500/25 bg-cyan-950/20 p-4">
@@ -554,155 +456,7 @@ export function ExcelGptSettingsPanel({
         </section>
       )}
 
-      {/* 4. Collapsible Advanced Technical Settings */}
-      <details className="group rounded-xl border border-white/10 bg-white/[0.02] p-4">
-        <summary className="flex cursor-pointer items-center justify-between font-medium text-xs text-muted-foreground hover:text-cyan-300 select-none">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Расширенные технические настройки (роли, потоки, форматы)</span>
-          </div>
-          <ChevronDown className="h-4 w-4 transition-transform duration-200 group-open:rotate-180 text-muted-foreground" />
-        </summary>
 
-        <div className="mt-4 flex flex-col gap-4 border-t border-white/5 pt-4">
-          {/* Roles */}
-          <div>
-            <h4 className="text-xs font-semibold text-foreground">Техническая роль</h4>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Транспорт: API (прямой вызов модели без браузера).
-            </p>
-            <div className="mt-2.5 grid gap-2 sm:grid-cols-3">
-              {ROLE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => patch.mutate({ role: opt.value, transport: "api" })}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-left transition",
-                    role === opt.value
-                      ? "border-cyan-400/60 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/50"
-                      : "border-white/10 bg-black/20 text-muted-foreground hover:border-white/20 hover:text-foreground",
-                  )}
-                >
-                  <span className="block text-[12px] font-medium">{opt.title}</span>
-                  <span className="mt-0.5 block text-[10px] opacity-75">{opt.hint}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Output Mode */}
-          <div>
-            <h4 className="text-xs font-semibold text-foreground">Формат ответа GPT</h4>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {OUTPUT_OPTIONS.map((opt) => (
-                <Button
-                  key={opt.value}
-                  type="button"
-                  size="sm"
-                  title={opt.hint}
-                  variant={outputMode === opt.value ? "default" : "outline"}
-                  className={cn(
-                    outputMode === opt.value &&
-                      "bg-cyan-600 text-white hover:bg-cyan-500 border-cyan-500",
-                  )}
-                  onClick={() => patch.mutate({ outputMode: opt.value, transport: "api" })}
-                >
-                  {opt.title}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* What to Emit */}
-          <div>
-            <h4 className="text-xs font-semibold text-foreground">Что отдаёт дальше по стрелкам</h4>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Файлы и потоки данных для последующих нод.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {EMIT_OPTIONS.map((opt) => {
-                const on = emitKinds.includes(opt.value);
-                return (
-                  <Button
-                    key={opt.value}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    title={opt.hint}
-                    className={cn(
-                      on && "bg-cyan-600 text-white hover:bg-cyan-500 border-cyan-500",
-                    )}
-                    onClick={() => toggleEmit(opt.value)}
-                  >
-                    {opt.title}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </details>
-
-      {/* 5. Input Files Inspection */}
-      <section className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Фактические файлы на входе</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Список файлов с диска и со стрелок графа.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => void resolve.refetch()}
-            className="hover:border-cyan-400 hover:text-cyan-300"
-          >
-            {resolve.isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Сверить
-          </Button>
-        </div>
-
-        {!data?.consistent ? (
-          <p className="mt-2 text-[11px] text-destructive">
-            {(data?.errors || []).join("; ") || "Рассинхрон данных"}
-          </p>
-        ) : null}
-
-        <ul className="mt-3 max-h-48 space-y-1.5 overflow-y-auto">
-          {(data?.files || []).map((f) => (
-            <li
-              key={f.path}
-              className={cn(
-                "flex items-center gap-2 rounded-md border px-2 py-1.5 text-[11px]",
-                f.ok ? "border-white/10" : "border-destructive/40 text-destructive",
-              )}
-            >
-              {f.preview_url && f.kind === "image" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={f.preview_url} alt="" className="h-8 w-8 rounded object-cover" />
-              ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded bg-white/5 font-mono text-[9px] uppercase">
-                  {f.kind.slice(0, 3)}
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate font-mono">
-                {f.name}
-                {f.fromNode ? ` ← ${f.fromNode}` : ` · ${f.origin}`}
-              </span>
-            </li>
-          ))}
-          {!resolve.isLoading && !(data?.files || []).length ? (
-            <li className="text-[11px] text-muted-foreground">Файлов нет</li>
-          ) : null}
-        </ul>
-      </section>
 
       {/* 6. Text Preview Overlay */}
       {viewOpen ? (

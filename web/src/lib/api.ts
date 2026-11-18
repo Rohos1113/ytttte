@@ -3036,6 +3036,76 @@ export const api = {
       { method: "POST" },
     ),
 
+  /** Стили для ноды «Фоны»: список styles/style_*.md и что выбрано сейчас. */
+  listBackgroundStyles: (projectId: number) =>
+    http<{
+      project_id: number;
+      style: {
+        node_key?: string | null;
+        bound_variant?: string | null;
+        name?: string | null;
+        source?: string | null;
+        chars?: number;
+        block_chars?: number;
+        file?: string;
+        styles_dir?: string;
+      };
+      variants: { name: string; path: string; chars: number }[];
+    }>(`/api/projects/${projectId}/backgrounds/styles`),
+
+  /** Перерисовать PNG одного фона сразу (карточка + STYLE-блок). */
+  regenerateBackground: (projectId: number, code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      removed: boolean;
+      file_path: string;
+      size: number;
+      preview_url: string | null;
+      style: string | null;
+      style_source: string | null;
+      style_chars: number;
+      final_prompt: string;
+      final_prompt_chars: number;
+      final_prompt_trimmed: boolean;
+    }>(`/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/regenerate`, {
+      method: "POST",
+    }),
+
+  /** Итоговый промт фона (карточка + STYLE) без генерации. */
+  getBackgroundPrompt: (projectId: number, code: string) =>
+    http<{
+      project_id: number;
+      code: string;
+      card_prompt: string;
+      card_chars: number;
+      style: string | null;
+      style_source: string | null;
+      style_chars: number;
+      final_prompt: string;
+      final_prompt_chars: number;
+      final_prompt_trimmed: boolean;
+      limit: number;
+    }>(`/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/prompt`),
+
+  /** Загрузить свой PNG на место фона (как «загрузить референс» у персонажей). */
+  replaceBackgroundImage: async (projectId: number, file: File, code: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(
+      `/api/projects/${projectId}/backgrounds/${encodeURIComponent(code)}/image`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{
+      ok: boolean;
+      code: string;
+      path: string;
+      preview_url: string;
+      size: number;
+    }>;
+  },
+
   deleteItem: (projectId: number, index: number) =>
     http<{
       ok: boolean;
@@ -3098,6 +3168,20 @@ export const api = {
     const q = qs.toString();
     return http<PromptFileInfo[]>(
       `/api/prompt-files/${stepCode}${q ? `?${q}` : ""}`,
+    );
+  },
+  /** Какой файл шага реально возьмёт проект (с учётом слота ноды). */
+  resolvePromptFile: (
+    stepCode: string,
+    opts?: { projectId?: number; nodeKey?: string; slotId?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.projectId) qs.set("project_id", String(opts.projectId));
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    if (opts?.slotId) qs.set("slot_id", opts.slotId);
+    const q = qs.toString();
+    return http<{ name: string; source: string; source_label: string; modified: number | null }>(
+      `/api/prompt-files/${stepCode}/resolve${q ? `?${q}` : ""}`,
     );
   },
   getPromptFile: (

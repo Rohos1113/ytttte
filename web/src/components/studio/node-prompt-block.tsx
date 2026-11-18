@@ -6,7 +6,24 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 
-/** Flat prompt editor at the bottom of the node settings: pick / view / edit / save / rename + node description. */
+export function NodeDescriptionEditor({ nodeKey, description }: { nodeKey: string; description: string }) {
+  const [draft, setDraft] = useState(description);
+  useEffect(() => setDraft(description), [description]);
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="flex flex-col gap-1">
+        <span className="text-[13px] text-white/60">Описание ноды</span>
+        <textarea className="nowheel min-h-[64px] rounded-md border border-white/10 bg-[#0a0a0a] p-2 text-[14px] text-white" value={draft} onChange={(e) => setDraft(e.target.value)} />
+      </label>
+      <button type="button" disabled={draft.trim() === description.trim()} className="h-9 w-fit rounded-md border border-white/25 px-5 text-[13px] text-white hover:border-white/60 disabled:opacity-40" onClick={() => {
+        window.dispatchEvent(new CustomEvent("canvas-patch-node-data", { detail: { nodeKey, patch: { description: draft.trim() } } }));
+        toast.success("Описание сохранено");
+      }}>Сохранить описание</button>
+    </div>
+  );
+}
+
+/** Flat prompt editor at the bottom of the node settings. */
 export function NodePromptBlock({
   stepCode,
   activeVariant,
@@ -59,10 +76,8 @@ export function NodePromptBlock({
   });
   const [draft, setDraft] = useState("");
   const [nameDraft, setNameDraft] = useState("");
-  const [descDraft, setDescDraft] = useState(description);
   useEffect(() => setDraft(content.data?.content ?? ""), [content.data?.content]);
   useEffect(() => setNameDraft(sel ?? ""), [sel]);
-  useEffect(() => setDescDraft(description), [description]);
   const inval = () => {
     qc.invalidateQueries({ queryKey: ["prompt-files"] });
     qc.invalidateQueries({ queryKey: ["prompt-file"] });
@@ -87,97 +102,9 @@ export function NodePromptBlock({
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
-  const fileRef = useRef<HTMLInputElement>(null);
-  const upload = useMutation({
-    mutationFn: (f: File) => api.uploadPromptFile(stepCode, f),
-    onSuccess: (info) => { setSel(info.name); inval(); toast.success("Промт загружен"); },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
-  });
-  const del = useMutation({
-    mutationFn: () => api.deletePromptFile(stepCode, sel!),
-    onSuccess: () => { setSel(null); inval(); toast.success("Промт удалён"); },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
-  });
-  const delDisabled = !sel || sel === activeVariant || Boolean(list.find((f) => f.name === sel)?.is_default) || del.isPending;
-  const descDirty = descDraft.trim() !== description.trim();
   const dirty = draft !== (content.data?.content ?? "") || (nameDraft.trim() && nameDraft.trim() !== sel);
   return (
     <div data-vp-prompt-block className="flex flex-col gap-3">
-      <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Промт ноды</span>
-      <div className="flex items-center gap-2">
-        <select
-          className="h-9 min-w-0 flex-1 rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
-          value={sel ?? ""}
-          onChange={(e) => {
-            userPickedRef.current = true;
-            setSel(e.target.value);
-          }}
-        >
-          {list.map((f) => (
-            <option key={f.name} value={f.name}>
-              {f.title || f.name}
-              {f.name === activeVariant ? "  · активен" : ""}
-            </option>
-          ))}
-        </select>
-        {sel && sel !== activeVariant && onActivate ? (
-          <button
-            type="button"
-            className="h-9 shrink-0 rounded-md border border-white/25 px-3 text-[13px] text-white hover:border-white/60"
-            onClick={() => {
-              userPickedRef.current = false;
-              onActivate(sel);
-            }}
-          >
-            Сделать активным
-          </button>
-        ) : null}
-        <input ref={fileRef} type="file" accept=".txt,.md,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
-        <button type="button" data-vp-prompt-upload title="Загрузить промт" aria-label="Загрузить промт" disabled={upload.isPending} className="h-9 w-9 shrink-0 rounded-md border border-white/15 text-[16px] text-white/80 hover:border-white/50 disabled:opacity-40" onClick={() => fileRef.current?.click()}>⤒</button>
-        <button type="button" data-vp-prompt-delete title={sel === activeVariant ? "Активный промт удалить нельзя" : "Удалить промт"} aria-label="Удалить промт" disabled={delDisabled} className="h-9 w-9 shrink-0 rounded-md border border-white/15 text-[15px] text-red-300/90 hover:border-red-400/60 disabled:opacity-30" onClick={() => { if (sel && window.confirm(`Удалить промт «${sel}»?`)) del.mutate(); }}>✕</button>
-      </div>
-      {(() => {
-        const cur = list.find((f) => f.name === sel);
-        const d = cur?.description || (content.data?.content ?? "").split(/\n/).map((l) => l.replace(/^[#>*\-\s]+/, "").trim()).find((l) => l.length >= 20)?.split(/(?<=[.!?])\s/)[0];
-        return d ? <p data-vp-prompt-desc className="text-[13px] leading-relaxed text-white/60">{d}</p> : null;
-      })()}
-      {stepCode.includes("excel_gpt") ? (
-        <details className="group rounded-md border border-white/10 bg-white/[0.03] p-2.5 text-[12px] text-white/80">
-          <summary className="cursor-pointer select-none font-medium text-white/90 hover:text-white flex items-center justify-between">
-            <span>Шпаргалка: переменные кадров и Data-Flow</span>
-            <span className="text-white/40 text-[10px] group-open:rotate-180 transition-transform">▼</span>
-          </summary>
-          <div className="mt-2.5 space-y-2 border-t border-white/10 pt-2 text-white/70 leading-relaxed">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
-              <div className="p-2 rounded bg-black/40 border border-white/5">
-                <span className="font-semibold text-white/90">Окружение и объекты:</span>
-                <ul className="list-disc list-inside mt-1 space-y-0.5 text-white/60">
-                  <li><code className="text-white/80">место</code> / <code className="text-white/80">фон</code> — сеттинг сцены</li>
-                  <li><code className="text-white/80">предметы</code> — реквизит и ключевые вещи</li>
-                  <li><code className="text-white/80">тип_сцены</code> — крупность плана</li>
-                </ul>
-              </div>
-              <div className="p-2 rounded bg-black/40 border border-white/5">
-                <span className="font-semibold text-white/90">Действие и звук:</span>
-                <ul className="list-disc list-inside mt-1 space-y-0.5 text-white/60">
-                  <li><code className="text-white/80">главное_действие</code> — динамика в кадре</li>
-                  <li><code className="text-white/80">акцент</code> — визуальный/смысловой фокус</li>
-                  <li><code className="text-white/80">смысл_сцены</code> — подтекст / эмоция</li>
-                  <li><code className="text-white/80">логика_перехода</code> — стыковка кадров</li>
-                </ul>
-              </div>
-            </div>
-            <div className="p-2 rounded bg-sky-950/20 border border-sky-500/20 text-[11.5px] text-sky-200/90">
-              <span className="font-semibold text-sky-300">Data-Flow (куда текут переменные):</span>
-              <div className="mt-1 flex flex-col gap-1 text-[11px] text-sky-200/75">
-                <div>• <b>В промпты картинок (05_image_prompts):</b> <code className="text-sky-100">место + фон + предметы + тип_сцены</code></div>
-                <div>• <b>В анимацию видео (07_animation):</b> <code className="text-sky-100">главное_действие + акцент + логика_перехода</code></div>
-                <div>• <b>В SFX / звуки (11_sfx_plan):</b> <code className="text-sky-100">акцент + смысл_сцены</code></div>
-              </div>
-            </div>
-          </div>
-        </details>
-      ) : null}
       <label className="flex flex-col gap-1">
         <span className="text-[13px] text-white/60">Название промта (файл)</span>
         <input className="h-9 rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
@@ -198,25 +125,6 @@ export function NodePromptBlock({
         onClick={() => save.mutate()}
       >
         {save.isPending ? "Сохранение…" : "Сохранить промт"}
-      </button>
-      <label className="mt-2 flex flex-col gap-1">
-        <span className="text-[13px] text-white/60">Описание ноды</span>
-        <textarea
-          className="nowheel min-h-[64px] rounded-md border border-white/10 bg-[#0a0a0a] p-2 text-[14px] text-white"
-          value={descDraft}
-          onChange={(e) => setDescDraft(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        disabled={!descDirty}
-        className="h-9 w-fit rounded-md border border-white/25 px-5 text-[13px] text-white hover:border-white/60 disabled:opacity-40"
-        onClick={() => {
-          window.dispatchEvent(new CustomEvent("canvas-patch-node-data", { detail: { nodeKey, patch: { description: descDraft.trim() } } }));
-          toast.success("Описание сохранено");
-        }}
-      >
-        Сохранить описание
       </button>
     </div>
   );

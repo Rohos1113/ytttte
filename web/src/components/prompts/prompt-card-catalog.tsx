@@ -427,6 +427,8 @@ export function NodeCatalogPanel({
   embedded = false,
   stepCode,
   projectId,
+  stepTabs,
+  onStepTab,
 }: {
   embedded?: boolean;
   nodeKey: string;
@@ -439,6 +441,9 @@ export function NodeCatalogPanel({
   onUpload?: (id: string, file: File) => Promise<void>;
   stepCode?: string;
   projectId?: number;
+  /** Переключатель промтов ноды: у «Персонажей» это формат и стиль аватара. */
+  stepTabs?: { id: string; title: string; active: boolean }[];
+  onStepTab?: (id: string) => void;
 }) {
   const resolvedStepCode = stepCode || stepCodeForNodeKey(nodeKey);
   const [detail, setDetail] = useState<string | null>(null);
@@ -550,6 +555,25 @@ export function NodeCatalogPanel({
 
   const catalogBody = (
     <>
+        {stepTabs && stepTabs.length > 1 ? (
+          <div className="flex shrink-0 items-stretch bg-[#0c0c0e]" style={{ gap: 1 }}>
+            {stepTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onStepTab?.(t.id)}
+                className={cn(
+                  "flex-1 px-3 py-2 text-[13px] font-semibold transition-colors",
+                  t.active
+                    ? "bg-white text-black"
+                    : "bg-[#141417] text-zinc-300 hover:bg-[#1b1b1f] hover:text-white",
+                )}
+              >
+                {t.title}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="relative flex shrink-0 items-stretch" style={{ gap: 1 }}>
           <label className="flex h-9 flex-1 items-center gap-2 bg-[#141417] px-3">
             <Search className="h-3.5 w-3.5 text-zinc-500" />

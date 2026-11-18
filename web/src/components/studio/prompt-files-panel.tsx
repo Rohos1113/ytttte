@@ -90,7 +90,14 @@ export function PromptFilesPanel({
   activating?: boolean;
   onPromptRenamed?: (oldName: string, newName: string) => void;
   /** Боковая панель-каталог у ноды на канвасе. */
-  catalogPanel?: { nodeKey: string; onOpenSettings: () => void; onClose: () => void; embedded?: boolean } | null;
+  catalogPanel?: {
+    nodeKey: string;
+    onOpenSettings: () => void;
+    onClose: () => void;
+    embedded?: boolean;
+    stepTabs?: { id: string; title: string; active: boolean }[];
+    onStepTab?: (id: string) => void;
+  } | null;
 }) {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -388,6 +395,8 @@ export function PromptFilesPanel({
           embedded={!!catalogPanel.embedded}
           stepCode={stepCode}
           projectId={projectId}
+          stepTabs={catalogPanel.stepTabs}
+          onStepTab={catalogPanel.onStepTab}
           downloadUrl={(id) => api.downloadPromptFileUrl(stepCode, id)}
           onUpload={async (id, file) => {
             try {

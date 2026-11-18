@@ -43,7 +43,6 @@ import {
   useCanvasActionsOptional,
 } from "./canvas-actions-context";
 import { NodeVMenu } from "./node-v-menu";
-import { parseJsonPayload } from "./json-table-view";
 import { NodeResultBadge } from "./node-result-badge";
 import { hideResultBadgeForNodeType } from "@/lib/xlsx-sheets";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
@@ -924,13 +923,16 @@ function cardResultText(raw: string): string {
   if (!t) return "";
   if (t.startsWith("```")) return "";
   if (!t.startsWith("{") && !t.startsWith("[")) return t;
-  const parsed = parseJsonPayload(t);
-  if (parsed && typeof parsed.value === "object" && parsed.value !== null && !Array.isArray(parsed.value)) {
-    const obj = parsed.value as Record<string, unknown>;
-    for (const key of ["report", "summary", "итог", "отчёт", "отчет"]) {
-      const value = obj[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
+  try {
+    const obj = JSON.parse(t);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      for (const key of ["report", "summary", "итог", "отчёт", "отчет"]) {
+        const value = (obj as Record<string, unknown>)[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
     }
+  } catch {
+    // not valid JSON
   }
   return "";
 }

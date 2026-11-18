@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
-import { slotIndexFromItem } from "@/lib/node-result-slots";
 import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import type { NodeResultItem, NodeResultSnapshot } from "@/lib/node-result-resolver";
@@ -38,14 +37,12 @@ import type { ProjectDetail } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { MediaFrameGallery } from "@/components/hitl/media-frame-gallery";
-import { getTranslation } from "@/lib/i18n";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import {
   ROW_VOICEOVER_V8,
   SHEET_PLAN_V8,
 } from "@/lib/xlsx-sheets";
 import { NodeAudioMiniPlayer, ResultAudioCard } from "./custom-audio-player";
-import { JsonTableView, parseJsonPayload } from "./json-table-view";
 
 export function NodeResultViewBody({
   projectId,
@@ -65,6 +62,9 @@ export function NodeResultViewBody({
   }
   if (nodeType === "items") {
     return <ItemResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} />;
+  }
+  if (nodeType === "backgrounds") {
+    return <BackgroundsResultsView projectId={projectId} nodeKey={nodeKey} items={snapshot.items} />;
   }
   switch (snapshot.viewMode) {
     case "director_plan":
@@ -955,8 +955,7 @@ export function FramePromptsView({ items }: { items: NodeResultItem[] }) {
             </div>
             <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-md border border-white/5 bg-black/40">
               <img
-                key={selected.id}
-                src={toThumbnailUrl(selected.previewUrl) ?? selected.previewUrl}
+                src={selected.previewUrl}
                 alt={selected.label}
                 className="h-full w-full object-contain"
               />
@@ -1052,9 +1051,16 @@ function HeroCharacterCard({ projectId, entity }: { projectId: number; entity: i
  * Персонажи: результаты сеткой по 2 в ряд. Пока картинки нет — на её месте
  * рамка 16:9 с подписью `empty`; когда картинка появилась, она показывается
  * в своём исходном формате (без обрезки и без принудительных пропорций).
- *
- * Правило номера слота живёт в lib/node-result-slots.ts — там его покрывают тесты.
  */
+function heroSlotIndex(item: NodeResultItem, fallback: number): number {
+  const raw = `${item.filePath ?? ""} ${item.label ?? ""} ${item.previewUrl ?? ""}`;
+  const m = raw.match(/c(\d{1,3})\.(?:png|jpe?g|webp)/i);
+  if (m) return Math.max(0, parseInt(m[1], 10) - 1);
+  if (typeof item.frameNumber === "number" && item.frameNumber > 0) {
+    return item.frameNumber - 1;
+  }
+  return fallback;
+}
 
 function HeroResultsView({
   projectId,
@@ -1077,7 +1083,7 @@ function HeroResultsView({
 
   const byIndex = new Map<number, NodeResultItem>();
   items.forEach((item, i) => {
-    const idx = slotIndexFromItem(item, i);
+    const idx = heroSlotIndex(item, i);
     if (!byIndex.has(idx)) byIndex.set(idx, item);
   });
   const maxItemIdx = byIndex.size ? Math.max(...Array.from(byIndex.keys())) + 1 : 0;
@@ -1309,6 +1315,269 @@ function HeroResultsView({
           <span className="text-[11px] text-white/35 transition-colors group-hover:text-white/75">Добавить персонажа</span>
         </button>
       </div>
+
+      {zoom
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+              onClick={() => setZoom(null)}
+            >
+              <div
+                className="relative flex max-h-[95vh] max-w-[95vw] flex-col items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img src={zoom} alt="" className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" />
+                <div className="absolute right-2 top-2 flex items-center gap-2">
+                  <Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs" asChild>
+                    <a href={zoom} target="_blank" rel="noreferrer">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      В новой вкладке
+                    </a>
+                  </Button>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setZoom(null)}>
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
+ * Фоны: та же сетка и то же меню, что у персонажей — карточка 16:9 на локацию,
+ * код `f01` в углу, «Промт фона», «Перерисовать фон», «Загрузить свой PNG»,
+ * «Скачать», клик по картинке — во весь экран. Плитки «Добавить» нет: список
+ * локаций приходит из карточек ноды pk_backgrounds, а не заводится руками.
+ */
+function backgroundCodeFromItem(item: NodeResultItem, fallback: number): string {
+  const raw = `${item.filePath ?? ""} ${item.id ?? ""} ${item.previewUrl ?? ""}`;
+  const m = raw.match(/f(\d{1,3})\.png/i);
+  if (m) return `f${m[1].padStart(2, "0")}`;
+  return `#${fallback + 1}`;
+}
+
+function BackgroundsResultsView({
+  projectId,
+  nodeKey,
+  items,
+}: {
+  projectId: number;
+  nodeKey?: string | null;
+  items: NodeResultItem[];
+}) {
+  const qc = useQueryClient();
+  const styles = useQuery({
+    queryKey: ["background-styles", projectId],
+    queryFn: () => api.listBackgroundStyles(projectId),
+    refetchInterval: 30_000,
+  });
+  const cards = useMemo(
+    () => items.filter((item) => item.kind !== "text" && !item.id.startsWith("background_style")),
+    [items],
+  );
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [promptCode, setPromptCode] = useState<string | null>(null);
+  const bgPrompt = useQuery({
+    queryKey: ["bg-prompt", projectId, promptCode],
+    queryFn: () => api.getBackgroundPrompt(projectId, promptCode!),
+    enabled: Boolean(promptCode),
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+    qc.invalidateQueries({ queryKey: ["project", projectId] });
+    qc.invalidateQueries({ queryKey: ["background-styles", projectId] });
+  };
+
+  /** Перерисовка одной PNG: бэкенд рисует сразу и возвращает итоговый промт. */
+  const regen = useMutation({
+    mutationFn: (code: string) => api.regenerateBackground(projectId, code),
+    onSuccess: (data) => {
+      toast.success(`Фон ${data.code} перерисован`);
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const replace = useMutation({
+    mutationFn: ({ file, code }: { file: File; code: string }) =>
+      api.replaceBackgroundImage(projectId, file, code),
+    onSuccess: () => {
+      toast.success("PNG фона загружен");
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const styleName = styles.data?.style.name ?? "";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {cards.length ? `${cards.length} готово` : "фонов пока нет"}
+        </span>
+        {styleName ? (
+          <span
+            className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-white/60"
+            title={styles.data?.style.source ? `источник: ${styles.data.style.source}` : undefined}
+          >
+            стиль: {styleName}
+          </span>
+        ) : null}
+      </div>
+
+      {cards.length === 0 ? (
+        <p className="px-1 text-[13px] text-white/50">
+          Фоны ещё не сгенерированы — запусти шаг «Фоны» кнопкой ▶.
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3">
+        {cards.map((item, i) => {
+          const code = backgroundCodeFromItem(item, i);
+          const hasCode = !code.startsWith("#");
+          return (
+            <div
+              key={item.id || `bg-slot-${i}`}
+              className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 p-2"
+            >
+              <div
+                className={cn(
+                  "relative w-full overflow-hidden rounded-lg border bg-black/40",
+                  item.previewUrl ? "border-white/10" : "border-dashed border-white/15",
+                )}
+                style={item.previewUrl ? undefined : { aspectRatio: "16 / 9" }}
+              >
+                {item.previewUrl ? (
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer"
+                    title="Открыть на весь экран"
+                    onClick={() => setZoom(item.previewUrl ?? null)}
+                  >
+                    <img
+                      src={item.previewUrl}
+                      alt=""
+                      className="block h-auto w-full object-contain"
+                      loading="lazy"
+                    />
+                  </button>
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 select-none">
+                    <span className="text-[13px] uppercase tracking-[0.22em] text-white/30">empty</span>
+                    <span className="text-[10px] tracking-[0.12em] text-white/20">16:9</span>
+                  </div>
+                )}
+                <span
+                  className="pointer-events-none absolute right-1.5 top-1.5 z-[2] rounded bg-black/75 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
+                  title="Код фона"
+                >
+                  {code}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 flex-1 gap-1.5 text-[11px]"
+                  disabled={!hasCode}
+                  onClick={() => setPromptCode(hasCode ? code : null)}
+                >
+                  <ScrollText className="h-3.5 w-3.5" />
+                  Промт фона
+                </Button>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-primary/60 hover:text-white disabled:opacity-50"
+                  title="Перерисовать этот фон"
+                  disabled={!hasCode || regen.isPending}
+                  onClick={() => regen.mutate(code)}
+                >
+                  {regen.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </button>
+                <label
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-white/15 text-white/60 hover:border-white/35 hover:text-white",
+                    (!hasCode || replace.isPending) && "pointer-events-none opacity-50",
+                  )}
+                  title="Загрузить свой PNG фона (перезапишет картинку локации)"
+                >
+                  {replace.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f && hasCode) replace.mutate({ file: f, code });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {item.downloadUrl || item.previewUrl ? (
+                  <a
+                    href={item.downloadUrl || item.previewUrl || "#"}
+                    download
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 text-white/50 hover:border-white/35 hover:text-white"
+                    title="Скачать"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {promptCode
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+              onClick={() => setPromptCode(null)}
+            >
+              <div
+                className="flex max-h-[88vh] w-[min(760px,94vw)] flex-col gap-3 overflow-y-auto rounded-xl border border-white/10 bg-[#0c0c0e] p-4 text-white"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-[15px] font-semibold">Промт фона {promptCode}</h4>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => setPromptCode(null)}>
+                    ✕
+                  </Button>
+                </div>
+                {bgPrompt.isLoading ? (
+                  <div className="flex items-center gap-2 text-[13px] text-white/60">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Читаю промт…
+                  </div>
+                ) : bgPrompt.isError ? (
+                  <p className="text-[13px] text-rose-300">Промт не прочитался.</p>
+                ) : (
+                  <>
+                    <div className="text-[11.5px] text-white/50">
+                      стиль: {bgPrompt.data?.style || "—"} · символов: {bgPrompt.data?.final_prompt_chars ?? 0}
+                    </div>
+                    <Textarea
+                      className="nowheel min-h-[260px] font-mono text-[12px] leading-snug"
+                      value={bgPrompt.data?.final_prompt ?? ""}
+                      readOnly
+                      spellCheck={false}
+                    />
+                    <div className="text-[11px] text-white/40">
+                      Карточка локации + STYLE-блок — ровно это уходит в генерацию.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {zoom
         ? createPortal(
@@ -2068,8 +2337,7 @@ function SceneImagesGalleryView({ projectId }: { projectId: number }) {
   const media = useQuery({
     queryKey: ["media-review", projectId, "images"],
     queryFn: () => api.listMediaReview(projectId, "images"),
-    refetchInterval: 3000,
-    refetchOnMount: "always",
+    refetchInterval: 5000,
   });
 
   if (media.isLoading) return <LoadingBlock />;
@@ -2092,8 +2360,7 @@ function SceneVideosGalleryView({ projectId }: { projectId: number }) {
   const media = useQuery({
     queryKey: ["media-review", projectId, "videos"],
     queryFn: () => api.listMediaReview(projectId, "videos"),
-    refetchInterval: 3000,
-    refetchOnMount: "always",
+    refetchInterval: 5000,
   });
 
   if (media.isLoading) return <LoadingBlock />;
@@ -2164,107 +2431,18 @@ function ExcelGptResultView({
   nodeType?: string | null;
   snapshot: NodeResultSnapshot;
 }) {
-  const resolve = useQuery({
-    queryKey: ["gpt-operator-resolve", projectId, nodeKey],
-    queryFn: () => api.resolveGptOperator(projectId, nodeKey!),
-    enabled: Boolean(nodeKey),
-    staleTime: 5000,
-  });
-  // Полный ответ с диска (gpt_reply.txt): превью в meta обрезано — из-за этого
-  // результат выглядел «недописанным».
-  const fullReply = useQuery({
-    queryKey: ["gpt-operator-reply", projectId, nodeKey],
-    queryFn: () => api.getGptOperatorReply(projectId, nodeKey!),
-    enabled: Boolean(nodeKey),
-    staleTime: 10_000,
-    retry: false,
-  });
-  const replyFromMeta = snapshot.items.find((i) => i.kind === "text")?.content?.trim();
-  const replyFromApi =
-    typeof resolve.data?.lastResult?.replyPreview === "string"
-      ? String(resolve.data.lastResult.replyPreview).trim()
-      : "";
-  const reply =
-    (fullReply.data?.text || "").trim() || replyFromMeta || replyFromApi;
-  const parsed = useMemo(
-    () => (reply ? parseJsonPayload(reply) : null),
-    [reply],
-  );
   const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
       <XlsxUploadBar
         projectId={projectId}
         nodeKey={nodeKey}
         nodeType={nodeType}
       />
-      {xlsxItem && snapshot.summary ? (
+      {xlsxItem ? (
         <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
       ) : null}
-      {resolve.isLoading && !reply ? (
-        <LoadingBlock />
-      ) : reply ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-mono text-[11px] text-zinc-400">
-              Ответ GPT · {reply.length.toLocaleString("ru-RU")} симв.
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2.5 text-xs text-zinc-300 hover:text-white"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(reply);
-                    toast.success("Ответ скопирован в буфер");
-                  } catch {
-                    toast.error("Не удалось скопировать");
-                  }
-                }}
-              >
-                <Copy className="h-3 w-3 mr-1" />
-                Копировать
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2.5 text-xs text-zinc-300 hover:text-white"
-                onClick={() => {
-                  const blob = new Blob([reply], { type: "application/json;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `gpt_reply_${nodeKey || "node"}.json`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <Download className="h-3 w-3 mr-1" />
-                Скачать JSON
-              </Button>
-            </div>
-          </div>
-          {parsed ? (
-            <JsonTableView value={parsed.value} raw={reply} partial={parsed.partial} />
-          ) : (
-            <div
-              tabIndex={0}
-              className="min-h-[140px] rounded-lg border border-white/10 bg-black/40 p-3.5 select-text outline-none focus:border-white/25"
-            >
-              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90">
-                {reply}
-              </pre>
-            </div>
-          )}
-        </div>
-      ) : (
-        <p className="py-4 text-sm text-muted-foreground">
-          Ответа GPT пока нет. Запустите ноду — после прогона здесь появится
-          текст из gpt_reply.txt.
-        </p>
-      )}
     </div>
   );
 }
@@ -2296,16 +2474,12 @@ function DefaultResultView({
   });
 
   const item = snapshot.items[0];
-  const parsedContent = useMemo(
-    () => (item?.content ? parseJsonPayload(item.content) : null),
-    [item?.content],
-  );
   if (!item) {
     return <p className="text-sm text-muted-foreground">Нет данных для отображения.</p>;
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1 pb-4">
+    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
       {item.kind === "xlsx" && (
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800">
@@ -2386,98 +2560,13 @@ function DefaultResultView({
           </div>
         </div>
       )}
-      {item.content && parsedContent ? (
-        <JsonTableView
-          value={parsedContent.value}
-          raw={item.content}
-          partial={parsedContent.partial}
-        />
-      ) : item.content ? (
-        <pre className="whitespace-pre-wrap break-words rounded-lg bg-black/40 p-3.5 text-xs select-text">
+      {item.content && (
+        <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-lg bg-black/40 p-3.5 text-xs select-text [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent">
           {item.content}
         </pre>
-      ) : null}
+      )}
     </div>
   );
-}
-
-export const SFX_KIND_META: Record<
-  string,
-  {
-    label: string;
-    desc: string;
-    bg: string;
-    text: string;
-    border: string;
-  }
-> = {
-  foley: {
-    label: "Шумы",
-    desc: "Синхронные шумы и действия: шаги, шорохи, щелчки, взаимодействие с предметами",
-    bg: "bg-emerald-500/15",
-    text: "text-emerald-300",
-    border: "border-emerald-500/30",
-  },
-  ambience: {
-    label: "Атмосфера",
-    desc: "Фоновое окружение локации: ветер, природа, шум помещения, фоновый гул",
-    bg: "bg-indigo-500/15",
-    text: "text-indigo-300",
-    border: "border-indigo-500/30",
-  },
-  whoosh: {
-    label: "Свуш",
-    desc: "Звук быстрого движения, взмах, пролёт камеры или объекта",
-    bg: "bg-cyan-500/15",
-    text: "text-cyan-300",
-    border: "border-cyan-500/30",
-  },
-  hit: {
-    label: "Импакт",
-    desc: "Резкий звуковой акцент, удар, выстрел, падение или взрыв",
-    bg: "bg-rose-500/15",
-    text: "text-rose-300",
-    border: "border-rose-500/30",
-  },
-  stinger: {
-    label: "Акцент",
-    desc: "Драматический музыкальный всплеск, смысловой или сюжетный акцент",
-    bg: "bg-purple-500/15",
-    text: "text-purple-300",
-    border: "border-purple-500/30",
-  },
-  riser: {
-    label: "Нарастание",
-    desc: "Постепенное нагнетание звукового напряжения перед важным событием",
-    bg: "bg-amber-500/15",
-    text: "text-amber-300",
-    border: "border-amber-500/30",
-  },
-  transition: {
-    label: "Переход",
-    desc: "Звуковой эффект перехода между сценами, кадрами или настроением",
-    bg: "bg-sky-500/15",
-    text: "text-sky-300",
-    border: "border-sky-500/30",
-  },
-};
-
-export function getSfxMeta(kind: string) {
-  const k = (kind || "").toLowerCase().trim();
-  const base = SFX_KIND_META[k] || {
-    label: "Эффект",
-    desc: "Звуковой эффект саунд-дизайна",
-    bg: "bg-white/5",
-    text: "text-zinc-300",
-    border: "border-white/10",
-  };
-  const label = getTranslation(`sfx.categories.${k}.label`);
-  const desc = getTranslation(`sfx.categories.${k}.desc`);
-  return {
-    ...base,
-    label: label !== `sfx.categories.${k}.label` ? label : base.label,
-    desc: desc !== `sfx.categories.${k}.desc` ? desc : base.desc,
-  };
 }
 
 function SfxPlanView({
@@ -2512,10 +2601,18 @@ function SfxPlanView({
       }
     | undefined;
 
-  const events = (rawPlan?.events || []).filter(
-    (ev) => typeof ev.frame_number !== "number" || ev.frame_number < 1_000_000,
-  );
+  const events = rawPlan?.events || [];
   const totalDuration = rawPlan?.total_duration;
+
+  const kindColors: Record<string, { bg: string; text: string; border: string }> = {
+    hit: { bg: "bg-rose-500/15", text: "text-rose-300", border: "border-rose-500/30" },
+    whoosh: { bg: "bg-cyan-500/15", text: "text-cyan-300", border: "border-cyan-500/30" },
+    foley: { bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/30" },
+    stinger: { bg: "bg-purple-500/15", text: "text-purple-300", border: "border-purple-500/30" },
+    riser: { bg: "bg-amber-500/15", text: "text-amber-300", border: "border-amber-500/30" },
+    ambience: { bg: "bg-indigo-500/15", text: "text-indigo-300", border: "border-indigo-500/30" },
+    transition: { bg: "bg-sky-500/15", text: "text-sky-300", border: "border-sky-500/30" },
+  };
 
   const copyJson = () => {
     if (!rawPlan) return;
@@ -2575,24 +2672,14 @@ function SfxPlanView({
         </div>
       </div>
 
-      {/* Подсказка по категориям саунд-дизайна */}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 text-[11px] text-zinc-400">
-        <span className="font-semibold text-zinc-300 mr-1">Категории звука:</span>
-        {Object.entries(SFX_KIND_META).map(([key, info]) => (
-          <span
-            key={key}
-            className={cn("rounded px-1.5 py-0.5 border text-[10px] font-medium cursor-help", info.bg, info.text, info.border)}
-            title={info.desc}
-          >
-            {key.toUpperCase()} — {info.label}
-          </span>
-        ))}
-      </div>
-
       {/* Список звуковых событий */}
       <div className="flex flex-col gap-2">
         {events.map((ev, idx) => {
-          const meta = getSfxMeta(ev.kind);
+          const style = kindColors[ev.kind.toLowerCase()] || {
+            bg: "bg-white/5",
+            text: "text-zinc-300",
+            border: "border-white/10",
+          };
           return (
             <div
               key={idx}
@@ -2605,16 +2692,13 @@ function SfxPlanView({
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={cn(
-                      "rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide border cursor-help",
-                      meta.bg,
-                      meta.text,
-                      meta.border,
+                      "rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wider border",
+                      style.bg,
+                      style.text,
+                      style.border,
                     )}
-                    title={`${ev.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                   >
-                    <span className="uppercase">{ev.kind}</span>
-                    <span className="mx-1 opacity-50">·</span>
-                    <span className="normal-case font-medium">{meta.label}</span>
+                    {ev.kind}
                   </span>
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs font-mono text-zinc-300 border border-white/10">
                     {ev.t_start.toFixed(1)} с (+{ev.duration.toFixed(1)} с)
@@ -2622,6 +2706,11 @@ function SfxPlanView({
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs text-zinc-400 border border-white/10">
                     Кадр {ev.frame_number}
                   </span>
+                  {ev.duck && (
+                    <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 border border-blue-500/20">
+                      Duck (под голосом)
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-between sm:justify-end gap-3 min-w-0 flex-1 sm:max-w-[55%]">
@@ -2688,14 +2777,20 @@ function SfxGenView({
       }
     | undefined;
 
-  const plannedEvents = (sfxPlan?.events || []).filter(
-    (ev) => typeof ev.frame_number !== "number" || ev.frame_number < 1_000_000,
-  );
-  const generatedFiles = (sfxFilesRecord?.files || []).filter(
-    (f) => typeof f.frame_number !== "number" || f.frame_number < 1_000_000,
-  );
+  const plannedEvents = sfxPlan?.events || [];
+  const generatedFiles = sfxFilesRecord?.files || [];
   const items = snapshot.items;
   const hasFiles = generatedFiles.length > 0 || items.length > 0;
+
+  const kindColors: Record<string, { bg: string; text: string; border: string }> = {
+    hit: { bg: "bg-rose-500/15", text: "text-rose-300", border: "border-rose-500/30" },
+    whoosh: { bg: "bg-cyan-500/15", text: "text-cyan-300", border: "border-cyan-500/30" },
+    foley: { bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/30" },
+    stinger: { bg: "bg-purple-500/15", text: "text-purple-300", border: "border-purple-500/30" },
+    riser: { bg: "bg-amber-500/15", text: "text-amber-300", border: "border-amber-500/30" },
+    ambience: { bg: "bg-indigo-500/15", text: "text-indigo-300", border: "border-indigo-500/30" },
+    transition: { bg: "bg-sky-500/15", text: "text-sky-300", border: "border-sky-500/30" },
+  };
 
   if (!hasFiles) {
     return (
@@ -2718,7 +2813,11 @@ function SfxGenView({
               Очередь генерации по плану ({plannedEvents.length} событий):
             </div>
             {plannedEvents.map((ev, idx) => {
-              const meta = getSfxMeta(ev.kind);
+              const style = kindColors[ev.kind.toLowerCase()] || {
+                bg: "bg-white/5",
+                text: "text-zinc-300",
+                border: "border-white/10",
+              };
               return (
                 <div
                   key={idx}
@@ -2728,16 +2827,13 @@ function SfxGenView({
                     <span className="font-mono text-zinc-500">#{idx + 1}</span>
                     <span
                       className={cn(
-                        "rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide border cursor-help",
-                        meta.bg,
-                        meta.text,
-                        meta.border,
+                        "rounded px-2 py-0.5 text-[11px] font-semibold uppercase border",
+                        style.bg,
+                        style.text,
+                        style.border,
                       )}
-                      title={`${ev.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                     >
-                      <span className="uppercase">{ev.kind}</span>
-                      <span className="mx-1 opacity-50">·</span>
-                      <span className="normal-case font-medium">{meta.label}</span>
+                      {ev.kind}
                     </span>
                     <span className="text-zinc-400 font-mono">
                       {ev.t_start.toFixed(1)} с · Кадр {ev.frame_number}
@@ -2788,8 +2884,7 @@ function SfxGenView({
           audioUrl: item.previewUrl || item.downloadUrl || "",
           fileName: item.label || `sfx_${idx}.mp3`,
         };
-      })
-      .filter((d) => typeof d.frameNumber !== "number" || d.frameNumber < 1_000_000);
+      });
 
   const providers = Array.from(new Set(displayItems.map((d) => d.provider)));
   const providerLabel = providers.includes("elevenlabs")
@@ -2820,24 +2915,14 @@ function SfxGenView({
         </div>
       </div>
 
-      {/* Подсказка по категориям саунд-дизайна */}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 text-[11px] text-zinc-400">
-        <span className="font-semibold text-zinc-300 mr-1">Категории звука:</span>
-        {Object.entries(SFX_KIND_META).map(([key, info]) => (
-          <span
-            key={key}
-            className={cn("rounded px-1.5 py-0.5 border text-[10px] font-medium cursor-help", info.bg, info.text, info.border)}
-            title={info.desc}
-          >
-            {key.toUpperCase()} — {info.label}
-          </span>
-        ))}
-      </div>
-
       {/* Список звуков с аудиоплеерами */}
       <div className="flex flex-col gap-2.5">
         {displayItems.map((item) => {
-          const meta = getSfxMeta(item.kind);
+          const style = kindColors[item.kind.toLowerCase()] || {
+            bg: "bg-white/5",
+            text: "text-zinc-300",
+            border: "border-white/10",
+          };
           return (
             <div
               key={item.idx}
@@ -2850,16 +2935,13 @@ function SfxGenView({
                   </span>
                   <span
                     className={cn(
-                      "rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide border cursor-help",
-                      meta.bg,
-                      meta.text,
-                      meta.border,
+                      "rounded-lg px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider border",
+                      style.bg,
+                      style.text,
+                      style.border,
                     )}
-                    title={`${item.kind.toUpperCase()} (${meta.label}) — ${meta.desc}`}
                   >
-                    <span className="uppercase">{item.kind}</span>
-                    <span className="mx-1 opacity-50">·</span>
-                    <span className="normal-case font-medium">{meta.label}</span>
+                    {item.kind}
                   </span>
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs font-mono text-zinc-300 border border-white/10">
                     {item.tStart.toFixed(1)} с (+{item.duration.toFixed(1)} с)
@@ -2867,6 +2949,11 @@ function SfxGenView({
                   <span className="rounded-md bg-white/5 px-2 py-0.5 text-xs text-zinc-400 border border-white/10">
                     Кадр {item.frameNumber}
                   </span>
+                  {item.duck && (
+                    <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 border border-blue-500/20">
+                      Duck
+                    </span>
+                  )}
                   <span className="text-[11px] font-mono text-zinc-400">
                     Громкость: {Math.round(item.gain * 100)}%
                   </span>

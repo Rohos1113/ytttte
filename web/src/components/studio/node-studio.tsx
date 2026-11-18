@@ -17,12 +17,12 @@ import {
   Settings2,
   Upload,
   X,
+  Braces,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Copy as CopyIcon, Play as PlayIcon, X as XIcon, Loader2 as SpinIcon, Maximize2 as OpenIcon } from "lucide-react";
-import { NodeModelPicker } from "@/components/canvas/node-model-picker";
 
 import { isTextNodeType } from "@/lib/node-model-catalog";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -51,12 +51,13 @@ import {
   type ExcelGptNodeConfig,
 } from "@/lib/excel-gpt-config";
 import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-panel";
+import { NodeLlmJsonPanel } from "@/components/canvas/node-llm-json-dialog";
+import { NodeResultTable, type NodeTableState } from "@/components/canvas/node-result-table";
+import { isLlmNodeType } from "@/lib/node-llm-json";
 import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
-import { HeroConfigPanel } from "@/components/canvas/hero-config-panel";
 import { Nii67CardPanel } from "@/components/canvas/nii67-card-panel";
 import { projectUsesNii67Script } from "@/lib/nii67";
 /** Steps that never call a text LLM (pure FFmpeg / TTS / SFX / upload) or have no model (topic). */
-const NO_LLM_NODE_TYPES = new Set(["topic", "assemble", "audio", "publish", "sfx_gen"]);
 import { CheckNodePromptPanel } from "@/components/studio/check-node-prompt-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -82,14 +83,13 @@ import { StudioExcelGrid } from "@/components/studio/studio-excel-grid";
 import { FramePromptsPanel } from "@/components/studio/frame-prompts-panel";
 import { NodeResultViewBody } from "@/components/canvas/node-result-views";
 import { resolveNodeResult } from "@/lib/node-result-resolver";
-import { inferNodeStatusFromProject } from "@/lib/node-run-status";
-import type { FrameDTO, NodeRunStatus } from "@/lib/types";
-import { NodeStepParamsPanel, StreamsPicker } from "@/components/studio/node-step-params-panel";
-import { NodePromptBlock } from "@/components/studio/node-prompt-block";
+import type { FrameDTO } from "@/lib/types";
+import { NodeStepParamsPanel } from "@/components/studio/node-step-params-panel";
+import { NodeDescriptionEditor, NodePromptBlock } from "@/components/studio/node-prompt-block";
 import { NodeStyleVars } from "@/components/studio/node-style-vars";
-const STREAM_NODE_TYPES = new Set(["images", "videos", "hero"]);
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
+import { NodePromptTexts, promptTextSlotsFor } from "@/components/studio/node-prompt-texts";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import { GptTextPanel } from "@/components/studio/gpt-text-panel";
 import { ResultAudioCard } from "@/components/canvas/custom-audio-player";
@@ -132,6 +132,14 @@ export function NodeStudio({
   const NodeIcon = getNodeIcon(spec.iconKey);
 
   const [tab, setTab] = useState<StudioTab>(initialTab);
+  // Полный JSON ответа ЛЛМ — показывается внутри вкладки «Результат» по кнопке.
+  const [showJson, setShowJson] = useState(false);
+  // Таблица ответа ЛЛМ: пока она грузится или уже есть — прежний вид не показываем.
+  const [llmTableState, setLlmTableState] = useState<NodeTableState>("loading");
+  useEffect(() => {
+    setShowJson(false);
+    setLlmTableState("loading");
+  }, [nodeKey]);
   const [catalogMode, setCatalogMode] = useState(true);
   useEffect(() => {
     if (open) setCatalogMode(initialTab !== "settings");
@@ -343,6 +351,17 @@ export function NodeStudio({
     null;
 
   const activeStepCode = slotStepCode(activeSlot, stepCode);
+
+  // Ноды с несколькими мастер-промтами (Персонажи: формат аватара + стиль
+  // аватара) переключаются кнопками прямо в каталоге промтов.
+  const catalogStepTabs = useMemo(() => {
+    const tabs = pipelineSlots.filter(
+      (s) => s.kind === "gpt" && s.stepCode && !s.stepCode.startsWith("excel_gpt"),
+    );
+    if (tabs.length < 2) return [];
+    const current = activeSlot?.id ?? tabs[0].id;
+    return tabs.map((s) => ({ id: s.id, title: s.title, active: s.id === current }));
+  }, [pipelineSlots, activeSlot?.id]);
   const promptStepCode =
     isExcelGptNode(nodeType) && activeSlot?.kind === "gpt"
       ? EXCEL_GPT_STEP_CODE
@@ -405,7 +424,9 @@ export function NodeStudio({
       // excel_gpt: SSoT — meta.prompt_slot_variants[nodeKey]. Не пишем в
       // prompt_overrides["excel_gpt"], иначе все ноды «Работа с GPT» шлют
       // один и тот же последний выбранный файл.
-      if (isExcelGptNode(nodeType) && activeSlot.kind === "gpt") {
+      // «Фоны» берут стиль из этой же библиотеки, но оверрайд excel_gpt у них
+      // общий с нодой «Стиль» и трогать его нельзя — только свой слот ноды.
+      if ((isExcelGptNode(nodeType) && activeSlot.kind === "gpt") || nodeType === "backgrounds") {
         await api.patchProject(projectId, { meta });
         return;
       }
@@ -509,8 +530,13 @@ export function NodeStudio({
     if (nodeType.includes("video") || nodeType === "videos") {
       return list.filter((a) => a.kind.includes("video"));
     }
-    if (nodeType === "hero" || nodeType === "items") {
-      return list.filter((a) => a.kind.includes("hero") || a.kind.includes("item"));
+    if (nodeType === "hero") {
+      return list.filter((a) => a.kind.includes("hero"));
+    }
+    if (nodeType === "items") {
+      // В предметах — только предметы. Раньше сюда подмешивались hero-артефакты,
+      // и в результатах ноды показывались персонажи.
+      return list.filter((a) => a.kind.includes("item"));
     }
     if (nodeType === "audio" || nodeType === "music") {
       return list.filter((a) => a.kind.includes("audio") || a.kind.includes("music"));
@@ -535,14 +561,26 @@ export function NodeStudio({
     refetchInterval: open && generationRunning ? 2500 : false,
   });
 
-  const isRunning = shouldShowStopBar(project.data?.status, project.data?.generation_active);
+  useEffect(() => {
+    if (!open) return;
+    artifacts.refetch();
+    assets.refetch();
+  }, [open, project.data?.status, project.data?.generation_active]);
+
+  const dbBrowser = useQuery({
+    queryKey: ["db-graph-project", projectId],
+    queryFn: () => api.dbGraph(projectId!),
+    enabled: open && projectId != null,
+  });
+
+  const isRunning = shouldShowStopBar(project.data?.status);
 
   const mediaImages = useQuery({
     queryKey: ["media-review", projectId, "images"],
     queryFn: () => api.listMediaReview(projectId!, "images"),
     enabled: open && projectId != null,
     refetchInterval:
-      open && isRunning && (nodeType === "images" || nodeType === "hitl_images") ? 3000 : false,
+      open && isRunning && (nodeType === "images" || nodeType === "hitl_images") ? 5000 : false,
   });
 
   const mediaVideos = useQuery({
@@ -550,21 +588,7 @@ export function NodeStudio({
     queryFn: () => api.listMediaReview(projectId!, "videos"),
     enabled: open && projectId != null,
     refetchInterval:
-      open && isRunning && (nodeType === "videos" || nodeType === "hitl_videos") ? 3000 : false,
-  });
-
-  useEffect(() => {
-    if (!open) return;
-    artifacts.refetch();
-    assets.refetch();
-    mediaImages.refetch();
-    mediaVideos.refetch();
-  }, [open, project.data?.status, project.data?.generation_active]);
-
-  const dbBrowser = useQuery({
-    queryKey: ["db-graph-project", projectId],
-    queryFn: () => api.dbGraph(projectId!),
-    enabled: open && projectId != null,
+      open && isRunning && (nodeType === "videos" || nodeType === "hitl_videos") ? 5000 : false,
   });
 
   const mapMedia = useCallback(
@@ -579,24 +603,10 @@ export function NodeStudio({
           preview_url: r.preview_url,
           label: `Кадр ${r.number}`,
           frame_id: r.frame_id,
-          frame_number: r.number,
-          number: r.number,
           voiceover: r.voiceover_text,
         })),
     [],
   );
-
-  const computedNodeStatus = useMemo((): NodeRunStatus => {
-    const rawStatus = (nodeDataProp?.runStatus as NodeRunStatus) || undefined;
-    const ps = project.data?.status;
-    if (rawStatus && rawStatus !== "pending") return rawStatus;
-    if (nodeType === "excel_gpt") {
-      const slotIdx = excelGptConfig.slotIndex ?? 1;
-      if (ps === `enriching_${slotIdx}`) return "running";
-      if (ps === `enrich_${slotIdx}_ready`) return "done";
-    }
-    return inferNodeStatusFromProject(nodeType, ps);
-  }, [nodeDataProp?.runStatus, project.data?.status, nodeType, excelGptConfig.slotIndex]);
 
   const resultSnapshot = useMemo(() => {
     if (!projectId) return null;
@@ -610,7 +620,7 @@ export function NodeStudio({
         mediaImages: mapMedia(mediaImages.data ?? [], "images"),
         mediaVideos: mapMedia(mediaVideos.data ?? [], "videos"),
       },
-      computedNodeStatus,
+      undefined,
       nodeKey,
     );
   }, [
@@ -624,7 +634,6 @@ export function NodeStudio({
     mediaVideos.data,
     mapMedia,
     nodeKey,
-    computedNodeStatus,
   ]);
   const projectHasXlsxAsset = (assets.data ?? []).some((a) =>
     /\.xlsx$/i.test(String((a as { name?: string; path?: string }).name ?? (a as { path?: string }).path ?? "")),
@@ -838,6 +847,12 @@ export function NodeStudio({
         ["results", "Результат"],
       ] as const);
 
+  // «Результат» ЛЛМ-ноды: таблица заменяет прежний разбор, но если таблиц нет
+  // (пустой ответ) или запрос упал — показываем прежний вид как fallback.
+  const isLlmNode = isLlmNodeType(nodeType) && projectId != null;
+  const showLegacyResults =
+    !isLlmNode || llmTableState === "empty" || llmTableState === "error";
+
   return createPortal(
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
@@ -852,8 +867,13 @@ export function NodeStudio({
     >
       <aside
         className={cn(
-          "vp-menu nowheel nopan relative isolate flex max-h-[88vh] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl",
-          nodeType === "topic" ? "h-auto w-[min(680px,96vw)]" : "h-[720px] w-[min(880px,96vw)]",
+          "vp-menu nowheel nopan relative isolate flex max-h-[calc(100vh-2rem)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl",
+          nodeType === "topic"
+            ? "h-auto w-[min(680px,96vw)]"
+            : cn(
+                "w-[min(880px,96vw)]",
+                tab === "results" && isLlmNodeType(nodeType) ? "h-auto" : "h-[720px]",
+              ),
         )}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -868,9 +888,7 @@ export function NodeStudio({
             <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
               <span className="truncate flex items-center gap-2">
                 <span>
-                  {hasPrompts
-                    ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
-                    : (excelConfig.label?.trim() || spec.label)}
+                  {excelConfig.label?.trim() || spec.label}
                 </span>
                 {nodeType === "publish" && (
                   <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-500/40">
@@ -921,7 +939,7 @@ export function NodeStudio({
         </div>
         )}
         {nodeType === "topic" ? (
-          <div className="nodrag flex flex-col gap-4 p-5 sm:p-6 overflow-y-auto max-h-[calc(88vh-80px)]">
+          <div className="nodrag flex flex-col gap-4 p-5 sm:p-6 overflow-y-auto max-h-[calc(100vh-5rem)]">
             {nodeDisabled ? (
               <div className="flex flex-col gap-2 rounded-[10px] border border-amber-400/30 px-4 py-3">
                 <p className="text-[13px] text-amber-300">Нода отключена в графе — шаг не запустится.</p>
@@ -961,24 +979,6 @@ export function NodeStudio({
                 ) : null}
               </div>
             ) : null}
-            {!NO_LLM_NODE_TYPES.has(nodeType) ? (
-            <div className="flex items-center gap-3 rounded-[10px] border border-white/[0.06] px-4 py-3">
-              <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Модель</span>
-              <div className="min-w-0 font-mono text-[12px] [&_*]:!font-mono [&_*]:!text-[12px]">
-                  <NodeModelPicker
-                    nodeKey={nodeKey}
-                    nodeType={nodeType}
-                    modelId={liveNodeData?.modelId}
-                    imageResolution={liveNodeData?.imageResolution || project.data?.image_resolution || undefined}
-                    imageQuality={liveNodeData?.imageQuality || project.data?.image_quality || undefined}
-                    aspectRatio={liveNodeData?.aspectRatio || project.data?.aspect_ratio || undefined}
-                    reasoningEffort={liveNodeData?.reasoningEffort}
-                  />
-                </div>
-              <span className="flex-1" />
-              {STREAM_NODE_TYPES.has(nodeType) && projectId ? <StreamsPicker projectId={projectId} /> : null}
-            </div>
-            ) : null}
             {hasSettings ? (
               <div className="flex flex-col gap-3 text-[14px] text-white/85">
                 {isExcelGptNode(nodeType) && projectId ? (
@@ -986,7 +986,6 @@ export function NodeStudio({
                 ) : null}
                 {showStepParams ? <NodeStepParamsPanel projectId={projectId!} nodeType={nodeType} /> : null}
                 {nodeType === "items" && projectId ? <ItemsConfigPanel projectId={projectId} /> : null}
-                {nodeType === "hero" && projectId ? <HeroConfigPanel projectId={projectId} /> : null}
                 {nodeType === "script" && projectId && projectUsesNii67Script(project.data ?? null) ? <Nii67CardPanel projectId={projectId} /> : null}
                 {nodeType === "sfx_plan" && projectId ? <SfxPlanSettingsPanel projectId={projectId} /> : null}
                 {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? <SfxGenSettingsPanel projectId={projectId} /> : null}
@@ -1008,10 +1007,14 @@ export function NodeStudio({
                 ) : null}
               </div>
             ) : null}
+            <NodeDescriptionEditor key={nodeKey} nodeKey={nodeKey} description={liveNodeData?.description || spec.description || ""} />
+            {promptTextSlotsFor(nodeType).length > 0 && projectId && nodeKey ? (
+              <NodePromptTexts projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
+            ) : null}
             {promptStepCode && projectId && nodeKey ? (
               <NodeStyleVars projectId={projectId} stepCode={promptStepCode} nodeKey={nodeKey} slotId={activeSlot?.id} activeVariant={activeVariant ? String(activeVariant) : undefined} />
             ) : null}
-            {showFilesPanel && promptStepCode ? (
+            {showFilesPanel && promptStepCode && promptTextSlotsFor(nodeType).length === 0 ? (
               <NodePromptBlock
                 stepCode={promptStepCode}
                 activeVariant={activeVariant ? String(activeVariant) : undefined}
@@ -1039,10 +1042,58 @@ export function NodeStudio({
             ) : null}
           </div>
         ) : inTab === "results" ? (
-          <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
+          <div className="nodrag flex min-h-0 flex-1 flex-col gap-2 p-3">
+            {projectId != null && nodeKey && isLlmNodeType(nodeType) ? (
+              <div className="flex shrink-0 items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowJson((prev) => !prev)}
+                  title="Показать полный JSON ответа"
+                  className={cn(
+                    "flex h-7 items-center gap-1.5 rounded border px-2.5 text-[11px] font-medium transition",
+                    showJson
+                      ? "border-primary/60 bg-primary/20 text-primary"
+                      : "border-white/15 bg-white/[0.04] text-white/85 hover:border-white/50 hover:text-white",
+                  )}
+                >
+                  <Braces className="h-3.5 w-3.5" />
+                  JSON
+                </button>
+              </div>
+            ) : null}
+            {showJson && projectId != null && nodeKey && isLlmNodeType(nodeType) ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <NodeLlmJsonPanel
+                  projectId={projectId}
+                  nodeKey={nodeKey}
+                  nodeType={nodeType}
+                  active={open && tab === "results" && showJson}
+                  snapshot={inlineResult}
+                />
+              </div>
+            ) : (
+            <>
+            {isLlmNodeType(nodeType) && projectId != null ? (
+              <NodeResultTable
+                projectId={projectId}
+                nodeKey={nodeKey}
+                nodeType={nodeType}
+                active={tab === "results"}
+                onState={setLlmTableState}
+              />
+            ) : null}
+            {showLegacyResults ? (
+            <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
-                  {inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0 || inlineResult.viewMode === "voiceover_wide" || inlineResult.viewMode === "topic_edit") ? (
+                  {(nodeType === "hero" || nodeType === "items") && projectId ? (
+                    <NodeResultViewBody
+                      projectId={projectId}
+                      nodeKey={nodeKey}
+                      nodeType={nodeType}
+                      snapshot={inlineResult ?? { hasResult: false, itemCount: 0, summary: "", items: [], replaceMode: "studio", viewMode: "frame_images" }}
+                    />
+                  ) : inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0 || inlineResult.viewMode === "voiceover_wide" || inlineResult.viewMode === "topic_edit") ? (
                     <NodeResultViewBody
                       projectId={projectId!}
                       nodeKey={nodeKey}
@@ -1098,21 +1149,6 @@ export function NodeStudio({
                         </div>
                       ))}
                     </div>
-                  ) : computedNodeStatus === "running" || computedNodeStatus === "queued" ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <div className="relative mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-teal-500/30 bg-teal-500/10 shadow-[0_0_20px_rgba(45,212,191,0.2)]">
-                        <Loader2 className="h-7 w-7 animate-spin text-teal-400" />
-                      </div>
-                      <h4 className="text-[16px] font-medium text-white">Генерация в процессе…</h4>
-                      <p className="mt-1.5 max-w-md text-[13px] text-zinc-300">
-                        {inlineResult?.summary || "Шаг выполняется ИИ-воркером. Пожалуйста, подождите."}
-                      </p>
-                      {(nodeType === "scene_design" || nodeType === "sd_agent" || nodeType === "sd_assemble") && (
-                        <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/40 px-4 py-2.5 text-[12px] text-zinc-400">
-                          💡 Анализ и расстановка шотов для больших проектов занимает от 4 до 10 минут. Результат появится здесь автоматически.
-                        </div>
-                      )}
-                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                       <p className="text-[15px]">
@@ -1124,6 +1160,10 @@ export function NodeStudio({
                   )}
                 </div>
             </div>
+            </div>
+            ) : null}
+            </>
+            )}
           </div>
         ) : (
           <div className="nodrag flex min-h-0 flex-auto flex-col overflow-hidden p-3">
@@ -1158,7 +1198,14 @@ export function NodeStudio({
                 activeVariantSourceLabel={activeVariantSourceLabel}
                 onActivateVariant={(variant) => activateVariant.mutate(variant)}
                 activating={activateVariant.isPending}
-                catalogPanel={{ nodeKey, embedded: true, onOpenSettings: () => setTab("settings"), onClose: () => requestClose() }}
+                catalogPanel={{
+                  nodeKey,
+                  embedded: true,
+                  onOpenSettings: () => setTab("settings"),
+                  onClose: () => requestClose(),
+                  stepTabs: catalogStepTabs,
+                  onStepTab: (id) => setActiveSlotId(id),
+                }}
               />
             ) : (
               <p className="p-4 text-[13px] text-white/50">У этой ноды нет каталога промтов.</p>
