@@ -13,7 +13,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
-  Bot,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -35,6 +34,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  Sparkles,
   Square,
   Trash2,
   Upload,
@@ -647,7 +647,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex bg-[#0a0a0a] text-white font-sans backdrop-blur-2xl animate-in fade-in duration-200"
+      className="fixed inset-y-0 right-0 left-16 z-[80] flex bg-[#090a0f] text-white font-sans backdrop-blur-2xl animate-in fade-in duration-200"
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -678,7 +678,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         <div className="flex items-center justify-between border-b border-white/[0.08] p-3.5">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2dd4bf]/15 border border-[#2dd4bf]/30 text-[#2dd4bf] shadow-[0_0_10px_rgba(45,212,191,0.2)]">
-              <Bot className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
             </div>
             <span className="text-sm font-bold tracking-tight text-white">ИИ Чат</span>
           </div>
@@ -1090,7 +1090,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   {/* Assistant Avatar */}
                   {!isUser && (
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.2)] mt-0.5">
-                      <Bot className="h-4 w-4" />
+                      <Sparkles className="h-4 w-4" />
                     </div>
                   )}
 
@@ -1318,7 +1318,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           {isStreaming && (
             <div className="flex gap-3.5 max-w-4xl mx-auto animate-in fade-in">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.25)] animate-pulse mt-0.5">
-                <Bot className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               </div>
               <div className="flex-1 rounded-2xl rounded-tl-xs border border-[#2dd4bf]/35 bg-[#121319]/95 p-4 text-xs text-white shadow-[0_8px_30px_rgba(45,212,191,0.1)] backdrop-blur-xl ring-1 ring-white/[0.03]">
                 {streamingPhase && (
@@ -1345,7 +1345,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           {!isStreaming && busy && (
             <div className="flex gap-3.5 max-w-4xl mx-auto animate-in fade-in">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.25)] animate-pulse mt-0.5">
-                <Bot className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-[#121319] px-4 py-3 shadow-md ring-1 ring-white/[0.03]">
                 <Loader2 className="h-4 w-4 animate-spin text-[#2dd4bf]" />
