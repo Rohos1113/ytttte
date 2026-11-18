@@ -468,6 +468,20 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
     };
     setOptimisticUserMessage(tempMsg);
 
+    // Очищаем ожидающие вложения в кэше сессии: они уходят с этим сообщением в историю
+    if (currentAttachments.length > 0) {
+      qc.setQueryData<GptWorkspaceSession>(["gpt-workspace", "session", sid], (old) => {
+        if (!old) return old;
+        const currentAtts = old.attachments || [];
+        const movedToHistory = currentAtts.filter((f) => currentAttachments.includes(f.name));
+        return {
+          ...old,
+          attachments: currentAtts.filter((f) => !currentAttachments.includes(f.name)),
+          history_attachments: [...(old.history_attachments || []), ...movedToHistory],
+        };
+      });
+    }
+
     abortControllerRef.current = new AbortController();
     setIsStreaming(true);
     setStreamingText("");
@@ -589,6 +603,15 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
   const deleteAttachMut = useMutation({
     mutationFn: ({ sid, name }: { sid: string; name: string }) => api.gptDeleteAttachment(sid, name),
+    onMutate: async ({ sid, name }) => {
+      qc.setQueryData<GptWorkspaceSession>(["gpt-workspace", "session", sid], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          attachments: (old.attachments || []).filter((f) => f.name !== name),
+        };
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["gpt-workspace", "session", sessionId] });
       toast.success("Вложение удалено");
@@ -629,10 +652,11 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
   const filesByName = useMemo(() => {
     const map = new Map<string, GptWorkspaceFile>();
+    for (const f of session?.history_attachments ?? []) map.set(f.name, f);
     for (const f of session?.attachments ?? []) map.set(f.name, f);
     for (const f of session?.outputs ?? []) map.set(f.name, f);
     return map;
-  }, [session?.attachments, session?.outputs]);
+  }, [session?.history_attachments, session?.attachments, session?.outputs]);
 
   const filteredSessions = useMemo(() => {
     if (!searchQuery.trim()) return sessions;

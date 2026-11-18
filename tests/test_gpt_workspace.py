@@ -1131,3 +1131,65 @@ async def test_ask_image_analysis_does_not_call_web_search(
     assert web_fetch_called is False
     assert any(m["role"] == "user" for m in out["messages"])
     assert any(m["role"] == "assistant" for m in out["messages"])
+
+
+@pytest.mark.asyncio
+async def test_ask_clears_pending_attachments_and_moves_to_uploads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.gpt_client as gc
+
+    class FakeGpt:
+        async def ask_with_files(self, *a, **k):
+            return "Ответ получен."
+
+    monkeypatch.setattr(gc, "get_gpt_client", lambda: FakeGpt())
+
+    s = gw.create_session()
+    att = gw.save_attachment(s["id"], "screenshot.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+    assert att["name"] == "screenshot.png"
+
+    # До отправки: файл в attachments (ожидающее вложение)
+    before = gw.get_session(s["id"])
+    assert len(before["attachments"]) == 1
+    assert before["attachments"][0]["name"] == "screenshot.png"
+    assert len(before.get("history_attachments") or []) == 0
+
+    # Отправляем сообщение
+    out = await gw.ask(s["id"], "Анализируй скриншот")
+
+    # После отправки: вложения очищены, перенесены в history_attachments
+    assert len(out["attachments"]) == 0
+    assert len(out["history_attachments"]) == 1
+    assert out["history_attachments"][0]["name"] == "screenshot.png"
+
+    # Проверка через повторный get_session
+    after = gw.get_session(s["id"])
+    assert len(after["attachments"]) == 0
+    assert len(after["history_attachments"]) == 1
+    assert after["history_attachments"][0]["name"] == "screenshot.png"
+    assert out["messages"][-2]["attachment_names"] == ["screenshot.png"]
+
+
+def test_legacy_session_auto_migrates_sent_attachments() -> None:
+    """Старые сессии, где отправленные файлы остались в attachments, мигрируют в uploads."""
+    s = gw.create_session()
+    d = gw._session_dir(s["id"])
+    att = d / "attachments"
+    (att / "old_screen.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 30)
+
+    # Имитируем старую сессию: сообщение уже отправлено с этим файлом
+    gw._append_message(
+        s["id"],
+        "user",
+        "старый вопрос",
+        attachment_names=["old_screen.png"],
+    )
+
+    got = gw.get_session(s["id"])
+    # old_screen.png должен автоматически переехать в uploads
+    assert len(got["attachments"]) == 0
+    assert len(got["history_attachments"]) == 1
+    assert got["history_attachments"][0]["name"] == "old_screen.png"
+    assert not (att / "old_screen.png").exists()
+    assert (d / "uploads" / "old_screen.png").is_file()

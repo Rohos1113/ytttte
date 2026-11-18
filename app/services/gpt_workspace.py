@@ -850,6 +850,7 @@ def create_session(*, title: str | None = None) -> dict[str, Any]:
     d = _session_dir(sid)
     d.mkdir(parents=True, exist_ok=True)
     (d / "attachments").mkdir(exist_ok=True)
+    (d / "uploads").mkdir(exist_ok=True)
     (d / "outputs").mkdir(exist_ok=True)
     now = _now()
     meta = {
@@ -949,12 +950,40 @@ def get_session(session_id: str) -> dict[str, Any]:
     if renames and isinstance(messages, list):
         messages = _rewrite_message_filenames(messages, renames)
         _write_json(d / "messages.json", messages)
-    attachments = []
+
     att_dir = d / "attachments"
+    uploads_dir = d / "uploads"
+
+    # Авто-миграция для старых сессий: если файл из attachments/ уже отправлен в сообщениях user,
+    # переносим его в uploads/, чтобы он больше не отображался как ожидающее вложение над полем ввода.
+    if att_dir.is_dir() and isinstance(messages, list) and messages:
+        sent_attachment_names = {
+            name
+            for m in messages
+            if isinstance(m, dict) and m.get("role") == "user"
+            for name in (m.get("attachment_names") or [])
+            if name
+        }
+        if sent_attachment_names:
+            uploads_dir.mkdir(exist_ok=True)
+            for p in list(att_dir.iterdir()):
+                if p.is_file() and p.name in sent_attachment_names:
+                    dest = uploads_dir / p.name
+                    if not dest.exists():
+                        shutil.move(str(p), str(dest))
+                    elif dest.resolve() != p.resolve():
+                        p.unlink(missing_ok=True)
+
+    attachments = []
     if att_dir.is_dir():
         for p in sorted(att_dir.iterdir()):
             if p.is_file():
                 attachments.append(_file_entry(p))
+    history_attachments = []
+    if uploads_dir.is_dir():
+        for p in sorted(uploads_dir.iterdir()):
+            if p.is_file():
+                history_attachments.append(_file_entry(p))
     outputs = []
     out_dir = d / "outputs"
     if out_dir.is_dir():
@@ -971,6 +1000,7 @@ def get_session(session_id: str) -> dict[str, Any]:
         "phase_detail": meta.get("phase_detail") or "",
         "messages": messages if isinstance(messages, list) else [],
         "attachments": attachments,
+        "history_attachments": history_attachments,
         "outputs": outputs,
     }
 
@@ -980,7 +1010,7 @@ def _normalize_session_files(d: Path) -> dict[str, str]:
     from app.services.gpt_api import ensure_correct_extension, finalize_downloaded_file
 
     renames: dict[str, str] = {}
-    for sub in ("attachments", "outputs"):
+    for sub in ("attachments", "uploads", "outputs"):
         folder = d / sub
         if not folder.is_dir():
             continue
@@ -1050,6 +1080,8 @@ def save_attachment(session_id: str, filename: str, data: bytes) -> dict[str, An
         raise ValueError("пустой файл")
     att = d / "attachments"
     att.mkdir(exist_ok=True)
+    uploads_dir = d / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
     safe = _safe_filename(filename)
     # Никогда не оставляем .bin — magic / fallback .dat
     sniffed = sniff_file_extension(data) or resolve_bytes_extension(data, fallback=".dat")
@@ -1060,17 +1092,14 @@ def save_attachment(session_id: str, filename: str, data: bytes) -> dict[str, An
         and suf not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif"}
     ):
         safe = f"{Path(safe).stem}{sniffed}"
-    path = att / safe
-    # уникальность
-    if path.exists():
-        stem, suf = path.stem, path.suffix
-        i = 2
-        while True:
-            cand = att / f"{stem}_{i}{suf}"
-            if not cand.exists():
-                path = cand
-                break
-            i += 1
+    # уникальность в attachments/ и uploads/
+    cand_name = safe
+    stem, suf = Path(safe).stem, Path(safe).suffix
+    i = 2
+    while (att / cand_name).exists() or (uploads_dir / cand_name).exists():
+        cand_name = f"{stem}_{i}{suf}"
+        i += 1
+    path = att / cand_name
     path.write_bytes(data)
     meta = _read_json(d / "meta.json", {})
     meta["updated_at"] = _now()
@@ -1085,6 +1114,10 @@ def delete_attachment(session_id: str, name: str) -> None:
     path = d / "attachments" / Path(name).name
     if path.exists():
         path.unlink()
+    else:
+        path_up = d / "uploads" / Path(name).name
+        if path_up.exists():
+            path_up.unlink()
 
 
 def copy_attachment_to_outputs(session_id: str, name: str) -> dict[str, Any]:
@@ -1095,6 +1128,8 @@ def copy_attachment_to_outputs(session_id: str, name: str) -> dict[str, Any]:
     if not d.is_dir() or not (d / "meta.json").is_file():
         raise FileNotFoundError(f"сессия не найдена: {session_id}")
     src = d / "attachments" / Path(name).name
+    if not src.is_file():
+        src = d / "uploads" / Path(name).name
     if not src.is_file():
         raise FileNotFoundError(f"нет вложения {name}")
     out_dir = d / "outputs"
@@ -1323,6 +1358,33 @@ async def ask(
         text,
         attachment_names=[p.name for p in files],
     )
+
+    # Прикреплённые файлы переносим в uploads/ (история диалога),
+    # чтобы поле ввода и плашка вложений очистились для следующего запроса.
+    uploads_dir = d / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+    moved_files: list[Path] = []
+    renames: dict[str, str] = {}
+    for p in files:
+        dest = uploads_dir / p.name
+        if dest.exists() and dest.resolve() != p.resolve():
+            stem, suf = p.stem, p.suffix
+            i = 2
+            while (uploads_dir / f"{stem}_{i}{suf}").exists():
+                i += 1
+            dest = uploads_dir / f"{stem}_{i}{suf}"
+            renames[p.name] = dest.name
+        shutil.move(str(p), str(dest))
+        moved_files.append(dest)
+    files = moved_files
+    if renames:
+        messages = _read_json(d / "messages.json", [])
+        if messages and isinstance(messages, list):
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user and isinstance(last_user, dict):
+                atts = last_user.get("attachment_names") or []
+                last_user["attachment_names"] = [renames.get(n, n) for n in atts]
+                _write_json(d / "messages.json", messages)
 
     out_dir = d / "outputs"
     out_dir.mkdir(exist_ok=True)

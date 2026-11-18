@@ -3512,6 +3512,7 @@ export type GptWorkspaceSession = {
   phase_detail?: string;
   messages: GptWorkspaceMessage[];
   attachments: GptWorkspaceFile[];
+  history_attachments?: GptWorkspaceFile[];
   outputs: GptWorkspaceFile[];
 };
 
