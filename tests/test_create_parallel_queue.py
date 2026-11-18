@@ -264,3 +264,56 @@ async def test_queue_snapshot_isolates_by_client_id(monkeypatch, tmp_path: Path)
 
     gate.set()
     await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_get_job_recovers_from_disk_after_memory_wipe(monkeypatch, tmp_path: Path) -> None:
+    from app.services import create_jobs as cj
+    from app.services import generation_storage as gs
+
+    monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
+    _reset_create_jobs(monkeypatch, outsee=5)
+
+    async def instant_run(out_path: Path):
+        class R:
+            file_path = out_path
+            raw_url = "https://cdn.example.com/video.mp4"
+
+        out_path.write_bytes(b"\x00" * 128)
+        return R()
+
+    job = await cj.enqueue_generation(
+        media="video",
+        model="kling-2.6",
+        provider="kie",
+        prompt="тест восстановления после рестарта",
+        ext=".mp4",
+        params={"resolution": "720p"},
+        quote={"credits": 10, "usd": 0.05, "note": ""},
+        run=instant_run,
+        client_id="client_test",
+    )
+    # Ждём завершения задачи
+    await asyncio.sleep(0.1)
+    assert job.status == "done"
+
+    # 1. Поиск по точному ID и по history_id в живой памяти
+    assert cj.get_job(job.id) is not None
+    assert cj.get_job(job.history_id) is not None
+
+    # 2. Имитируем перезапуск сервера: память _JOBS полностью очищена
+    cj._JOBS.clear()
+    assert len(cj._JOBS) == 0
+
+    # 3. get_job должен найти сайдкар на диске и восстановить статус
+    recovered_by_id = cj.get_job(job.id)
+    assert recovered_by_id is not None
+    assert recovered_by_id.status == "done"
+    assert recovered_by_id.model == "kling-2.6"
+    assert recovered_by_id.provider == "kie"
+    assert recovered_by_id.history_id == job.history_id
+
+    recovered_by_hist = cj.get_job(job.history_id)
+    assert recovered_by_hist is not None
+    assert recovered_by_hist.status == "done"
+    assert recovered_by_hist.id == job.id

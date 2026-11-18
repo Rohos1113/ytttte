@@ -161,6 +161,93 @@ def _semaphore(provider: str) -> asyncio.Semaphore:
 def get_job(job_id: str) -> CreateJob | None:
     job = _JOBS.get(job_id)
     if job is None:
+        clean = job_id.removeprefix("gen-").strip()
+        for j in _JOBS.values():
+            if (
+                j.id in (job_id, clean)
+                or j.history_id in (job_id, f"gen-{clean}")
+                or j.path.name == clean
+                or j.path.stem == Path(clean).stem
+            ):
+                job = j
+                break
+
+    if job is None:
+        # Поиск завершённых или сохранённых фоновых задач на диске (в sidecar .json)
+        try:
+            import json
+
+            from app.services.generation_storage import generations_root
+
+            root = generations_root()
+            clean = job_id.removeprefix("gen-").strip()
+            stem = Path(clean).stem
+            found_sidecar: Path | None = None
+            for cand in (clean, stem, clean[:10]):
+                if not cand:
+                    continue
+                for pattern in (f"{cand}.json", f"*{cand}*.json"):
+                    for sp in root.rglob(pattern):
+                        if sp.is_file():
+                            found_sidecar = sp
+                            break
+                    if found_sidecar:
+                        break
+                if found_sidecar:
+                    break
+
+            # Если по имени файла не нашли, проверяем sidecar по ключу job_id
+            if found_sidecar is None:
+                for sp in root.rglob("*.json"):
+                    if sp.is_file():
+                        try:
+                            meta_test = json.loads(sp.read_text(encoding="utf-8"))
+                            if meta_test.get("job_id") in (job_id, clean):
+                                found_sidecar = sp
+                                break
+                        except Exception:
+                            continue
+
+            if found_sidecar is not None:
+                data = json.loads(found_sidecar.read_text(encoding="utf-8"))
+                media_path = found_sidecar.with_suffix(
+                    Path(data.get("path") or "").suffix or ".mp4"
+                )
+                if not media_path.is_file():
+                    for cand_m in found_sidecar.parent.glob(f"{found_sidecar.stem}.*"):
+                        if cand_m.is_file() and cand_m.suffix.lower() != ".json":
+                            media_path = cand_m
+                            break
+
+                has_file = media_path.is_file() and media_path.stat().st_size > 32
+                raw_status = str(data.get("status") or ("done" if has_file else "failed"))
+                if raw_status == "done" and not has_file:
+                    raw_status = "failed"
+
+                job = CreateJob(
+                    id=str(data.get("job_id") or job_id),
+                    media=str(data.get("media") or "video"),
+                    model=str(data.get("model") or ""),
+                    provider=str(data.get("provider") or "kie"),
+                    path=media_path,
+                    prompt=str(data.get("prompt") or ""),
+                    status=raw_status,
+                    preview_url=(f"/api/files?path={media_path.resolve()}" if has_file else None),
+                    raw_url=data.get("raw_url"),
+                    error=data.get("error"),
+                    created_at=str(data.get("created_at") or ""),
+                    started_at=data.get("started_at"),
+                    finished_at=data.get("finished_at"),
+                    elapsed_sec=data.get("elapsed_sec"),
+                    history_id=f"gen-{media_path.name}",
+                    tenant_id=data.get("tenant_id"),
+                    client_id=data.get("client_id"),
+                    storage_key=data.get("storage_key"),
+                )
+        except Exception:
+            job = None
+
+    if job is None:
         return None
     try:
         from app.services.studio_auth import current_is_admin
@@ -303,7 +390,7 @@ async def enqueue_generation(
                     return existing
 
     job_id = uuid.uuid4().hex[:12]
-    out_path = build_generation_path(media=media, model=model, ext=ext)
+    out_path = build_generation_path(media=media, model=model, ext=ext, job_id=job_id)
     history_id = f"gen-{out_path.name}"
     write_sidecar(
         out_path,

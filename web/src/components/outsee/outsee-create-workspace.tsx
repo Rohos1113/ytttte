@@ -953,7 +953,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   >(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = sessionStorage.getItem("studio_tracking_jobs");
+      const raw = localStorage.getItem("studio_tracking_jobs");
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -963,7 +963,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      sessionStorage.setItem("studio_tracking_jobs", JSON.stringify(trackingJobs));
+      localStorage.setItem("studio_tracking_jobs", JSON.stringify(trackingJobs));
     } catch {
       // ignore
     }
@@ -1069,8 +1069,40 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       if (d.job_id) s.add(d.job_id);
       if (d.history_id) s.add(d.history_id);
     }
+    for (const r of createQueueQ.data?.running ?? []) {
+      if (r.job_id) s.add(r.job_id);
+      if (r.history_id) s.add(r.history_id);
+    }
+    for (const w of createQueueQ.data?.waiting ?? []) {
+      if (w.job_id) s.add(w.job_id);
+      if (w.history_id) s.add(w.history_id);
+    }
     return s;
-  }, [trackingJobs, draftJobs]);
+  }, [trackingJobs, draftJobs, createQueueQ.data?.running, createQueueQ.data?.waiting]);
+
+  // Автосинхронизация с сервером: если вкладка была закрыта или страница перезагружена,
+  // все активные задачи с сервера гарантированно подхватываются в trackingJobs
+  useEffect(() => {
+    const activeFromServer = [
+      ...(createQueueQ.data?.running ?? []),
+      ...(createQueueQ.data?.waiting ?? []),
+    ];
+    if (!activeFromServer.length) return;
+    setTrackingJobs((prev) => {
+      const existing = new Set(prev.map((t) => t.jobId));
+      const toAdd: { provider: "outsee" | "kie"; jobId: string; historyId: string }[] = [];
+      for (const job of activeFromServer) {
+        if (job.job_id && !existing.has(job.job_id)) {
+          toAdd.push({
+            provider: (job.provider === "outsee" ? "outsee" : "kie") as "outsee" | "kie",
+            jobId: job.job_id,
+            historyId: job.history_id || `gen-${job.job_id}`,
+          });
+        }
+      }
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    });
+  }, [createQueueQ.data?.running, createQueueQ.data?.waiting]);
 
   const runningJobs = useMemo(() => {
     const fromQueue = createQueueQ.data?.running ?? [];
@@ -1268,8 +1300,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     let finalStartMs = nowTs;
     if (jobKey && localJobStartRef.current.has(jobKey)) {
       const cached = localJobStartRef.current.get(jobKey)!;
-      if (candidateStartMs != null && candidateStartMs < cached - 1500) {
-        // Сервер вернул более раннюю метку старта (например, после обновления страницы или резолва очереди)
+      if (candidateStartMs != null && Math.abs(candidateStartMs - cached) > 2000) {
+        // Сервер вернул более актуальную метку старта (после обновления страницы или рассинхронизации)
         finalStartMs = candidateStartMs;
         localJobStartRef.current.set(jobKey, candidateStartMs);
       } else {
@@ -2083,6 +2115,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
+  const unknownCountRef = useRef<Map<string, number>>(new Map());
+
   useEffect(() => {
     if (!trackingJobs.length) return;
     let cancelled = false;
@@ -2093,6 +2127,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           if (cancelled) return;
           qc.invalidateQueries({ queryKey: ["create-queue"] });
           if (job.status === "done") {
+            unknownCountRef.current.delete(t.jobId);
             const took =
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
@@ -2105,6 +2140,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
           } else if (job.status === "failed") {
+            unknownCountRef.current.delete(t.jobId);
             const took =
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
@@ -2115,6 +2151,35 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             );
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+          } else if (job.status === "unknown") {
+            // Задача не найдена в памяти сервера — проверяем историю на случай, если она уже завершена на диске
+            const currentHistory = historyQ.data ?? [];
+            const matched = currentHistory.find(
+              (h) => h.id === t.historyId || h.job_id === t.jobId,
+            );
+            if (matched && matched.status === "done") {
+              unknownCountRef.current.delete(t.jobId);
+              toast.success(`Готово · ${matched.model || "файл"}`);
+              if (t.historyId) setSelectedId(t.historyId);
+              setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
+              qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+            } else if (matched && matched.status === "failed") {
+              unknownCountRef.current.delete(t.jobId);
+              toast.error(matched.error || "Генерация не удалась");
+              setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
+              qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+            } else {
+              const count = (unknownCountRef.current.get(t.jobId) || 0) + 1;
+              unknownCountRef.current.set(t.jobId, count);
+              if (count >= 6) {
+                unknownCountRef.current.delete(t.jobId);
+                setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
+                qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+              }
+            }
+          } else {
+            // Задача в процессе или очереди — сбрасываем счетчик неизвестных
+            unknownCountRef.current.delete(t.jobId);
           }
         } catch {
           /* job may not be ready yet */
@@ -2127,7 +2192,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [trackingJobs, qc]);
+  }, [trackingJobs, qc, historyQ.data]);
 
   const handleRandomPrompt = () => {
     const available = RANDOM_PROMPTS.filter((p) => p !== prompt);

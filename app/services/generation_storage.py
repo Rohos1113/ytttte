@@ -137,6 +137,7 @@ def build_generation_path(
     media: str,
     model: str,
     ext: str,
+    job_id: str | None = None,
 ) -> Path:
     """Путь для нового файла результата (папки создаются)."""
     media = _safe_segment(media, "image")
@@ -144,7 +145,7 @@ def build_generation_path(
     now = datetime.now(UTC).astimezone()
     day = now.strftime("%Y%m%d")
     stamp = now.strftime("%H%M%S")
-    short = uuid.uuid4().hex[:10]
+    short = (job_id or uuid.uuid4().hex)[:10]
     folder = generations_root() / media / model / day
     folder.mkdir(parents=True, exist_ok=True)
     suf = ext if ext.startswith(".") else f".{ext}"
@@ -551,11 +552,16 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 for j in active_jobs
             )
 
-            # Если задачи нет в памяти воркера и прошло >10с (или зависла >10 минут), помечаем failed
-            if (not is_active_in_mem and age_s > 10) or age_s > 10 * 60:
+            # Если задачи нет в памяти воркера и прошло >45с (сервер был перезапущен),
+            # или если задача зависла в памяти воркера более 30 минут (превышен максимальный лимит):
+            if (not is_active_in_mem and age_s > 45) or age_s > 30 * 60:
                 status = "failed"
                 if not meta.get("error"):
-                    err = "генерация остановлена (таймаут / рестарт)"
+                    err = (
+                        "таймаут генерации (>30 минут)"
+                        if is_active_in_mem
+                        else "генерация остановлена (таймаут / рестарт сервера)"
+                    )
                     meta["error"] = err
                     try:
                         update_sidecar(fp, status="failed", error=err)
