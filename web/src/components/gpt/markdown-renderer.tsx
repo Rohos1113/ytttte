@@ -31,9 +31,9 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
       <div className="flex items-center justify-between border-b border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-xs text-white/60">
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-white/70">
           {displayLang === "bash" || displayLang === "sh" || displayLang === "shell" ? (
-            <Terminal className="h-3.5 w-3.5 text-[#22d3ee]" />
+            <Terminal className="h-3.5 w-3.5 text-[#2dd4bf]" />
           ) : (
-            <FileCode className="h-3.5 w-3.5 text-[#38bdf8]" />
+            <FileCode className="h-3.5 w-3.5 text-[#2dd4bf]" />
           )}
           <span className="font-semibold">{displayLang}</span>
           <span className="text-[10px] text-white/30 lowercase font-normal">
@@ -46,14 +46,14 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           className={cn(
             "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-all outline-none",
             copied
-              ? "bg-[#22d3ee]/20 text-[#22d3ee] border border-[#22d3ee]/40"
+              ? "bg-[#2dd4bf]/20 text-[#2dd4bf] border border-[#2dd4bf]/40"
               : "text-white/60 hover:bg-white/[0.08] hover:text-white"
           )}
           title="Копировать код"
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-[#22d3ee]" />
+              <Check className="h-3 w-3 text-[#2dd4bf]" />
               <span>Скопировано</span>
             </>
           ) : (
@@ -64,7 +64,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           )}
         </button>
       </div>
-      <div className="overflow-x-auto p-3.5 font-mono text-[12px] leading-relaxed text-white/90 selection:bg-[#22d3ee]/30">
+      <div className="overflow-x-auto p-3.5 font-mono text-[12px] leading-relaxed text-white/90 selection:bg-[#2dd4bf]/30">
         {showLineNumbers ? (
           <div className="flex">
             <div className="select-none pr-3 text-right text-white/25 border-r border-white/[0.08] font-mono text-[12px] leading-relaxed">
@@ -99,7 +99,7 @@ function parseInlineFormatting(text: string): React.ReactNode[] {
       elements.push(
         <code
           key={key}
-          className="rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[#22d3ee] break-all break-words [overflow-wrap:anywhere]"
+          className="rounded-md border border-[#2dd4bf]/25 bg-[#2dd4bf]/[0.08] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[#2dd4bf] break-all break-words [overflow-wrap:anywhere]"
         >
           {token.slice(1, -1)}
         </code>
@@ -125,7 +125,7 @@ function parseInlineFormatting(text: string): React.ReactNode[] {
             href={parts[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium text-[#22d3ee] underline decoration-[#22d3ee]/40 underline-offset-2 hover:text-[#38bdf8] hover:decoration-[#22d3ee]"
+            className="font-semibold text-[#2dd4bf] underline decoration-[#2dd4bf]/40 underline-offset-2 hover:text-[#5eead4] hover:decoration-[#2dd4bf]"
           >
             {parts[1]}
           </a>
@@ -279,7 +279,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
       nodes.push(
         <blockquote
           key={i}
-          className="my-2 border-l-2 border-[#22d3ee]/70 bg-[#22d3ee]/10 py-1 pl-3 pr-2 text-xs italic text-white/90 rounded-r-md"
+          className="my-2 border-l-2 border-[#2dd4bf] bg-gradient-to-r from-[#2dd4bf]/10 to-transparent py-1 pl-3 pr-2 text-xs italic text-white/90 rounded-r-md"
         >
           {parseInlineFormatting(line.slice(2))}
         </blockquote>
@@ -292,7 +292,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
       const content = line.replace(/^\s*[-*•]\s+/, "");
       nodes.push(
         <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90 min-w-0">
-          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#22d3ee]" />
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2dd4bf] shadow-[0_0_8px_rgba(45,212,191,0.5)]" />
           <div className="flex-1 min-w-0 break-words [overflow-wrap:anywhere]">{parseInlineFormatting(content)}</div>
         </div>
       );
@@ -305,7 +305,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
       if (match) {
         nodes.push(
           <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90 min-w-0">
-            <span className="font-mono text-[11px] font-semibold text-[#22d3ee] shrink-0">
+            <span className="font-mono text-[11px] font-semibold text-[#2dd4bf] shrink-0">
               {match[1]}.
             </span>
             <div className="flex-1 min-w-0 break-words [overflow-wrap:anywhere]">{parseInlineFormatting(match[2])}</div>
@@ -323,7 +323,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
 
     // Regular paragraph
     nodes.push(
-      <p key={i} className="my-1 text-xs leading-relaxed text-white/90 break-words [overflow-wrap:anywhere] selection:bg-[#22d3ee]/30">
+      <p key={i} className="my-1 text-xs leading-relaxed text-white/90 break-words [overflow-wrap:anywhere] selection:bg-[#2dd4bf]/30">
         {parseInlineFormatting(line)}
       </p>
     );

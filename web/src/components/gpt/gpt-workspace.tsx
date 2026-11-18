@@ -141,13 +141,13 @@ function formatBytes(n?: number): string {
 function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
   if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext)) {
-    return <ImageIcon className="h-4 w-4 text-[#22d3ee]" />;
+    return <ImageIcon className="h-4 w-4 text-[#2dd4bf]" />;
   }
   if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
-    return <FileSpreadsheet className="h-4 w-4 text-[#22d3ee]" />;
+    return <FileSpreadsheet className="h-4 w-4 text-[#2dd4bf]" />;
   }
   if (["py", "ts", "tsx", "js", "jsx", "html", "css", "json"].includes(ext)) {
-    return <FileCode className="h-4 w-4 text-[#38bdf8]" />;
+    return <FileCode className="h-4 w-4 text-[#2dd4bf]" />;
   }
   return <FileText className="h-4 w-4 text-amber-400" />;
 }
@@ -660,8 +660,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
     >
       {/* Drag overlay */}
       {dragOver && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-md border-2 border-dashed border-[#22d3ee]/80 animate-in fade-in">
-          <Upload className="h-12 w-12 text-[#22d3ee] animate-bounce mb-3" />
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/85 backdrop-blur-md border-2 border-dashed border-[#2dd4bf]/80 animate-in fade-in">
+          <Upload className="h-12 w-12 text-[#2dd4bf] animate-bounce mb-3" />
           <h3 className="text-lg font-bold text-white">Перетащите файлы сюда</h3>
           <p className="text-sm text-white/60">Изображения, таблицы Excel, документы PDF/Word, скрипты</p>
         </div>
@@ -670,14 +670,14 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
       {/* ─── LEFT SIDEBAR ─────────────────────────────────────────── */}
       <aside
         className={cn(
-          "flex flex-col border-r border-white/[0.08] bg-[#121216]/90 transition-all duration-200 ease-in-out shrink-0",
+          "flex flex-col border-r border-white/[0.08] bg-[#0e0f14]/95 transition-all duration-200 ease-in-out shrink-0",
           sidebarOpen ? "w-72" : "w-0 overflow-hidden border-r-0"
         )}
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between border-b border-white/[0.08] p-3.5">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#22d3ee]/15 border border-[#22d3ee]/30 text-[#22d3ee]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2dd4bf]/15 border border-[#2dd4bf]/30 text-[#2dd4bf] shadow-[0_0_10px_rgba(45,212,191,0.2)]">
               <Bot className="h-4 w-4" />
             </div>
             <span className="text-sm font-bold tracking-tight text-white">ИИ Чат</span>
@@ -686,10 +686,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             type="button"
             onClick={() => createMut.mutate()}
             disabled={createMut.isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 py-1.5 text-xs font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20 shadow-sm outline-none focus:outline-none focus-visible:outline-none ring-0"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] px-3 py-1.5 text-xs font-bold text-black shadow-[0_0_15px_rgba(45,212,191,0.25)] transition-all hover:brightness-110 hover:shadow-[0_0_20px_rgba(45,212,191,0.4)] active:scale-95 outline-none"
             title="Создать новый диалог"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
             <span>Новый чат</span>
           </button>
         </div>
@@ -703,7 +703,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               placeholder="Поиск диалогов..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 w-full rounded-lg border border-white/10 bg-white/[0.04] pl-8 pr-3 text-xs text-white placeholder:text-white/40 focus:border-[#22d3ee]/50 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30 outline-none"
+              className="h-8 w-full rounded-lg border border-white/10 bg-white/[0.04] pl-8 pr-3 text-xs text-white placeholder:text-white/40 focus:border-[#2dd4bf]/50 focus:outline-none focus:ring-1 focus:ring-[#2dd4bf]/30 outline-none"
             />
           </div>
         </div>
@@ -728,12 +728,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   className={cn(
                     "group relative flex items-center justify-between rounded-xl px-3 py-2.5 text-xs transition-all cursor-pointer outline-none",
                     isSelected
-                      ? "bg-white/[0.08] text-white font-medium shadow-sm border border-white/15"
+                      ? "bg-[#2dd4bf]/12 text-white font-semibold shadow-[0_0_15px_rgba(45,212,191,0.08)] border border-[#2dd4bf]/30"
                       : "text-white/60 hover:bg-white/[0.04] hover:text-white border border-transparent"
                   )}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <MessageSquare className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "text-[#22d3ee]" : "text-white/40")} />
+                    <MessageSquare className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "text-[#2dd4bf]" : "text-white/40")} />
                     {isEditing ? (
                       <input
                         type="text"
@@ -756,7 +756,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                             setEditingTitleId(null);
                           }
                         }}
-                        className="h-6 w-full rounded border border-[#22d3ee] bg-[#16161b] px-1.5 text-xs text-white focus:outline-none outline-none ring-0"
+                        className="h-6 w-full rounded border border-[#2dd4bf] bg-[#16161b] px-1.5 text-xs text-white focus:outline-none outline-none ring-0"
                       />
                     ) : (
                       <span className="truncate" title={s.title}>
@@ -801,9 +801,9 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="border-t border-white/[0.08] p-3 bg-[#121216] text-xs text-white/60 flex items-center justify-between">
+        <div className="border-t border-white/[0.08] p-3 bg-[#0e0f14] text-xs text-white/60 flex items-center justify-between">
           <div className="flex items-center gap-2 truncate">
-            <span className="h-2 w-2 rounded-full bg-[#22d3ee] animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-[#2dd4bf] shadow-[0_0_8px_rgba(45,212,191,0.6)] animate-pulse" />
             <span className="truncate font-mono text-[11px] text-white/80">{activeModelDisplay}</span>
           </div>
           <button
@@ -818,9 +818,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
       </aside>
 
       {/* ─── MAIN CHAT VIEW ───────────────────────────────────────── */}
-      <main className="flex flex-1 flex-col min-w-0 bg-[#0a0a0a]">
+      <main className="flex flex-1 flex-col min-w-0 bg-[#090a0f] relative overflow-hidden">
+        {/* Ambient Top Glow */}
+        <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-96 w-3/4 max-w-4xl rounded-full bg-[radial-gradient(ellipse_at_center,rgba(45,212,191,0.06),rgba(13,148,136,0.02)_60%,transparent_80%)] blur-3xl z-0" />
+
         {/* Top Navigation Bar */}
-        <header className="relative z-30 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#121216]/80 px-4 backdrop-blur-xl">
+        <header className="relative z-30 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#0e0f14]/85 px-4 backdrop-blur-xl">
           <div className="flex items-center gap-3 min-w-0">
             {!sidebarOpen && (
               <button
@@ -846,7 +849,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                className="flex items-center gap-2 rounded-xl border border-white/15 bg-[#16161b] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-[#22d3ee]/50 hover:bg-white/[0.08] shadow-sm outline-none focus:outline-none focus-visible:outline-none ring-0"
+                className="flex items-center gap-2 rounded-xl border border-white/15 bg-[#14151b] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-[#2dd4bf]/50 hover:bg-white/[0.06] shadow-sm outline-none focus:outline-none focus-visible:outline-none ring-0"
               >
                 <span>{activeModelDisplay}</span>
                 <ChevronDown className="h-3.5 w-3.5 text-white/50" />
@@ -855,7 +858,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               {/* Model Picker Popover Menu */}
               {modelPickerOpen && (
                 <div className="absolute right-0 top-full mt-2 z-[100] w-80 rounded-2xl border border-white/15 bg-[#16161b]/98 p-2.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10">
-                  <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee] border-b border-white/[0.08] mb-1 flex items-center justify-between">
+                  <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#2dd4bf] border-b border-white/[0.08] mb-1 flex items-center justify-between">
                     <span>Выберите ИИ модель</span>
                     <span className="text-[10px] text-white/40 font-mono">52 / vibecode / kie</span>
                   </div>
@@ -898,7 +901,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                 className={cn(
                                   "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition outline-none",
                                   active
-                                    ? "bg-[#22d3ee]/15 text-[#22d3ee] font-semibold border border-[#22d3ee]/35 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                                    ? "bg-[#2dd4bf]/15 text-[#2dd4bf] font-semibold border border-[#2dd4bf]/35 shadow-[0_0_12px_rgba(45,212,191,0.15)]"
                                     : "text-white/80 hover:bg-white/[0.06] hover:text-white border border-transparent"
                                 )}
                               >
@@ -906,14 +909,14 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                   <div className="truncate font-medium flex items-center gap-1.5">
                                     <span>{m.label}</span>
                                     {isNew && (
-                                      <span className="rounded bg-[#22d3ee] px-1 py-0.2 font-mono text-[9px] font-extrabold text-black">
+                                      <span className="rounded bg-[#2dd4bf] px-1 py-0.2 font-mono text-[9px] font-extrabold text-black">
                                         NEW
                                       </span>
                                     )}
                                   </div>
                                   <div className="text-[10px] text-white/40">{m.site}</div>
                                 </div>
-                                {active && <Check className="h-4 w-4 text-[#22d3ee] shrink-0 ml-2" />}
+                                {active && <Check className="h-4 w-4 text-[#2dd4bf] shrink-0 ml-2" />}
                               </button>
                             );
                           })}
@@ -928,7 +931,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             {/* In-Chat Message Search */}
             {msgSearchOpen ? (
               <div className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-[#16161b] px-2.5 py-1 text-xs animate-in fade-in">
-                <Search className="h-3.5 w-3.5 text-[#22d3ee] shrink-0" />
+                <Search className="h-3.5 w-3.5 text-[#2dd4bf] shrink-0" />
                 <input
                   type="text"
                   value={msgSearchQuery}
@@ -938,7 +941,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   className="w-32 sm:w-44 bg-transparent text-xs text-white placeholder:text-white/40 border-0 outline-none focus:outline-none ring-0"
                 />
                 {msgSearchQuery && (
-                  <span className="text-[10px] text-[#22d3ee] font-mono whitespace-nowrap">
+                  <span className="text-[10px] text-[#2dd4bf] font-mono whitespace-nowrap">
                     {messagesToRender.length} совп.
                   </span>
                 )}
@@ -977,12 +980,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               className={cn(
                 "flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition outline-none",
                 autoScroll
-                  ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                  ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_10px_rgba(45,212,191,0.15)]"
                   : "border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white"
               )}
               title={autoScroll ? "Автоскролл активен (нажмите, чтобы отключить)" : "Автоскролл отключен (нажмите, чтобы включить)"}
             >
-              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", autoScroll ? "text-[#22d3ee]" : "text-white/40")} />
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", autoScroll ? "text-[#2dd4bf]" : "text-white/40")} />
               <span className="hidden md:inline">Автоскролл: {autoScroll ? "Вкл" : "Выкл"}</span>
             </button>
 
@@ -991,10 +994,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               <a
                 href={api.gptOutputsZipUrl(session!.id)}
                 download
-                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/[0.08] outline-none"
+                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-[#2dd4bf]/40 hover:text-[#2dd4bf] hover:bg-white/[0.08] outline-none"
                 title="Скачать все сгенерированные файлы архивом"
               >
-                <Archive className="h-3.5 w-3.5 text-[#22d3ee]" />
+                <Archive className="h-3.5 w-3.5 text-[#2dd4bf]" />
                 <span>ZIP ({session!.outputs.length})</span>
               </a>
             )}
@@ -1025,7 +1028,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={() => setMsgSearchQuery("")}
-                className="mt-3 text-xs text-[#22d3ee] underline underline-offset-2 hover:opacity-80"
+                className="mt-3 text-xs text-[#2dd4bf] underline underline-offset-2 hover:opacity-80"
               >
                 Сбросить фильтр
               </button>
@@ -1035,7 +1038,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           {/* If chat has no messages → Starter Prompts Screen */}
           {messagesToRender.length === 0 && !msgSearchQuery.trim() ? (
             <div className="flex flex-col items-center justify-center min-h-[50vh] text-center max-w-2xl mx-auto">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#16161b] border border-white/15 shadow-2xl mb-5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#121319] border border-white/15 shadow-2xl mb-5 ring-1 ring-white/10">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/icon.svg" alt="Studio" className="h-10 w-10 shrink-0 rounded-lg shadow-sm" />
               </div>
@@ -1055,10 +1058,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                       setDraft(item.prompt);
                       textareaRef.current?.focus();
                     }}
-                    className="flex flex-col items-start rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-left transition-all hover:border-[#22d3ee]/40 hover:bg-white/[0.05] hover:shadow-lg group outline-none"
+                    className="flex flex-col items-start rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-left transition-all hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/[0.04] hover:shadow-[0_4px_20px_rgba(45,212,191,0.08)] group outline-none"
                   >
                     <div className="text-xl mb-2">{item.icon}</div>
-                    <div className="text-xs font-bold text-white group-hover:text-[#22d3ee] transition-colors">
+                    <div className="text-xs font-bold text-white group-hover:text-[#2dd4bf] transition-colors">
                       {item.title}
                     </div>
                     <div className="text-[11px] text-white/45 line-clamp-2 mt-1">
@@ -1086,7 +1089,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 >
                   {/* Assistant Avatar */}
                   {!isUser && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#22d3ee]/15 border border-[#22d3ee]/30 text-[#22d3ee] shadow-sm mt-0.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.2)] mt-0.5">
                       <Bot className="h-4 w-4" />
                     </div>
                   )}
@@ -1096,10 +1099,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     className={cn(
                       "flex flex-col min-w-0 max-w-[85%] rounded-2xl p-4 shadow-md",
                       isUser
-                        ? "bg-[#164e63] text-white rounded-br-sm border border-[#22d3ee]/30"
+                        ? "bg-gradient-to-br from-[#0d9488]/25 via-[#115e59]/30 to-[#042f2e]/55 text-white rounded-tr-xs border border-[#2dd4bf]/30 shadow-[0_4px_25px_rgba(45,212,191,0.12)] backdrop-blur-md"
                         : isSystem
                         ? "bg-red-950/40 border border-red-800/50 text-red-200"
-                        : "bg-[#16161b] border border-white/10 text-white rounded-bl-sm"
+                        : "bg-[#121319]/95 border border-white/[0.09] text-white rounded-tl-xs shadow-[0_8px_30px_rgba(0,0,0,0.6)] backdrop-blur-xl ring-1 ring-white/[0.03]"
                     )}
                   >
                     {/* User attachments tags */}
@@ -1114,7 +1117,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                 key={name}
                                 type="button"
                                 onClick={() => setPreviewImage({ url: f.url, title: name, downloadUrl: f.download_url })}
-                                className="group/att relative flex items-center gap-1.5 rounded-lg bg-black/40 px-2 py-1 text-[11px] font-medium text-[#22d3ee] border border-[#22d3ee]/30 hover:border-[#22d3ee] hover:bg-[#22d3ee]/10 transition-all outline-none"
+                                className="group/att relative flex items-center gap-1.5 rounded-lg bg-black/40 px-2 py-1 text-[11px] font-medium text-[#2dd4bf] border border-[#2dd4bf]/30 hover:border-[#2dd4bf] hover:bg-[#2dd4bf]/10 transition-all outline-none"
                                 title="Нажмите, чтобы открыть изображение"
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1124,16 +1127,16 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                   className="h-4 w-4 rounded object-cover border border-white/20 group-hover/att:scale-110 transition-transform"
                                 />
                                 <span className="truncate max-w-[140px]">{name}</span>
-                                <Maximize2 className="h-2.5 w-2.5 text-[#22d3ee]/60 group-hover/att:text-[#22d3ee]" />
+                                <Maximize2 className="h-2.5 w-2.5 text-[#2dd4bf]/60 group-hover/att:text-[#2dd4bf]" />
                               </button>
                             );
                           }
                           return (
                             <div
                               key={name}
-                              className="flex items-center gap-1.5 rounded-lg bg-black/30 px-2.5 py-1 text-[11px] font-medium text-[#22d3ee] border border-white/10"
+                              className="flex items-center gap-1.5 rounded-lg bg-black/40 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] border border-[#2dd4bf]/25"
                             >
-                              <Paperclip className="h-3 w-3 text-[#22d3ee]" />
+                              <Paperclip className="h-3 w-3 text-[#2dd4bf]" />
                               <span className="truncate max-w-[140px]">{name}</span>
                             </div>
                           );
@@ -1143,7 +1146,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
                     {/* Message Body */}
                     {isUser ? (
-                      <div className="text-xs leading-relaxed whitespace-pre-wrap selection:bg-black/40 font-medium">
+                      <div className="text-xs leading-relaxed whitespace-pre-wrap selection:bg-[#2dd4bf]/30 font-medium">
                         {m.content}
                       </div>
                     ) : (
@@ -1155,7 +1158,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     {/* Generated Outputs File Cards */}
                     {hasOutputs && (
                       <div className="mt-3.5 pt-3 border-t border-white/10 space-y-2">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee]">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#2dd4bf]">
                           <FolderOutput className="h-3.5 w-3.5" />
                           <span>Сгенерированные файлы ({m.output_files!.length})</span>
                         </div>
@@ -1169,14 +1172,14 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                             return (
                               <div
                                 key={name}
-                                className="flex items-center justify-between gap-2 rounded-xl border border-white/15 bg-black/40 p-2.5 shadow-sm"
+                                className="flex items-center justify-between gap-2 rounded-xl border border-white/15 bg-black/40 p-2.5 shadow-sm hover:border-[#2dd4bf]/40 transition-colors"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
                                   {isImg && f ? (
                                     <button
                                       type="button"
                                       onClick={() => setPreviewImage({ url: f.url, title: label, downloadUrl: f.download_url })}
-                                      className="group/thumb relative h-9 w-9 shrink-0 rounded-lg overflow-hidden border border-white/20 hover:border-[#22d3ee] transition-all outline-none"
+                                      className="group/thumb relative h-9 w-9 shrink-0 rounded-lg overflow-hidden border border-white/20 hover:border-[#2dd4bf] transition-all outline-none"
                                       title="Открыть полноразмерное изображение"
                                     >
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1195,7 +1198,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                       <button
                                         type="button"
                                         onClick={() => setPreviewImage({ url: f.url, title: label, downloadUrl: f.download_url })}
-                                        className="truncate text-xs font-semibold text-white hover:text-[#22d3ee] transition-colors text-left block w-full"
+                                        className="truncate text-xs font-semibold text-white hover:text-[#2dd4bf] transition-colors text-left block w-full"
                                         title={label}
                                       >
                                         {label}
@@ -1213,7 +1216,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                   <button
                                     type="button"
                                     onClick={() => triggerDownload(f)}
-                                    className="flex items-center gap-1 rounded-lg bg-[#22d3ee]/15 border border-[#22d3ee]/30 px-2 py-1 text-[11px] font-semibold text-[#22d3ee] hover:bg-[#22d3ee]/25 transition shadow-sm outline-none"
+                                    className="flex items-center gap-1 rounded-lg bg-[#2dd4bf]/15 border border-[#2dd4bf]/30 px-2 py-1 text-[11px] font-semibold text-[#2dd4bf] hover:bg-[#2dd4bf]/25 transition shadow-sm outline-none"
                                     title="Скачать файл"
                                   >
                                     <Download className="h-3 w-3" />
@@ -1243,7 +1246,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                             type="button"
                             onClick={() => handleRegenerate(idx)}
                             disabled={busy}
-                            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/60 hover:bg-white/10 hover:text-[#22d3ee] transition outline-none disabled:opacity-40"
+                            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/60 hover:bg-white/10 hover:text-[#2dd4bf] transition outline-none disabled:opacity-40"
                             title="Сгенерировать ответ заново"
                           >
                             <RotateCcw className="h-3 w-3" />
@@ -1257,8 +1260,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                           >
                             {copiedMessageId === (m.id || String(idx)) ? (
                               <>
-                                <Check className="h-3 w-3 text-[#22d3ee]" />
-                                <span className="text-[#22d3ee]">Скопировано</span>
+                                <Check className="h-3 w-3 text-[#2dd4bf]" />
+                                <span className="text-[#2dd4bf]">Скопировано</span>
                               </>
                             ) : (
                               <>
@@ -1278,7 +1281,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                         <button
                           type="button"
                           onClick={() => handleEditPrompt(m.content)}
-                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/50 hover:bg-white/10 hover:text-white transition outline-none"
+                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/50 hover:bg-white/10 hover:text-[#2dd4bf] transition outline-none"
                           title="Редактировать запрос"
                         >
                           <Edit2 className="h-2.5 w-2.5" />
@@ -1291,7 +1294,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                           title="Копировать запрос"
                         >
                           {copiedMessageId === (m.id || String(idx)) ? (
-                            <Check className="h-2.5 w-2.5 text-[#22d3ee]" />
+                            <Check className="h-2.5 w-2.5 text-[#2dd4bf]" />
                           ) : (
                             <Copy className="h-2.5 w-2.5" />
                           )}
@@ -1302,7 +1305,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
                   {/* User Avatar */}
                   {isUser && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.08] border border-white/15 text-white shadow-sm mt-0.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white/[0.12] to-white/[0.04] border border-white/20 text-white shadow-sm mt-0.5">
                       <User className="h-4 w-4" />
                     </div>
                   )}
@@ -1314,13 +1317,13 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           {/* Streaming Live Bubble */}
           {isStreaming && (
             <div className="flex gap-3.5 max-w-4xl mx-auto animate-in fade-in">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#22d3ee]/15 border border-[#22d3ee]/30 text-[#22d3ee] animate-pulse">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.25)] animate-pulse mt-0.5">
                 <Bot className="h-4 w-4" />
               </div>
-              <div className="flex-1 rounded-2xl border border-[#22d3ee]/30 bg-[#16161b]/95 p-4 text-xs text-white shadow-lg backdrop-blur-xl">
+              <div className="flex-1 rounded-2xl rounded-tl-xs border border-[#2dd4bf]/35 bg-[#121319]/95 p-4 text-xs text-white shadow-[0_8px_30px_rgba(45,212,191,0.1)] backdrop-blur-xl ring-1 ring-white/[0.03]">
                 {streamingPhase && (
-                  <div className="mb-2.5 flex items-center gap-2 text-[11px] text-[#22d3ee] font-medium border-b border-white/[0.08] pb-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                  <div className="mb-2.5 flex items-center gap-2 text-[11px] text-[#2dd4bf] font-medium border-b border-white/[0.08] pb-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin text-[#2dd4bf]" />
                     <span>{streamingPhase}</span>
                     <span className="ml-auto font-mono text-[10px] text-white/40">{elapsedSec} сек</span>
                   </div>
@@ -1341,11 +1344,11 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           {/* Thinking / Running Banner (when not streaming via local state) */}
           {!isStreaming && busy && (
             <div className="flex gap-3.5 max-w-4xl mx-auto animate-in fade-in">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#22d3ee]/15 border border-[#22d3ee]/30 text-[#22d3ee] animate-pulse">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2dd4bf]/20 to-[#0d9488]/20 border border-[#2dd4bf]/40 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.25)] animate-pulse mt-0.5">
                 <Bot className="h-4 w-4" />
               </div>
-              <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-[#16161b] px-4 py-3 shadow-md">
-                <Loader2 className="h-4 w-4 animate-spin text-[#22d3ee]" />
+              <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-[#121319] px-4 py-3 shadow-md ring-1 ring-white/[0.03]">
+                <Loader2 className="h-4 w-4 animate-spin text-[#2dd4bf]" />
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs font-semibold text-white">{phaseLabel}</span>
                   <span className="text-[10px] text-white/40 font-mono">Прошло: {elapsedSec} сек</span>
@@ -1360,10 +1363,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               <button
                 type="button"
                 onClick={scrollToBottom}
-                className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-[#22d3ee]/40 bg-[#16161b]/95 backdrop-blur-md px-3.5 py-1.5 text-xs font-semibold text-white shadow-xl hover:bg-[#22d3ee]/20 hover:text-[#22d3ee] transition-all animate-in fade-in"
+                className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-[#2dd4bf]/40 bg-[#121319]/95 backdrop-blur-md px-3.5 py-1.5 text-xs font-semibold text-white shadow-xl hover:border-[#2dd4bf] hover:bg-[#2dd4bf]/15 hover:text-[#2dd4bf] transition-all animate-in fade-in"
                 title="Прокрутить к последнему сообщению"
               >
-                <ChevronDown className="h-4 w-4 text-[#22d3ee]" />
+                <ChevronDown className="h-4 w-4 text-[#2dd4bf]" />
                 <span>Вниз</span>
               </button>
             </div>
@@ -1373,7 +1376,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         </div>
 
         {/* ─── BOTTOM INPUT CONTAINER (Style like Generation workspace) ──────── */}
-        <div className="p-4 md:px-8 lg:px-16 border-t border-white/[0.08] bg-[#0a0a0a]">
+        <div className="p-4 md:px-8 lg:px-16 border-t border-white/[0.08] bg-[#090a0f] relative z-10">
           <div className="max-w-4xl mx-auto flex flex-col gap-2">
             {/* Attachment preview chips above input */}
             {!busy && (session?.attachments?.length ?? 0) > 0 && (
@@ -1386,7 +1389,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   return (
                     <div
                       key={f.name}
-                      className="group flex items-center gap-2 rounded-xl border border-white/15 bg-[#16161b] px-2.5 py-1.5 text-xs text-white shadow-sm"
+                      className="group flex items-center gap-2 rounded-xl border border-white/15 bg-[#121319] hover:border-[#2dd4bf]/40 px-2.5 py-1.5 text-xs text-white shadow-sm transition-colors"
                     >
                       {isImg ? (
                         <button
@@ -1405,7 +1408,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                         <button
                           type="button"
                           onClick={() => setPreviewImage({ url: f.url, title: label, downloadUrl: f.download_url })}
-                          className="truncate max-w-[150px] font-medium text-left hover:text-[#22d3ee] transition outline-none"
+                          className="truncate max-w-[150px] font-medium text-left hover:text-[#2dd4bf] transition outline-none"
                           title="Открыть просмотр"
                         >
                           {label}
@@ -1430,8 +1433,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               </div>
             )}
 
-            {/* Input Box Card (styled with smooth subtle borders, no glowing borders) */}
-            <div className="relative flex flex-col rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] ring-1 ring-white/10 transition-all">
+            {/* Input Box Card (styled with smooth emerald focus and backdrop blur) */}
+            <div className="relative flex flex-col rounded-2xl border border-white/[0.12] bg-[#121319]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] ring-1 ring-white/[0.05] focus-within:border-[#2dd4bf]/55 focus-within:ring-1 focus-within:ring-[#2dd4bf]/20 focus-within:shadow-[0_0_30px_rgba(45,212,191,0.18)] transition-all">
               <textarea
                 ref={textareaRef}
                 value={draft}
@@ -1465,13 +1468,13 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={busy || uploadMut.isPending}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition shadow-sm outline-none"
+                    className="flex items-center gap-1.5 rounded-xl border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2.5 py-1 text-xs font-semibold text-[#2dd4bf] hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/50 transition shadow-sm outline-none"
                     title="Прикрепить файлы (картинки, Excel, PDF, Word, скрипты)"
                   >
                     {uploadMut.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#22d3ee]" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2dd4bf]" />
                     ) : (
-                      <Paperclip className="h-3.5 w-3.5 text-[#22d3ee]" />
+                      <Paperclip className="h-3.5 w-3.5 text-[#2dd4bf]" />
                     )}
                     <span>Прикрепить</span>
                   </button>
@@ -1501,12 +1504,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-xl transition-all shadow-md outline-none",
                         draft.trim() || (session?.attachments?.length ?? 0) > 0
-                          ? "bg-[#22d3ee] hover:bg-[#06b6d4] text-black shadow-[#22d3ee]/20 cursor-pointer scale-105 font-bold"
+                          ? "bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] hover:brightness-110 text-black shadow-[0_0_20px_rgba(45,212,191,0.4)] cursor-pointer scale-105 font-extrabold active:scale-95"
                           : "bg-white/[0.06] text-white/30 cursor-not-allowed opacity-60"
                       )}
                       title="Отправить сообщение"
                     >
-                      <Send className="h-3.5 w-3.5" />
+                      <Send className="h-3.5 w-3.5 stroke-[2.5]" />
                     </button>
                   )}
                 </div>
@@ -1531,7 +1534,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             {/* Lightbox Header Bar */}
             <div className="flex w-full items-center justify-between border-b border-white/10 bg-[#18181f] px-4 py-2.5 text-xs text-white">
               <div className="flex items-center gap-2 truncate pr-4">
-                <ImageIcon className="h-4 w-4 text-[#22d3ee] shrink-0" />
+                <ImageIcon className="h-4 w-4 text-[#2dd4bf] shrink-0" />
                 <span className="truncate font-semibold text-white/90" title={previewImage.title}>
                   {previewImage.title}
                 </span>
@@ -1550,7 +1553,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 <a
                   href={previewImage.downloadUrl || `${previewImage.url}${previewImage.url.includes("?") ? "&" : "?"}download=1`}
                   download
-                  className="flex items-center gap-1 rounded-lg bg-[#22d3ee]/20 border border-[#22d3ee]/40 px-2.5 py-1 text-xs font-semibold text-[#22d3ee] hover:bg-[#22d3ee]/30 transition outline-none"
+                  className="flex items-center gap-1 rounded-lg bg-[#2dd4bf]/20 border border-[#2dd4bf]/40 px-2.5 py-1 text-xs font-semibold text-[#2dd4bf] hover:bg-[#2dd4bf]/30 transition outline-none"
                   title="Скачать изображение"
                 >
                   <Download className="h-3 w-3" />
