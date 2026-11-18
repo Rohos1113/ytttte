@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { computeNodeActiveVariant } from "@/lib/node-active-prompt";
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
-import { Trash2 as FlyTrash, Pencil as FlyPencil, ImagePlus as FlyImage } from "lucide-react";
+import { Trash2 as FlyTrash, Pencil as FlyPencil, ImagePlus as FlyImage, Copy as FlyCopy, RotateCcw as FlyRestart } from "lucide-react";
 import { setNodeCustomBg } from "@/lib/node-custom-bg";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
@@ -403,6 +403,8 @@ export function PipelineNode({ data, selected }: NodeProps) {
               title={title}
               customBg={d.customBg}
               onFlyDelete={actions ? () => actions.onDeleteNode(d.nodeKey) : undefined}
+              onFlyCopy={actions ? () => actions.onCopyNode(d.nodeKey) : undefined}
+              onFlyRestart={actions ? () => actions.onRestartNode(d.nodeKey, d.type) : undefined}
               onFlyRename={(label: string) => {
                 window.dispatchEvent(new CustomEvent("canvas-patch-node-data", { detail: { nodeKey: d.nodeKey, patch: { label } } }));
               }}
@@ -894,6 +896,8 @@ function PosterTile({
   onFlyDelete,
   onFlyRename,
   onFlyBg,
+  onFlyCopy,
+  onFlyRestart,
   status,
   progress,
   progressText,
@@ -920,6 +924,8 @@ function PosterTile({
   onFlyDelete?: () => void;
   onFlyRename?: (label: string) => void;
   onFlyBg?: (file: File) => void;
+  onFlyCopy?: () => void;
+  onFlyRestart?: () => void;
   status: NodeRunStatus;
   progress: number;
   progressText: string | null;
@@ -1088,11 +1094,18 @@ function PosterTile({
           >
             <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
                 {[
-                  { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", x: -40, y: 2, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
-                  { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", x: -30, y: 30, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
-                  { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", x: -2, y: 40, fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
+                  { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", a: 180, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
+                  { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", a: 157.5, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
+                  { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", a: 135, fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
+                  { k: "copy", t: "Скопировать ноду", icon: FlyCopy, cls: "bg-black/75 text-white hover:bg-black/90", a: 112.5, fn: () => onFlyCopy?.(), show: !!onFlyCopy },
+                  { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-amber-600 text-white hover:bg-amber-500", a: 90, fn: () => onFlyRestart?.(), show: !!onFlyRestart },
                 ]
                   .filter((b) => b.show)
+                  .map((b) => ({
+                    ...b,
+                    x: Math.round(44 * Math.cos((b.a * Math.PI) / 180) * 10) / 10,
+                    y: Math.round(44 * Math.sin((b.a * Math.PI) / 180) * 10) / 10,
+                  }))
                   .map((b, i) => {
                     const Icon = b.icon;
                     return (
@@ -1108,7 +1121,7 @@ function PosterTile({
                         )}
                         style={{
                           transform: fly ? `translate(${b.x}px, ${b.y}px) scale(1)` : "translate(0px, 0px) scale(0.4)",
-                          transitionDelay: `${(fly ? i : 2 - i) * 50}ms`,
+                          transitionDelay: `${(fly ? i : 4 - i) * 50}ms`,
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}

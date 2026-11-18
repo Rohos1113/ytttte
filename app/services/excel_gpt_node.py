@@ -1072,6 +1072,40 @@ def save_gpt_reply_text(project: Project, node_key: str | None, reply: str) -> P
     return path
 
 
+def wipe_node_result_outputs(project: Project, node_key: str) -> list[str]:
+    """Удалить сохранённый результат ноды (ответы GPT и разобранные json).
+
+    Нужно для кнопки «Перезапустить»: старый ответ стирается, нода идёт заново.
+    Бэкапы (``*.bak_*``) и входные файлы ноды не трогаем.
+    """
+    out_dir = upload_dir(project, node_key)
+    removed: list[str] = []
+    if not out_dir.is_dir():
+        return removed
+    for name in (
+        "gpt_reply.txt",
+        "gpt_reply_raw.txt",
+        "gpt_reply.json",
+        "parsed.json",
+        "result.json",
+        "plan_scenes.json",
+        "shots.json",
+        "report.json",
+        "style_report.json",
+        "qc_report.json",
+        "parsed_sheets.json",
+    ):
+        path = out_dir / name
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(name)
+    return removed
+
+
 async def clear_slot_completion_meta(
     session: Any,
     project: Project,

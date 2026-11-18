@@ -778,17 +778,54 @@ export function FlowCanvas({
         toast.success("Нода удалена — сохраните граф");
       }
     };
+    const onCopyNode = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ nodeKey: string; autoSave?: boolean }>).detail;
+      const key = detail?.nodeKey;
+      if (!key) return;
+      setNodes((prev) => {
+        const src = prev.find((n) => n.id === key);
+        if (!src) return prev;
+        const srcData = (src.data ?? {}) as Partial<PipelineNodeData>;
+        const newId = `n_${srcData.type ?? "node"}_${Date.now()}`;
+        const clone: Node<PipelineNodeData> = {
+          ...src,
+          id: newId,
+          position: { x: src.position.x + 56, y: src.position.y + 56 },
+          selected: false,
+          data: {
+            ...(src.data as PipelineNodeData),
+            nodeKey: newId,
+            label: `${srcData.label ?? "Нода"} (копия)`,
+            status: "pending",
+            progress: 0,
+            progressText: null,
+            error: null,
+            attempts: 0,
+          },
+        };
+        return [...prev, clone];
+      });
+      if (detail?.autoSave) {
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
+        }, 50);
+      } else {
+        toast.success("Нода скопирована — сохраните граф");
+      }
+    };
     const onSaveRequest = () => {
       void persistWorkflow();
     };
     window.addEventListener("canvas-detach-node", onDetach);
     window.addEventListener("canvas-detach-handle", onDetachHandle);
     window.addEventListener("canvas-delete-node", onDelete);
+    window.addEventListener("canvas-copy-node", onCopyNode);
     window.addEventListener("canvas-save-workflow", onSaveRequest);
     return () => {
       window.removeEventListener("canvas-detach-node", onDetach);
       window.removeEventListener("canvas-detach-handle", onDetachHandle);
       window.removeEventListener("canvas-delete-node", onDelete);
+      window.removeEventListener("canvas-copy-node", onCopyNode);
       window.removeEventListener("canvas-save-workflow", onSaveRequest);
     };
   }, [setNodes, setEdges, persistWorkflow]);

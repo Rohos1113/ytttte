@@ -30,6 +30,8 @@ export interface CanvasActions {
   onAddPrompt: (nodeKey: string, nodeType: string) => void;
   onRemovePrompt: (nodeKey: string, nodeType: string, slot: NodePromptSlot) => void;
   onRunNode: (nodeKey: string, nodeType: string, mode?: "full" | "resume") => void;
+  onRestartNode: (nodeKey: string, nodeType: string) => void;
+  onCopyNode: (nodeKey: string) => void;
   onToggleDisable: (nodeKey: string, disabled: boolean) => void;
   onDeleteNode: (nodeKey: string) => void;
   onDetachNode: (nodeKey: string) => void;

@@ -514,6 +514,56 @@ export function StudioWorkspace({
           toast.error(errorMessageFromUnknown(e));
         }
       },
+      onRestartNode: async (nodeKey: string, nodeType: string) => {
+        if (!projectId) return;
+        if (nodeType === "publish" || nodeKey === "publish") {
+          toast.message("Публикация находится в разработке");
+          return;
+        }
+        if (disabledNodes.has(nodeKey)) {
+          toast.error("Нода отключена — включите её в настройках ноды");
+          return;
+        }
+        const step = stepCodeForNodeType(nodeType);
+        if (!step) {
+          toast.error("У этой ноды нет шага для запуска");
+          return;
+        }
+        try {
+          await api.reloadProjectXlsx(projectId).catch(() => undefined);
+          if (nodeType === "excel_gpt" || nodeType.startsWith("enrich_")) {
+            await api.patchExcelGptConfig(projectId, nodeKey, {}).catch(() => undefined);
+          }
+          // force_wipe=true — сервер стирает прежние выходы шага перед запуском.
+          await api.runProjectStep(projectId, step, {
+            nodeKey,
+            mode: "full",
+            forceWipe: true,
+          });
+          toast.success(`Перезапущен начисто: ${getNodeSpec(nodeType).label}`);
+          for (const key of [
+            ["project", projectId],
+            ["project-run", projectId],
+            ["node-tables", projectId],
+            ["node-llm-docs", projectId],
+            ["node-llm-doc", projectId],
+          ] as const) {
+            qc.invalidateQueries({ queryKey: key });
+          }
+          await Promise.all([
+            qc.refetchQueries({ queryKey: ["project", projectId] }),
+            qc.refetchQueries({ queryKey: ["project-run", projectId] }),
+          ]);
+        } catch (e) {
+          toast.error(errorMessageFromUnknown(e));
+        }
+      },
+      onCopyNode: (nodeKey: string) => {
+        window.dispatchEvent(
+          new CustomEvent("canvas-copy-node", { detail: { nodeKey, autoSave: true } }),
+        );
+        toast.success("Нода скопирована");
+      },
       onToggleDisable: async (nodeKey: string, disabled: boolean) => {
         const next = new Set(disabledNodes);
         if (disabled) next.add(nodeKey);

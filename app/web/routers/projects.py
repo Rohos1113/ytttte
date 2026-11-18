@@ -746,11 +746,27 @@ async def run_project_step(
     # иначе воркер успевает взять проект без них и цепочка идёт дальше.
     if only_node and node_key:
         _meta["excel_gpt_stop_after_key"] = node_key
+    # Перезапуск одной excel_gpt-ноды: wipe в start_step целится в
+    # active_excel_gpt_node_key — выставляем именно эту ноду, чтобы не
+    # снести результат соседа, и стираем её старые ответы заранее.
+    if resolved_force_wipe is True and node_key and step_code == "excel_gpt":
+        _meta["active_excel_gpt_node_key"] = node_key
     if _meta != dict(p.meta or {}):
         p.meta = _meta
         flag_modified(p, "meta")
         await commit_with_retry(session)
         await session.refresh(p)
+    if resolved_force_wipe is True and node_key and step_code == "excel_gpt":
+        from app.services.excel_gpt_node import wipe_node_result_outputs
+
+        removed = wipe_node_result_outputs(p, str(node_key))
+        if removed:
+            logger.info(
+                "[#{}] restart node {}: стёрты старые ответы {}",
+                project_id,
+                node_key,
+                removed,
+            )
     try:
         await start_step(
             session,
