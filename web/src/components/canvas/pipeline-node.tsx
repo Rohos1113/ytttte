@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+﻿import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { computeNodeActiveVariant } from "@/lib/node-active-prompt";
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
@@ -1094,18 +1094,14 @@ function PosterTile({
           >
             <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
                 {[
-                  { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", a: 180, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
-                  { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", a: 157.5, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
-                  { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", a: 135, fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
-                  { k: "copy", t: "Скопировать ноду", icon: FlyCopy, cls: "bg-black/75 text-white hover:bg-black/90", a: 112.5, fn: () => onFlyCopy?.(), show: !!onFlyCopy },
-                  { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-amber-600 text-white hover:bg-amber-500", a: 90, fn: () => onFlyRestart?.(), show: !!onFlyRestart },
+                  { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", fn: () => onFlyDelete?.(), show: !!onFlyDelete },
+                  { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
+                  { k: "bg", t: "Свой фон", icon: FlyImage, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => bgInputRef.current?.click(), show: !!onFlyBg },
+                  { k: "copy", t: "Скопировать ноду", icon: FlyCopy, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => onFlyCopy?.(), show: !!onFlyCopy },
+                  { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-amber-600 text-white hover:bg-amber-500", fn: () => onFlyRestart?.(), show: !!onFlyRestart },
                 ]
                   .filter((b) => b.show)
-                  .map((b) => ({
-                    ...b,
-                    x: Math.round(44 * Math.cos((b.a * Math.PI) / 180) * 10) / 10,
-                    y: Math.round(44 * Math.sin((b.a * Math.PI) / 180) * 10) / 10,
-                  }))
+                  .map((b, i) => ({ ...b, x: 2, y: 2 + i * 26 }))
                   .map((b, i) => {
                     const Icon = b.icon;
                     return (
