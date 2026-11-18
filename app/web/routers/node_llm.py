@@ -387,9 +387,17 @@ def collect_node_llm_documents(project: Project, node_key: str) -> list[dict[str
 
 
 def _find_document(project: Project, node_key: str, doc_id: str) -> dict[str, Any]:
-    for doc in collect_node_llm_documents(project, node_key):
+    docs = collect_node_llm_documents(project, node_key)
+    for doc in docs:
         if doc["id"] == doc_id:
             return doc
+    # Заготовка ``file:gpt_reply.txt`` после первой записи может получить id
+    # ``meta:gpt_reply.txt`` (файл попал в meta результата) — ищем по имени.
+    name = doc_id.split(":", 1)[1] if ":" in doc_id else ""
+    if name:
+        for doc in docs:
+            if str(doc.get("name") or "") == name:
+                return doc
     raise HTTPException(status_code=404, detail="document not found")
 
 

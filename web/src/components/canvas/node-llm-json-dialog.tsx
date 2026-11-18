@@ -159,6 +159,8 @@ export function NodeLlmJsonPanel({
         });
       }
       qc.invalidateQueries({ queryKey: [DOCS_KEY, projectId, nodeKey] });
+      // Сохранённый вручную ответ сразу становится таблицей результата.
+      qc.invalidateQueries({ queryKey: ["node-tables", projectId, nodeKey] });
       qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       toast.success(`Сохранено: ${res.name}`);

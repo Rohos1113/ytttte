@@ -52,6 +52,7 @@ import {
 } from "@/lib/excel-gpt-config";
 import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-panel";
 import { NodeLlmJsonPanel } from "@/components/canvas/node-llm-json-dialog";
+import { nodeLlmJson } from "@/lib/node-llm-json";
 import { NodeResultTable, type NodeTableState } from "@/components/canvas/node-result-table";
 import { isLlmNodeType } from "@/lib/node-llm-json";
 import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
@@ -140,8 +141,22 @@ export function NodeStudio({
     setShowJson(false);
     setLlmTableState("loading");
   }, [nodeKey]);
-  const [catalogMode, setCatalogMode] = useState(true);
-  useEffect(() => {
+  // Есть ли у LLM-ноды сохранённый ответ. Пока ответа нет — прямо во вкладке
+  // «Результат» доступны вставка и загрузка своего результата (как до прогона).
+  const llmDocs = useQuery({
+    queryKey: ["node-llm-docs", projectId, nodeKey],
+    queryFn: () => nodeLlmJson.documents(projectId!, nodeKey!),
+    enabled:
+      open &&
+      tab === "results" &&
+      !showJson &&
+      projectId != null &&
+      Boolean(nodeKey) &&
+      isLlmNodeType(nodeType),
+    staleTime: 10_000,
+    retry: false,
+  });
+  const [catalogMode, setCatalogMode] = useState(true);  useEffect(() => {
     if (open) setCatalogMode(initialTab !== "settings");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, nodeKey]);
@@ -852,6 +867,17 @@ export function NodeStudio({
   const isLlmNode = isLlmNodeType(nodeType) && projectId != null;
   const showLegacyResults =
     !isLlmNode || llmTableState === "empty" || llmTableState === "error";
+  // LLM-нода ещё не прогонялась: файлов ответа нет — показываем редактор, куда
+  // можно вставить/загрузить свой результат вместо пустой заглушки.
+  const llmResultDocs = llmDocs.data?.documents ?? [];
+  const noLlmResult =
+    isLlmNode &&
+    !showJson &&
+    llmTableState !== "loading" &&
+    !llmDocs.isLoading &&
+    !llmDocs.isError &&
+    llmResultDocs.length > 0 &&
+    llmResultDocs.every((doc) => !doc.exists);
 
   return createPortal(
     <div
@@ -1082,7 +1108,25 @@ export function NodeStudio({
                 onState={setLlmTableState}
               />
             ) : null}
-            {showLegacyResults ? (
+            {noLlmResult && projectId != null && nodeKey ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <div className="rounded-lg border border-cyan-400/25 bg-cyan-500/[0.07] px-2.5 py-1.5 text-[11px] leading-snug text-cyan-100/85">
+                  Результата ещё нет. Вставь ответ модели (JSON или текст) в поле
+                  ниже или нажми «Загрузить» — он станет результатом ноды и
+                  появится в таблице.
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <NodeLlmJsonPanel
+                    projectId={projectId}
+                    nodeKey={nodeKey}
+                    nodeType={nodeType}
+                    active={open && tab === "results"}
+                    snapshot={inlineResult}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {showLegacyResults && !noLlmResult ? (
             <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
