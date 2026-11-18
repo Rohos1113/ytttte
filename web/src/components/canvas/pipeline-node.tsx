@@ -1,4 +1,4 @@
-﻿import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { computeNodeActiveVariant } from "@/lib/node-active-prompt";
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
@@ -1101,7 +1101,7 @@ function PosterTile({
                   { k: "restart", t: "Перезапустить ноду — старые данные сотрутся", icon: FlyRestart, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => onFlyRestart?.(), show: !!onFlyRestart },
                 ]
                   .filter((b) => b.show)
-                  .map((b, i) => ({ ...b, x: 2, y: 2 + i * 34 }))
+                  .map((b, i) => ({ ...b, x: 2, y: 28 + i * 31 }))
                   .map((b, i) => {
                     const Icon = b.icon;
                     return (
