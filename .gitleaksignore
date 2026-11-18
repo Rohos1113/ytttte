@@ -102,3 +102,6 @@ dc72f1403d7dadf0ca88d96999eeeef6d7edc745:tests/test_action_layer_node_edit.py:ge
 d3fa261b732f559dbc29e2e3b1be6770416ec7d4:tests/agents/test_chat_task_summary.py:generic-api-key:277
 672e6531715b27c4b16b64945e3a8a50b33853cd:tests/test_backup_db.py:generic-api-key:172
 d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api-key:702
+
+# 2026-11-18 ветка 18.11.2026 (68574ba): ложное срабатывание generic-api-key на PAY52_CLAUDE_LOW_API_KEY (имя переменной окружения в AliasChoices).
+68574ba256d19cf19820c9b3c8ea887a64cff0f4:app/settings.py:generic-api-key:149

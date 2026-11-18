@@ -1,6 +1,6 @@
 {
   "_comment": "База долга (docs/ENGINEERING-POLICY.md §12). Сверяется СОСТАВ: любая строка, которой здесь нет, — красный policy-check. Обновлять после ПОГАШЕНИЯ: policy_check.py --update-debt.",
-  "updated": "2026-11-04",
+  "updated": "2026-11-18",
   "debt": {
     "diff_cov_excludes": [
       "app/bots/outsee_http.py",
@@ -69,6 +69,7 @@
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348",
       "41979f0f9d1ee6d6230e2637ad7ec79e5b486aa1:api-tracker/app/config.py:generic-api-key:14",
       "672e6531715b27c4b16b64945e3a8a50b33853cd:tests/test_backup_db.py:generic-api-key:172",
+      "68574ba256d19cf19820c9b3c8ea887a64cff0f4:app/settings.py:generic-api-key:149",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:322",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:335",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:348",
