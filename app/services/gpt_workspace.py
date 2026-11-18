@@ -95,9 +95,9 @@ _DOCX_RE = re.compile(r"(?i)(\.docx|\bdocx\b|word|ворд)")
 _XLSX_RE = re.compile(r"(?i)(\.xlsx|\.xls|\bxlsx\b|\bexcel\b|эксел[ьяю]|таблиц[аеуы])")
 _IMAGE_ASK_RE = re.compile(
     r"(?i)("
-    r"картин?к|"  # картинка/картинку + опечатка «картику»
-    r"изображен|рисунок|фото|пикч|пиксель|арт\b|скрин|"
-    r"\.png|\.jpe?g|\.webp|\.gif|\bpng\b|\bimage\b|\bpicture\b|\bphoto\b"
+    r"\b(?:картин?к\w*|картику|рисун\w*|фото\b|фотографи\w*|фотк\w*|пикч\w*|скрин(?:шот)?\w*|арт\b)\b|"
+    r"\.(?:png|jpe?g|webp|gif|bmp|svg|avif)\b|"
+    r"\b(?:png|jpeg|jpg|webp|gif|image|picture|photo)\b"
     r")"
 )
 _IMAGE_ANALYSIS_RE = re.compile(
@@ -254,6 +254,30 @@ def _wants_image_file(message: str, *, has_image_attachments: bool = False) -> b
         return False
     if _is_image_analysis_request(t):
         return False
+    # Запросы на генерацию текста, промптов, сценариев, идей, планов или таблиц —
+    # НЕ являются запросами на скачивание картинок из интернета
+    # (например: «Составь 5 детальных фотореалистичных промптов для генерации кадров»).
+    has_text_generation_ask = bool(
+        re.search(
+            r"(?i)\b(промпт\w*|промт\w*|сценар\w*|текст\w*|описани\w*|иде[ия]|список|таблиц\w*|стать\w*|пост\w*)\b",
+            t,
+        )
+    )
+    has_explicit_image_fetch = bool(
+        re.search(
+            r"(?i)\b(пришл[иу]|отправ[ьи]|найд[ий]|скача[йть]|дай|покаж[иь]|загрузи|скинь)\b.*"
+            r"\b(картинк\w*|картику|фото\w*|изображен\w*|арт\b|пикч\w*)",
+            t,
+        )
+        or re.search(
+            r"(?i)\b(картинк\w*|картику|фото\w*|изображен\w*)\b.*"
+            r"\b(из\s+интернета|из\s+сети|онлайн)\b",
+            t,
+        )
+    )
+    if has_text_generation_ask and not has_explicit_image_fetch:
+        return False
+
     if has_image_attachments:
         # Есть вложенное фото — из сети не качаем, если юзер явно не просил
         if not re.search(
@@ -1600,7 +1624,7 @@ async def ask(
                     out_dir,
                     prefix=f"web_{ts}",
                     limit=3,
-                    timeout=60.0,
+                    timeout=10.0,
                     query_variants=variants,
                 )
                 for p in web_imgs:

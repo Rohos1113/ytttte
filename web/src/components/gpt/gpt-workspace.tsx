@@ -141,16 +141,60 @@ function formatBytes(n?: number): string {
 
 function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
-  if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext)) {
+  if (["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "avif", "ico"].includes(ext)) {
     return <ImageIcon className="h-4 w-4 text-[#2dd4bf]" />;
   }
   if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
     return <FileSpreadsheet className="h-4 w-4 text-[#2dd4bf]" />;
   }
-  if (["py", "ts", "tsx", "js", "jsx", "html", "css", "json"].includes(ext)) {
+  if (
+    [
+      "py",
+      "pyw",
+      "ipynb",
+      "ts",
+      "tsx",
+      "js",
+      "jsx",
+      "html",
+      "css",
+      "scss",
+      "json",
+      "sql",
+      "sh",
+      "bat",
+      "ps1",
+      "c",
+      "cpp",
+      "h",
+      "cs",
+      "rs",
+      "go",
+      "java",
+      "kt",
+      "swift",
+      "php",
+      "rb",
+      "lua",
+      "r",
+      "yaml",
+      "yml",
+      "toml",
+      "env",
+    ].includes(ext)
+  ) {
     return <FileCode className="h-4 w-4 text-[#2dd4bf]" />;
   }
-  return <FileText className="h-4 w-4 text-amber-400" />;
+  if (["pdf"].includes(ext)) {
+    return <FileText className="h-4 w-4 text-rose-400" />;
+  }
+  if (["docx", "doc", "rtf", "odt"].includes(ext)) {
+    return <FileText className="h-4 w-4 text-blue-400" />;
+  }
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+    return <Archive className="h-4 w-4 text-amber-400" />;
+  }
+  return <FileText className="h-4 w-4 text-emerald-400" />;
 }
 
 function stripFilesNotice(content: string): string {
@@ -442,18 +486,18 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             setStreamingPhase(phaseDetail || phase);
           },
           onDone: async () => {
-            await qc.invalidateQueries({ queryKey: ["gpt-workspace", "session", sid] });
-            await qc.invalidateQueries({ queryKey: ["gpt-workspace", "sessions"] });
-            setOptimisticUserMessage(null);
+            setIsStreaming(false);
             setStreamingText(null);
             setStreamingPhase(null);
-            setIsStreaming(false);
+            setOptimisticUserMessage(null);
+            void qc.invalidateQueries({ queryKey: ["gpt-workspace", "session", sid] });
+            void qc.invalidateQueries({ queryKey: ["gpt-workspace", "sessions"] });
           },
           onError: (err) => {
-            setOptimisticUserMessage(null);
+            setIsStreaming(false);
             setStreamingText(null);
             setStreamingPhase(null);
-            setIsStreaming(false);
+            setOptimisticUserMessage(null);
             console.error("[gpt-workspace] stream error:", err);
             toast.error(friendlyGptError(err));
             restoreDraft();
@@ -629,6 +673,43 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
     if (e.dataTransfer.files?.length) {
       const files = Array.from(e.dataTransfer.files);
       uploadMut.mutate(files);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    const files: File[] = [];
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const file = clipboardData.files[i];
+        if (file) files.push(file);
+      }
+    } else if (clipboardData.items) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+    }
+
+    if (files.length > 0) {
+      const normalizedFiles = files.map((f, idx) => {
+        if (!f.name || f.name === "image.png") {
+          const ext = f.type.split("/")[1] || "png";
+          return new File([f], `screenshot_${Date.now()}_${idx + 1}.${ext}`, { type: f.type });
+        }
+        return f;
+      });
+      uploadMut.mutate(normalizedFiles);
+      toast.info(
+        normalizedFiles.length === 1
+          ? "Прикрепляем файл из буфера обмена…"
+          : `Прикрепляем ${normalizedFiles.length} файлов из буфера обмена…`
+      );
     }
   };
 
@@ -1118,27 +1199,55 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                 key={name}
                                 type="button"
                                 onClick={() => setPreviewImage({ url: f.url, title: name, downloadUrl: f.download_url })}
-                                className="group/att relative flex items-center gap-1.5 rounded-lg bg-black/40 px-2 py-1 text-[11px] font-medium text-[#2dd4bf] border border-[#2dd4bf]/30 hover:border-[#2dd4bf] hover:bg-[#2dd4bf]/10 transition-all outline-none"
+                                className="group/att relative flex items-center gap-2 rounded-xl bg-black/50 p-1.5 pr-2.5 text-xs font-medium text-white/90 border border-white/15 hover:border-[#2dd4bf]/60 hover:bg-[#2dd4bf]/10 transition-all outline-none shadow-sm"
                                 title="Нажмите, чтобы открыть изображение"
                               >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={f.url}
-                                  alt=""
-                                  className="h-4 w-4 rounded object-cover border border-white/20 group-hover/att:scale-110 transition-transform"
-                                />
-                                <span className="truncate max-w-[140px]">{name}</span>
-                                <Maximize2 className="h-2.5 w-2.5 text-[#2dd4bf]/60 group-hover/att:text-[#2dd4bf]" />
+                                <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-white/20 bg-black/40">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={f.url}
+                                    alt=""
+                                    className="h-full w-full object-cover group-hover/att:scale-110 transition-transform duration-200"
+                                  />
+                                  <div className="absolute inset-0 bg-black/20 group-hover/att:bg-transparent transition-colors flex items-center justify-center">
+                                    <Maximize2 className="h-3 w-3 text-white/70 group-hover/att:text-[#2dd4bf] drop-shadow" />
+                                  </div>
+                                </div>
+                                <div className="flex flex-col text-left min-w-0">
+                                  <span className="truncate max-w-[140px] text-[11px] font-medium text-white/90 group-hover/att:text-[#2dd4bf] transition-colors">
+                                    {name}
+                                  </span>
+                                  {f.size ? (
+                                    <span className="text-[10px] text-white/40 font-mono">
+                                      {formatBytes(f.size)}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </button>
                             );
                           }
                           return (
                             <div
                               key={name}
-                              className="flex items-center gap-1.5 rounded-lg bg-black/40 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] border border-[#2dd4bf]/25"
+                              className="flex items-center gap-2 rounded-xl bg-black/50 px-2.5 py-1.5 text-[11px] font-medium text-white/90 border border-white/15 shadow-sm"
                             >
-                              <Paperclip className="h-3 w-3 text-[#2dd4bf]" />
-                              <span className="truncate max-w-[140px]">{name}</span>
+                              {getFileIcon(name)}
+                              <span className="truncate max-w-[150px]">{name}</span>
+                              {f?.size ? (
+                                <span className="text-[10px] text-white/40 font-mono">
+                                  {formatBytes(f.size)}
+                                </span>
+                              ) : null}
+                              {f && (
+                                <button
+                                  type="button"
+                                  onClick={() => triggerDownload(f)}
+                                  className="text-white/40 hover:text-[#2dd4bf] transition outline-none ml-0.5"
+                                  title="Скачать файл"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -1442,6 +1551,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 disabled={busy}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 rows={1}
                 style={{ outline: "none" }}
                 placeholder="Спросите что угодно или перетащите файл (Enter — отправить, Shift+Enter — перенос строки)..."
@@ -1456,6 +1566,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     ref={fileInputRef}
                     type="file"
                     multiple
+                    accept="image/*,.pdf,.docx,.xlsx,.xls,.csv,.tsv,.txt,.md,.py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.xml,.html,.css,.sql,.sh,.bat,.ps1,.zip"
                     className="hidden"
                     onChange={(e) => {
                       if (e.target.files?.length) {

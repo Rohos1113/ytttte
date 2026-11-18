@@ -886,6 +886,17 @@ def test_build_messages_with_file(tmp_path: Path) -> None:
     assert "закадровый текст" in user
 
 
+def test_build_messages_with_code_file(tmp_path: Path) -> None:
+    from app.services.gpt_api import file_to_context
+
+    py_file = tmp_path / "script.py"
+    py_file.write_text("def run():\n    return 42\n", encoding="utf-8")
+    ctx = file_to_context(py_file)
+    assert "```python" in ctx
+    assert "def run():" in ctx
+    assert "base64" not in ctx
+
+
 def _tiny_png(path: Path) -> Path:
     path.write_bytes(
         bytes.fromhex(

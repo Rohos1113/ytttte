@@ -3364,17 +3364,20 @@ export const api = {
               } else if (data.type === "done") {
                 doneReceived = true;
                 callbacks?.onDone?.(data.session, data.message);
+                break;
               } else if (data.type === "error" && data.error) {
                 if (!errorReceived) {
                   errorReceived = true;
                   callbacks?.onError?.(data.error);
                 }
+                break;
               }
             } catch {
               // ignore JSON parse error
             }
           }
         }
+        if (doneReceived || errorReceived) break;
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || signal?.aborted || doneReceived || errorReceived) {

@@ -50,9 +50,124 @@ _TEXT_SUFFIXES = frozenset(
         ".log",
         ".srt",
         ".vtt",
+        # Code & Scripts
+        ".py",
+        ".pyw",
+        ".ipynb",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".sql",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".bat",
+        ".cmd",
+        ".ps1",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".hxx",
+        ".cs",
+        ".rs",
+        ".go",
+        ".java",
+        ".kt",
+        ".kts",
+        ".swift",
+        ".rb",
+        ".php",
+        ".lua",
+        ".r",
+        ".dart",
+        ".scala",
+        ".vue",
+        ".svelte",
+        # Configs & metadata
+        ".env",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".dockerfile",
+        ".gitignore",
+        ".properties",
+        ".graphql",
+        ".proto",
+        ".prisma",
     }
 )
-_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
+_IMAGE_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".heic", ".ico"}
+)
+_CODE_LANGUAGES: dict[str, str] = {
+    ".py": "python",
+    ".pyw": "python",
+    ".ipynb": "json",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".sass": "sass",
+    ".less": "less",
+    ".json": "json",
+    ".xml": "xml",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".conf": "ini",
+    ".sql": "sql",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".bat": "bat",
+    ".cmd": "bat",
+    ".ps1": "powershell",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".php": "php",
+    ".rb": "ruby",
+    ".lua": "lua",
+    ".r": "r",
+    ".dart": "dart",
+    ".vue": "vue",
+    ".svelte": "svelte",
+    ".dockerfile": "dockerfile",
+    ".graphql": "graphql",
+    ".proto": "protobuf",
+}
 # Лимит картинок и размера (base64 раздувает ~4/3) — чтобы не упереться в payload.
 _MAX_VISION_IMAGES = 8
 _MAX_VISION_BYTES = 4_000_000
@@ -674,8 +789,8 @@ def pdf_to_text(path: Path, *, max_chars: int = _PDF_CONTEXT_MAX_CHARS) -> str:
 
     if not pages_out:
         return (
-            f"[pdf {path.name}: {n_pages} стр., текста почти нет "
-            f"(скан/картинки) — смотри multimodal input_file если приложен]"
+            f"[pdf {path.name}: {n_pages} стр., документ не содержит текстового слоя "
+            f"(скан/картинки без OCR). Прикрепите страницы как изображения PNG/JPG для Vision]"
         )
     return "\n\n".join(pages_out)
 
@@ -775,6 +890,43 @@ def pdf_to_input_file_part(path: Path) -> dict[str, Any] | None:
     }
 
 
+def _docx_to_text(path: Path) -> str:
+    """Извлечь структурированный текст из docx (параграфы и таблицы)."""
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    with zipfile.ZipFile(path) as zf:
+        xml = zf.read("word/document.xml")
+    root = ET.fromstring(xml)
+
+    lines: list[str] = []
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag == "p":
+            texts = [
+                (n.text or "")
+                for n in elem.iter()
+                if (n.tag.endswith("}t") or n.tag == "t") and (n.text or "").strip()
+            ]
+            if texts:
+                lines.append("".join(texts).strip())
+        elif tag == "tr":
+            row: list[str] = []
+            for cell in elem:
+                cell_tag = cell.tag.split("}")[-1] if "}" in cell.tag else cell.tag
+                if cell_tag == "tc":
+                    cell_texts = [
+                        (n.text or "")
+                        for n in cell.iter()
+                        if (n.tag.endswith("}t") or n.tag == "t") and (n.text or "").strip()
+                    ]
+                    row.append("".join(cell_texts).strip())
+            if row:
+                lines.append("\t".join(row))
+
+    return "\n\n".join(lines).strip() or f"[docx {path.name}: пустой текст]"
+
+
 def file_to_context(
     path: Path,
     *,
@@ -794,6 +946,9 @@ def file_to_context(
             body = path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:  # noqa: BLE001
             body = f"[не удалось прочитать {path.name}: {e}]"
+        lang = _CODE_LANGUAGES.get(suffix)
+        if lang and body and not body.startswith("[") and not body.startswith("```"):
+            body = f"```{lang}\n{body}\n```"
     elif suffix in _IMAGE_SUFFIXES:
         try:
             size = path.stat().st_size
@@ -811,41 +966,47 @@ def file_to_context(
         extracted = pdf_to_text(path, max_chars=max(max_chars, _PDF_CONTEXT_MAX_CHARS))
         body = f"[pdf {path.name}: {size} байт]\n{extracted}"
     elif suffix in {".docx"}:
-        # docx = zip+xml; вытащим word/document.xml текст грубо.
         try:
-            import zipfile
-            from xml.etree import ElementTree as ET
-
-            with zipfile.ZipFile(path) as zf:
-                xml = zf.read("word/document.xml")
-            root = ET.fromstring(xml)
-            texts = [(n.text or "") for n in root.iter() if n.tag.endswith("}t") and (n.text or "").strip()]
-            body = "\n".join(texts) or f"[docx {path.name}: пустой текст]"
+            body = _docx_to_text(path)
         except Exception as e:  # noqa: BLE001
             body = f"[docx {path.name}: не разобрал ({e})]"
     else:
-        # Прочий бинарь — метаданные; мелкий файл инлайним base64 (модель может вернуть).
+        # Проверяем, является ли произвольный файл обычным текстом (без нулевых байтов в первых 8КБ)
+        is_text = False
         try:
-            raw = path.read_bytes()
-            size = len(raw)
-        except OSError as e:
-            return f"[файл {path.name}: не прочитан ({e})]"
-        if size <= _MAX_BINARY_INLINE_BYTES:
-            mime = {
-                ".zip": "application/zip",
-                ".mp4": "video/mp4",
-                ".webm": "video/webm",
-            }.get(suffix, "application/octet-stream")
-            body = (
-                f"[файл {path.name}: {suffix or 'bin'}, {size} байт]\n"
-                f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
-            )
-        else:
-            return (
-                f"[файл {path.name}: {suffix or 'bin'}, {size} байт — "
-                f"слишком большой для inline (>{_MAX_BINARY_INLINE_BYTES}), "
-                f"только имя; скачай исходник кнопкой ↓ в Studio]"
-            )
+            head = path.read_bytes()[:8192]
+            if b"\x00" not in head:
+                body = path.read_text(encoding="utf-8", errors="replace")
+                is_text = True
+                lang = _CODE_LANGUAGES.get(suffix)
+                if lang and body and not body.startswith("[") and not body.startswith("```"):
+                    body = f"```{lang}\n{body}\n```"
+        except Exception:
+            is_text = False
+
+        if not is_text:
+            # Прочий бинарь — метаданные; мелкий файл инлайним base64 (модель может вернуть).
+            try:
+                raw = path.read_bytes()
+                size = len(raw)
+            except OSError as e:
+                return f"[файл {path.name}: не прочитан ({e})]"
+            if size <= _MAX_BINARY_INLINE_BYTES:
+                mime = {
+                    ".zip": "application/zip",
+                    ".mp4": "video/mp4",
+                    ".webm": "video/webm",
+                }.get(suffix, "application/octet-stream")
+                body = (
+                    f"[файл {path.name}: {suffix or 'bin'}, {size} байт]\n"
+                    f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+                )
+            else:
+                return (
+                    f"[файл {path.name}: {suffix or 'bin'}, {size} байт — "
+                    f"слишком большой для inline (>{_MAX_BINARY_INLINE_BYTES}), "
+                    f"только имя; скачай исходник кнопкой ↓ в Studio]"
+                )
     # XLSX уже укладывается в свой бюджет внутри xlsx_to_text — не резать до 60k.
     # JSON батчи img_pr (db_frames_*.json) тоже не должны молча обрезаться:
     # модель тогда отказывается («файл обрезан после кадра N»).

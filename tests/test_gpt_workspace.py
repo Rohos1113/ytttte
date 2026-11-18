@@ -1098,6 +1098,11 @@ def test_wants_image_file_distinguishes_analysis_and_generation() -> None:
     assert gw._wants_image_file("какой здесь фон?", has_image_attachments=True) is False
     assert gw._wants_image_file("найди в интернете похожую картинку", has_image_attachments=True) is True
 
+    # Запросы на промпты, сценарии и текст с упоминанием фото/кадров не должны вызывать поиск картинок
+    assert gw._wants_image_file("Составь 5 детальных фотореалистичных промптов для генерации кадров") is False
+    assert gw._wants_image_file("Напиши промпт для фотосессии в неоновом стиле") is False
+    assert gw._wants_image_file("Придумай сценарий ролика и описание каждого кадра") is False
+
 
 @pytest.mark.asyncio
 async def test_ask_image_analysis_does_not_call_web_search(
