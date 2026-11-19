@@ -374,7 +374,7 @@ function CellValue({
     return (
       <span
         className={cn(
-          "block max-w-[320px] whitespace-pre-wrap break-words",
+          "block max-w-[320px] whitespace-pre-wrap break-words select-text",
           isJson && "max-w-[260px] truncate font-mono text-[10px] leading-[1.45] text-cyan-200/80",
           type === "number" && "font-mono text-amber-100/80",
           type === "bool" && "text-emerald-200/80",
@@ -392,12 +392,15 @@ function CellValue({
       type="button"
       onClick={onToggle}
       title={expanded ? "Свернуть" : "Показать целиком"}
-      className="block w-full max-w-[420px] cursor-pointer text-left"
+      className={cn(
+        "block w-full cursor-pointer text-left transition-all duration-150 rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/50",
+        expanded ? "max-w-[760px]" : "max-w-[420px]",
+      )}
     >
       {expanded ? (
         <span
           className={cn(
-            "block whitespace-pre-wrap break-words text-white",
+            "block whitespace-pre-wrap break-words select-text text-white",
             isJson && "font-mono text-[10px] leading-[1.45] text-cyan-200/90",
           )}
         >

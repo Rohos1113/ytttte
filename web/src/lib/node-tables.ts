@@ -67,8 +67,11 @@ export interface NodeTableUploadResult {
 
 const BASE = "/api/projects";
 
-function tableQuery(docId?: string | null): string {
-  return docId ? `?doc=${encodeURIComponent(docId)}` : "";
+function tableQuery(docId?: string | null, full: boolean = false): string {
+  const parts: string[] = [];
+  if (docId) parts.push(`doc=${encodeURIComponent(docId)}`);
+  if (full) parts.push("full=1");
+  return parts.length ? `?${parts.join("&")}` : "";
 }
 
 /** Текст ошибки из ответа API: `detail` из JSON, иначе тело как есть. */
@@ -112,7 +115,7 @@ export const nodeTables = {
   /** Таблицы ответа ноды. Без `docId` сервер берёт основной источник ноды. */
   get: (projectId: number, nodeKey: string, docId?: string | null) =>
     http<NodeTableResponse>(
-      `${BASE}/${projectId}/node-llm/${encodeURIComponent(nodeKey)}/table${tableQuery(docId)}`,
+      `${BASE}/${projectId}/node-llm/${encodeURIComponent(nodeKey)}/table${tableQuery(docId, true)}`,
       {},
       45_000,
     ),

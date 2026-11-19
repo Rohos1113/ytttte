@@ -621,7 +621,34 @@ def _is_heading(line: str) -> bool:
 
 
 def _prose_blocks(text: str) -> list[tuple[str, str, str]]:
-    """Строки → блоки: вступление, разделы, соседние заголовки не склеиваем."""
+    """Строки → блоки: вступление, разделы, соседние заголовки не склеиваем.
+
+    Если заголовков в тексте нет (например, закадровый текст/сценарий),
+    текст разбивается на блоки по абзацам (пустым строкам).
+    """
+    lines = [raw.strip() for raw in text.splitlines()]
+    has_headings = any(_is_heading(line) for line in lines if line)
+
+    if not has_headings:
+        paragraphs: list[list[str]] = []
+        current: list[str] = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                if current:
+                    paragraphs.append(current)
+                    current = []
+            else:
+                current.append(line)
+        if current:
+            paragraphs.append(current)
+        if not paragraphs:
+            return []
+        return [
+            ("", "\n".join(para), "вступление" if idx == 0 else "раздел")
+            for idx, para in enumerate(paragraphs)
+        ]
+
     blocks: list[list[Any]] = []
     for raw in text.splitlines():
         line = raw.strip()

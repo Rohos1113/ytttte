@@ -255,8 +255,35 @@ def test_prose_without_json_fragment_stays_blocks() -> None:
     result = node_tables.normalize_document(text)
     assert result["kind"] == "text"
     assert result["tables"][0]["id"] == "blocks"
-    assert len(result["tables"][0]["rows"]) == 1
+    assert len(result["tables"][0]["rows"]) == 2
+    assert [row["текст"] for row in result["tables"][0]["rows"]] == [
+        "Обычная проза без структуры.",
+        "И ещё один абзац.",
+    ]
+    assert [row["тип"] for row in result["tables"][0]["rows"]] == ["вступление", "раздел"]
     assert result["warnings"] == []
+
+
+def test_narration_script_without_headings_splits_into_paragraph_rows() -> None:
+    """Закадровый текст без заголовков разбивается на строки таблицы по абзацам."""
+    script = (
+        "В 1975 году инженер Kodak Стивен Сассон собрал один из первых прототипов цифровой камеры.\n"
+        "Изображение сохранялось электронно, без плёнки.\n\n"
+        "Покупка фотоаппарата была началом долгих отношений с плёнкой.\n"
+        "Для отпуска или праздника требовался новый рулон.\n\n"
+        "Цифровая камера постепенно убирала эти обязательные покупки."
+    )
+    result = node_tables.normalize_document(script)
+    assert result["kind"] == "text"
+    table = _table_of(result, "blocks")
+    assert len(table["rows"]) == 3
+    assert table["rows"][0]["тип"] == "вступление"
+    assert table["rows"][0]["заголовок"] == ""
+    assert "Стивен Сассон" in table["rows"][0]["текст"]
+    assert table["rows"][1]["тип"] == "раздел"
+    assert "Покупка фотоаппарата" in table["rows"][1]["текст"]
+    assert table["rows"][2]["тип"] == "раздел"
+    assert "Цифровая камера" in table["rows"][2]["текст"]
 
 
 def test_jsonl_document_is_rows() -> None:
