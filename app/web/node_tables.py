@@ -620,6 +620,40 @@ def _is_heading(line: str) -> bool:
     return any(ch.isalpha() for ch in text)
 
 
+def replace_prose_cell(
+    text: str, row_index: int, column: str, value: Any
+) -> tuple[str, bool]:
+    """Правка ячейки таблицы блоков прозы (тип таблицы ``blocks``).
+
+    Меняется заголовок раздела или его текст; исходный текст собирается заново
+    из блоков (пустые строки между разделами сохраняются). Возвращает новый
+    текст и признак изменения.
+    """
+    blocks = _prose_blocks(text)
+    if row_index < 0 or row_index >= len(blocks):
+        raise ValueError("строка не найдена в таблице блоков")
+    title, body, kind = blocks[row_index]
+    if column == "заголовок":
+        title = str(value or "").strip()
+    elif column == "текст":
+        body = "\n".join(
+            line.strip() for line in str(value or "").splitlines() if line.strip()
+        )
+    else:
+        raise ValueError(f"колонка «{column}» не редактируется")
+    blocks[row_index] = (title, body, kind)
+    chunks: list[str] = []
+    for block_title, block_body, _kind in blocks:
+        lines: list[str] = []
+        if block_title:
+            lines.append(block_title)
+        if block_body:
+            lines.extend(block_body.splitlines())
+        chunks.append("\n".join(lines))
+    rebuilt = "\n\n".join(chunk for chunk in chunks if chunk)
+    return rebuilt, rebuilt != text.strip()
+
+
 def _prose_blocks(text: str) -> list[tuple[str, str, str]]:
     """Строки → блоки: вступление, разделы, соседние заголовки не склеиваем."""
     blocks: list[list[Any]] = []

@@ -1,4 +1,4 @@
-"""Скачивание и загрузка таблиц ответа ЛЛМ-ноды (xlsx/json/csv).
+﻿"""Скачивание и загрузка таблиц ответа ЛЛМ-ноды (xlsx/json/csv).
 
 Контракт:
 
@@ -488,3 +488,73 @@ def test_sheet_title_is_excel_safe() -> None:
     assert first == "ops_кадры_1"
     assert second != first
     assert len(table_import.sheet_title("x" * 60, set())) == 31
+
+
+# ---------------------------------------------------------------------------
+# Правка одной ячейки (POST /table/cell)
+# ---------------------------------------------------------------------------
+
+
+def test_cell_edit_writes_value_into_document(studio: Any) -> None:
+    upload_dir = studio.upload("n_excel_gpt_pk_shots")
+    _write(upload_dir, "gpt_reply.txt", _shots_doc())
+    table_response = studio.client.get(_table_url(studio, "n_excel_gpt_pk_shots")).json()
+    table = next(item for item in table_response["tables"] if item["id"] == "ops")
+    column = next(item for item in table["columns"] if item["key"] == "порядок")
+
+    response = studio.client.post(
+        _table_url(studio, "n_excel_gpt_pk_shots", "/cell"),
+        json={"table": "ops", "row": 0, "column": column["key"], "value": 7},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["changed"] is True and payload["saved"] is True
+    assert payload["value"] == 7
+
+    saved = json.loads((upload_dir / "gpt_reply.txt").read_text(encoding="utf-8"))
+    assert saved["ops"][0]["порядок"] == 7
+    assert any(path.name.startswith("gpt_reply.txt.bak") for path in upload_dir.iterdir())
+
+
+def test_cell_edit_unknown_column_is_400(studio: Any) -> None:
+    upload_dir = studio.upload("n_excel_gpt_pk_shots")
+    _write(upload_dir, "gpt_reply.txt", _shots_doc())
+    response = studio.client.post(
+        _table_url(studio, "n_excel_gpt_pk_shots", "/cell"),
+        json={"table": "ops", "row": 0, "column": "нет-такой", "value": "x"},
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_cell_edit_prose_block_updates_project_text(studio: Any) -> None:
+    table_response = studio.client.get(_table_url(studio, "n_plan")).json()
+    table = next(item for item in table_response["tables"] if item["id"] == "blocks")
+    assert [row["заголовок"] for row in table["rows"]][:2] == ["", "Глава I"]
+
+    response = studio.client.post(
+        _table_url(studio, "n_plan", "/cell"),
+        json={"table": "blocks", "row": 1, "column": "текст", "value": "Новый абзац.\nВторая строка."},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["changed"] is True
+
+    fresh = studio.client.get(_table_url(studio, "n_plan")).json()
+    blocks = next(item for item in fresh["tables"] if item["id"] == "blocks")
+    assert blocks["rows"][1]["текст"] == "Новый абзац.\nВторая строка."
+    # проза живёт в поле проекта — проверяем сам документ
+    docs = studio.client.get(
+        f"/api/projects/{studio.project_id}/node-llm/n_plan/documents"
+    ).json()["documents"]
+    doc_id = docs[0]["id"]
+    text = studio.client.get(
+        f"/api/projects/{studio.project_id}/node-llm/n_plan/documents/{doc_id}"
+    ).json()["text"]
+    assert "Новый абзац." in text
+
+
+def test_cell_edit_prose_type_column_is_400(studio: Any) -> None:
+    response = studio.client.post(
+        _table_url(studio, "n_plan", "/cell"),
+        json={"table": "blocks", "row": 1, "column": "тип", "value": "раздел"},
+    )
+    assert response.status_code == 400, response.text

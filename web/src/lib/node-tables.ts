@@ -147,6 +147,57 @@ export const nodeTables = {
   },
 
   /**
+   * Правка одной ячейки: сервер пишет значение в JSON-документ ноды (прежняя
+   * версия файла уходит в `.bak`) и возвращает сохранённое значение.
+   */
+  updateCell: async (
+    projectId: number,
+    nodeKey: string,
+    cell: {
+      docId?: string | null;
+      table: string;
+      row: number;
+      column: string;
+      value: unknown;
+    },
+  ): Promise<{ value: unknown; changed: boolean; saved: boolean }> => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 60_000);
+    try {
+      let res: Response;
+      try {
+        res = await fetch(
+          `${BASE}/${projectId}/node-llm/${encodeURIComponent(nodeKey)}/table/cell${tableQuery(cell.docId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              table: cell.table,
+              row: cell.row,
+              column: cell.column,
+              value: cell.value,
+            }),
+            signal: controller.signal,
+          },
+        );
+      } catch (e) {
+        throw isAbortError(e) ? requestTimeoutError(60) : e;
+      }
+      if (!res.ok) throw new Error(await tableErrorText(res));
+      const json = (await res.json()) as
+        | { value?: unknown; changed?: boolean; saved?: boolean }
+        | null;
+      return {
+        value: json?.value ?? null,
+        changed: Boolean(json?.changed),
+        saved: Boolean(json?.saved),
+      };
+    } finally {
+      window.clearTimeout(timer);
+    }
+  },
+
+  /**
    * Загрузить xlsx/json/csv с правками: сервер сверит колонки и строки и обновит
    * значения в документе ноды. Возвращает, сколько строк/ячеек обновлено.
    */

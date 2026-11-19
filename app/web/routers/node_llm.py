@@ -905,3 +905,134 @@ async def upload_node_llm_table(
         "warnings": warnings,
         "tables": [{"id": str(table.get("id")), "rows": len(table.get("rows") or [])} for table in tables],
     }
+
+
+@router.post("/{project_id}/node-llm/{node_key}/table/cell")
+async def update_node_llm_table_cell(
+    project_id: int,
+    node_key: str,
+    payload: dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Правка одной ячейки таблицы результата ноды с сохранением в документ.
+
+    Тот же механизм, что у загрузки файла: значение ищется в JSON-документе
+    ноды по ``refs`` (раскрытые массивы объектов поддерживаются) и пишется
+    обратно; файл сохраняется через ``save_node_llm_document`` (бэкап + meta).
+    """
+    project = _project_or_404(await session.get(Project, project_id))
+    table_id = str(payload.get("table") or "").strip()
+    column_key = str(payload.get("column") or "").strip()
+    if not column_key:
+        raise HTTPException(status_code=400, detail="не указана колонка")
+    try:
+        row_index = int(payload.get("row") or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="неверный номер строки") from exc
+    doc = payload.get("doc")
+    collected = _collect_node_tables(
+        project,
+        node_key,
+        doc=str(doc) if doc else None,
+        full=True,
+        with_refs=True,
+    )
+    tables = collected["payload"]["tables"]
+    refs_list = collected["refs"]
+    table_index: int | None = None
+    for index, table in enumerate(tables):
+        if not table_id or str(table.get("id")) == table_id:
+            table_index = index
+            break
+    if table_index is None:
+        raise HTTPException(status_code=404, detail="таблица не найдена")
+    refs = refs_list[table_index] if table_index < len(refs_list) else None
+    if not refs or not refs.get("columns"):
+        table = tables[table_index]
+        if str(table.get("id")) != "blocks":
+            raise HTTPException(
+                status_code=400,
+                detail="таблица не привязана к JSON-документу: правка ячеек недоступна",
+            )
+        # Проза (план/сценарий и подобное): правим блок текста и пересобираем
+        # исходный текст документа — для project_text он лежит в БД проекта.
+        items = collected["items"]
+        table_id = str(table.get("id") or "")
+        stem = table_id.rsplit(".", 1)[0] if "." in table_id else ""
+        entry = None
+        if stem:
+            entry = next(
+                (
+                    item
+                    for item in items
+                    if _doc_stem(str(item["item"].get("name") or "")) == stem
+                ),
+                None,
+            )
+        if entry is None and len(items) == 1:
+            entry = items[0]
+        if entry is None:
+            raise HTTPException(
+                status_code=400,
+                detail="у ноды несколько документов — правка блоков недоступна, откройте JSON",
+            )
+        try:
+            new_text, changed = node_tables.replace_prose_cell(
+                str(entry["text"]), row_index, column_key, payload.get("value")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        saved = False
+        if changed:
+            document_id = str(entry["item"]["id"])
+            await save_node_llm_document(project, node_key, document_id, new_text, session)
+            saved = True
+        return {
+            "ok": True,
+            "table": str(table.get("id")),
+            "tableIndex": table_index,
+            "document": str(entry["item"]["id"]),
+            "row": row_index,
+            "column": column_key,
+            "value": payload.get("value"),
+            "changed": changed,
+            "saved": saved,
+        }
+    document_id = str(refs.get("document") or "")
+    entry = next(
+        (item for item in collected["items"] if item["item"]["id"] == document_id),
+        None,
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    try:
+        root = json.loads(str(entry["text"]))
+    except ValueError as exc:
+        name = str(entry["item"].get("name") or document_id)
+        raise HTTPException(
+            status_code=400,
+            detail=f"документ {name} — не JSON, правка ячеек не поддерживается",
+        ) from exc
+    try:
+        value, changed = table_import.apply_cell(
+            root, tables[table_index], refs, row_index, column_key, payload.get("value")
+        )
+    except table_import.TableImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    saved = False
+    if changed:
+        new_text = json.dumps(root, ensure_ascii=False, indent=2)
+        if new_text != str(entry["text"]):
+            await save_node_llm_document(project, node_key, document_id, new_text, session)
+            saved = True
+    return {
+        "ok": True,
+        "table": str(tables[table_index].get("id")),
+        "tableIndex": table_index,
+        "document": document_id,
+        "row": row_index,
+        "column": column_key,
+        "value": value,
+        "changed": changed,
+        "saved": saved,
+    }

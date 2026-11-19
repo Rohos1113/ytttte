@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Универсальная таблица «Результата» ЛЛМ-ноды.
@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -224,21 +224,41 @@ export function NodeResultTable({
         />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5 [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
-        {/* Только основная таблица. Спутниковые коллекции и второй документ
-            в «Результат» не выводим — иначе в окне появляется лишняя таблица. */}
-        {shownTables.slice(0, 1).map((table) => (
-          <TableView key={table.id} table={table} />
+        {/* Все таблицы ответа: правка — двойной клик по ячейке. */}
+        {shownTables.map((table) => (
+          <TableView
+            key={table.id}
+            table={table}
+            projectId={projectId}
+            nodeKey={nodeKey!}
+            showTitle={shownTables.length > 1}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function TableView({ table }: { table: NodeTable }) {
+function TableView({
+  table,
+  projectId,
+  nodeKey,
+  showTitle,
+}: {
+  table: NodeTable;
+  projectId: number;
+  nodeKey: string;
+  showTitle?: boolean;
+}) {
+  const qc = useQueryClient();
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  /** Какая ячейка сейчас в режиме правки: индекс строки в документе + колонка. */
+  const [edit, setEdit] = useState<{ row: number; key: string } | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Другая таблица/сортировка — показываем первые 200 строк.
   useEffect(() => {
@@ -247,11 +267,17 @@ function TableView({ table }: { table: NodeTable }) {
     setExpanded({});
   }, [sortKey, sortDir, table.id]);
 
+  // Индекс строки в документе не должен теряться при сортировке — правка идёт по нему.
+  const indexed = useMemo(
+    () => table.rows.map((row, index) => ({ row, index })),
+    [table.rows],
+  );
+
   const filtered = useMemo(() => {
-    if (!sortKey || !sortDir) return table.rows;
+    if (!sortKey || !sortDir) return indexed;
     const sign = sortDir === "asc" ? 1 : -1;
-    return [...table.rows].sort((a, b) => sign * compareCells(a[sortKey], b[sortKey]));
-  }, [table, sortKey, sortDir]);
+    return [...indexed].sort((a, b) => sign * compareCells(a.row[sortKey], b.row[sortKey]));
+  }, [indexed, sortKey, sortDir]);
 
   const shown = filtered.slice(0, visible);
 
@@ -269,8 +295,51 @@ function TableView({ table }: { table: NodeTable }) {
     setSortDir(null);
   };
 
+  const beginEdit = (row: number, key: string, value: unknown) => {
+    setEdit({ row, key });
+    setDraft(cellText(value));
+  };
+
+  const cancelEdit = () => {
+    setEdit(null);
+    setDraft("");
+  };
+
+  const commitEdit = async () => {
+    if (!edit || saving) return;
+    const current = table.rows[edit.row]?.[edit.key];
+    if (cellText(current) === draft) {
+      cancelEdit();
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await nodeTables.updateCell(projectId, nodeKey, {
+        table: table.id,
+        row: edit.row,
+        column: edit.key,
+        value: draft,
+      });
+      toast.success(result.changed ? "Ячейка сохранена" : "Значение не изменилось");
+      cancelEdit();
+      await qc.invalidateQueries({ queryKey: ["node-tables", projectId, nodeKey] });
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex shrink-0 flex-col rounded-[10px] border border-white/10 bg-black/30">
+      {showTitle ? (
+        <div
+          className="truncate border-b border-white/[0.06] px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-500"
+          title={table.title}
+        >
+          {table.title}
+        </div>
+      ) : null}
       <div className="max-h-[calc(100vh-280px)] overflow-auto [scrollbar-color:hsl(0_0%_55%_/_0.5)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-track]:bg-transparent">
         <table className="min-w-max border-collapse text-left text-[11px]">
           <thead className="sticky top-0 z-10 bg-[#121214]">
@@ -307,18 +376,35 @@ function TableView({ table }: { table: NodeTable }) {
             </tr>
           </thead>
           <tbody>
-            {shown.map((row, rowIndex) => (
-              <tr key={rowIndex} className="border-b border-white/[0.06] last:border-0 hover:bg-white/[0.03]">
+            {shown.map(({ row, index }) => (
+              <tr key={index} className="border-b border-white/[0.06] last:border-0 hover:bg-white/[0.03]">
                 {table.columns.map((c) => {
-                  const cellKey = `${rowIndex}:${c.key}`;
+                  const cellKey = `${index}:${c.key}`;
+                  const editing = edit?.row === index && edit.key === c.key;
                   return (
-                    <td key={c.key} className="px-2 py-1 align-top text-white/80">
-                      <CellValue
-                        value={row[c.key]}
-                        type={c.type}
-                        expanded={Boolean(expanded[cellKey])}
-                        onToggle={() => setExpanded((prev) => ({ ...prev, [cellKey]: !prev[cellKey] }))}
-                      />
+                    <td
+                      key={c.key}
+                      className="px-2 py-1 align-top text-white/80"
+                      onDoubleClick={() => beginEdit(index, c.key, row[c.key])}
+                      title={editing ? undefined : "Двойной клик — правка"}
+                    >
+                      {editing ? (
+                        <CellEditor
+                          draft={draft}
+                          onChange={setDraft}
+                          multiline={c.type === "long_text" || c.type === "json"}
+                          saving={saving}
+                          onCommit={() => void commitEdit()}
+                          onCancel={cancelEdit}
+                        />
+                      ) : (
+                        <CellValue
+                          value={row[c.key]}
+                          type={c.type}
+                          expanded={Boolean(expanded[cellKey])}
+                          onToggle={() => setExpanded((prev) => ({ ...prev, [cellKey]: !prev[cellKey] }))}
+                        />
+                      )}
                     </td>
                   );
                 })}
@@ -349,6 +435,51 @@ function TableView({ table }: { table: NodeTable }) {
       ) : null}
     </div>
   );
+}
+
+/** Инпут правки ячейки: Enter — сохранить, Esc — отменить, blur — сохранить. */
+function CellEditor({
+  draft,
+  onChange,
+  multiline,
+  saving,
+  onCommit,
+  onCancel,
+}: {
+  draft: string;
+  onChange: (value: string) => void;
+  multiline: boolean;
+  saving: boolean;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const cancelled = useRef(false);
+  const common = {
+    value: draft,
+    disabled: saving,
+    autoFocus: true,
+    className:
+      "nodrag w-full min-w-[120px] rounded border border-cyan-300/40 bg-black/70 px-1.5 py-0.5 text-[11px] text-white outline-none ring-1 ring-cyan-300/20",
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      onChange(e.target.value),
+    onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelled.current = true;
+        onCancel();
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        onCommit();
+      }
+    },
+    onBlur: () => {
+      if (!cancelled.current) onCommit();
+    },
+  };
+  if (multiline) return <textarea rows={3} {...common} />;
+  return <input type="text" {...common} />;
 }
 
 function CellValue({

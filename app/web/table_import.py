@@ -483,6 +483,61 @@ def _upload_headers(rows: list[dict[str, Any]]) -> list[str]:
     return headers
 
 
+def apply_cell(
+    root: Any,
+    table: dict[str, Any],
+    refs: dict[str, Any],
+    row_index: int,
+    column_key: str,
+    value: Any,
+) -> tuple[Any, bool]:
+    """Правка одной ячейки таблицы в JSON-документе (без файла).
+
+    Возвращает ``(значение в документе, изменилось ли)``. Место ячейки ищется
+    по тем же ``refs``, что и загрузка файла, поэтому работают раскрытые
+    массивы объектов, склейки и вложенные поля.
+    """
+    column_refs = refs.get("columns") or {}
+    if column_key not in column_refs:
+        raise TableImportError(f"колонка «{column_key}» не найдена в таблице")
+    refs_rows = refs.get("rows") or []
+    if row_index < 0 or row_index >= len(refs_rows):
+        raise TableImportError("строка не найдена в таблице")
+    row_ref = refs_rows[row_index]
+    ref = column_refs[column_key]
+    location = _location_key(ref, row_ref)
+    if location is None:
+        raise TableImportError("у строки нет позиции в документе — правка невозможна")
+    target = _location_target(root, refs, location)
+    if target is None:
+        raise TableImportError("не нашёл место ячейки в документе")
+    column = next(
+        (
+            item
+            for item in table.get("columns") or []
+            if isinstance(item, dict) and str(item.get("key")) == column_key
+        ),
+        {},
+    )
+    current_value = _read_value(target, str(ref.get("col") or ""))
+    if current_value is _MISSING:
+        current_value = None
+    if isinstance(current_value, list) and all(
+        not isinstance(item, (dict, list)) for item in current_value
+    ):
+        raise TableImportError("колонка — склеенный список, правка недоступна")
+    converted, problem = _convert_value(value, str(column.get("type") or "text"), current_value)
+    if problem is not None:
+        raise TableImportError(problem)
+    if _same_value(converted, current_value):
+        return converted, False
+    try:
+        _write_value(target, str(ref.get("col") or ""), converted)
+    except KeyError as exc:
+        raise TableImportError("путь ячейки не найден в документе") from exc
+    return converted, True
+
+
 def apply_upload(
     root: Any,
     table: dict[str, Any],
