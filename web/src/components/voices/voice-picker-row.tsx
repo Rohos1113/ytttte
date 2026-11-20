@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Mic, Pause, Play, Plus, Search, X } from "lucide-react";
 import {
   RU_VOICES,
-  STANDARD_ELEVENLABS_VOICES,
   type ElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
 import {
@@ -20,9 +19,9 @@ import {
 import { rememberCloneVoices, resolveVoiceName } from "@/components/outsee/voice-library-modal";
 import { useTranslation } from "@/lib/i18n";
 
-type VoiceSource = "clone" | "catalog" | "standard";
+type VoiceSource = "clone" | "catalog";
 
-type VoiceTab = "all" | "clones" | "catalog" | "standard" | "history";
+type VoiceTab = "all" | "clones" | "catalog" | "history";
 
 type LanguageFilter = "all" | "ru" | "en";
 
@@ -178,21 +177,6 @@ function catalogOption(voice: ElevenLabsVoice): VoiceOption {
     language: "ru",
     source: "catalog",
     sampleUrl: voice.sample_url || `/api/voices/${voice.id}/sample`,
-  };
-}
-
-function standardOption(voice: ElevenLabsVoice): VoiceOption {
-  return {
-    key: `standard:${voice.id}`,
-    id: voice.id,
-    name: voice.name,
-    description: voice.description,
-    gender: voice.gender,
-    index: voice.index,
-    language: "en",
-    source: "standard",
-    // У стандартных ElevenLabs образцов в студии нет.
-    sampleUrl: voice.sample_url || null,
   };
 }
 
@@ -377,7 +361,6 @@ export function VoicePickerRow({
   };
 
   const catalogOptions = useMemo<VoiceOption[]>(() => RU_VOICES.map(catalogOption), []);
-  const standardOptions = useMemo<VoiceOption[]>(() => STANDARD_ELEVENLABS_VOICES.map(standardOption), []);
 
   const cloneOptions = useMemo<VoiceOption[]>(
     () =>
@@ -409,16 +392,14 @@ export function VoicePickerRow({
         return cloneOptions;
       case "catalog":
         return catalogOptions;
-      case "standard":
-        return standardOptions;
       case "history":
         return [];
       default:
         return showClonesTab
-          ? [...cloneOptions, ...catalogOptions, ...standardOptions]
-          : [...catalogOptions, ...standardOptions];
+          ? [...cloneOptions, ...catalogOptions]
+          : catalogOptions;
     }
-  }, [activeTab, cloneOptions, catalogOptions, standardOptions, showClonesTab]);
+  }, [activeTab, cloneOptions, catalogOptions, showClonesTab]);
 
   const filtered = useMemo(() => {
     let list = tabOptions;
@@ -451,13 +432,12 @@ export function VoicePickerRow({
       value: "all",
       label: t("voices.tabs.all"),
       count: showClonesTab
-        ? cloneOptions.length + catalogOptions.length + standardOptions.length
-        : catalogOptions.length + standardOptions.length,
+        ? cloneOptions.length + catalogOptions.length
+        : catalogOptions.length,
       visible: true,
     },
     { value: "clones", label: t("voices.tabs.clones"), count: cloneOptions.length, visible: showClonesTab },
     { value: "catalog", label: t("voices.tabs.catalog"), count: catalogOptions.length, visible: true },
-    { value: "standard", label: t("voices.tabs.standard"), count: standardOptions.length, visible: true },
     { value: "history", label: t("voices.tabs.history"), count: history.length, visible: true },
   ];
 

@@ -439,7 +439,6 @@ export function VoiceLibraryModal({
   const sourceTabs: Array<{ value: VoiceSource; label: string; count: number }> = [
     { value: "clones", label: t("voices.tabs.clones"), count: clones.length },
     { value: "catalog", label: t("voices.tabs.catalog"), count: ALL_VOICES.length },
-    { value: "standard", label: t("voices.tabs.standard"), count: STANDARD_ELEVENLABS_VOICES.length },
   ];
 
   const visibleSourceTabs = showClonesTab
