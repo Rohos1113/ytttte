@@ -282,11 +282,12 @@ async def list_outsee_create_history(
 async def delete_outsee_create_history_item(
     path: str | None = Query(None),
     item_id: str | None = Query(None),
+    job_id: str | None = Query(None),
 ) -> dict[str, Any]:
     """Удалить файл генерации из локальной истории Create и S3-хранилища."""
     from app.services.generation_storage import delete_generation_item
 
-    ok = await delete_generation_item(path=path, item_id=item_id)
+    ok = await delete_generation_item(path=path, item_id=item_id, job_id=job_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Файл генерации не найден")
     return {"ok": True, "deleted": True}

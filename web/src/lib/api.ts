@@ -2728,10 +2728,11 @@ export const api = {
     >(
       `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
     ),
-  deleteOutseeCreateHistoryItem: (params: { path?: string; itemId?: string }) => {
+  deleteOutseeCreateHistoryItem: (params: { path?: string; itemId?: string; jobId?: string }) => {
     const q = new URLSearchParams();
     if (params.path) q.set("path", params.path);
     if (params.itemId) q.set("item_id", params.itemId);
+    if (params.jobId) q.set("job_id", params.jobId);
     return http<{ ok: boolean; deleted: boolean }>(
       `/api/outsee-create/history?${q.toString()}`,
       { method: "DELETE" },

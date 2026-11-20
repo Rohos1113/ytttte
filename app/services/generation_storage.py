@@ -738,45 +738,75 @@ async def delete_generation_item(
     *,
     path: str | Path | None = None,
     item_id: str | None = None,
+    job_id: str | None = None,
 ) -> bool:
-    """Удалить файл генерации и его JSON-паспорт с диска и из S3 (включая ошибочные задачи)."""
+    """Удалить файл генерации и его JSON-паспорт с диска, из памяти и из S3 (включая ошибочные задачи)."""
+    removed_from_mem = False
+    try:
+        from app.services.create_jobs import _JOBS, _LOCK
+
+        target_ids = {x for x in (item_id, job_id) if x}
+        async with _LOCK:
+            for jid in list(_JOBS.keys()):
+                j = _JOBS[jid]
+                if (
+                    jid in target_ids
+                    or j.history_id in target_ids
+                    or (path and (str(j.path) == str(path) or j.path.name == Path(path).name))
+                ):
+                    _JOBS.pop(jid, None)
+                    removed_from_mem = True
+    except Exception:
+        pass
+
     root = generations_root()
     found_files: list[Path] = []
 
     if path:
         p = Path(path)
-        if p.is_file():
-            try:
-                p.resolve().relative_to(root.resolve())
-                found_files.append(p)
-                side = p.with_suffix(".json")
-                if side.is_file():
-                    found_files.append(side)
-            except ValueError:
-                pass
-        elif (root / path).is_file():
-            found_files.append(root / path)
-            side = (root / path).with_suffix(".json")
-            if side.is_file():
+        candidates = [p]
+        if not p.is_absolute():
+            candidates.append(root / p)
+        for cand in candidates:
+            if cand.is_file():
+                found_files.append(cand)
+            side = cand if cand.suffix == ".json" else cand.with_suffix(".json")
+            if side.is_file() and side not in found_files:
                 found_files.append(side)
-        if not found_files:
-            # Если файл не найден по полному пути (например путь с другой машины или ошибка генерации)
-            stem = p.stem
-            if stem:
-                for fp in root.rglob(f"{stem}*"):
-                    if fp.is_file():
-                        found_files.append(fp)
 
-    if item_id:
-        clean_name = item_id.removeprefix("gen-")
-        if clean_name:
-            stem = Path(clean_name).stem
-            for pattern in (f"{stem}.*", f"{clean_name}*", f"{stem}*"):
-                for fp in root.rglob(pattern):
-                    if fp.is_file() and fp not in found_files:
-                        found_files.append(fp)
+        if not found_files and p.stem:
+            for fp in root.rglob(f"*{p.stem}*"):
+                if fp.is_file() and fp not in found_files:
+                    found_files.append(fp)
 
-    if not found_files:
+    id_candidates = [x for x in (item_id, job_id) if x]
+    for cid in id_candidates:
+        clean_name = cid.removeprefix("gen-").strip()
+        if not clean_name:
+            continue
+        stem = Path(clean_name).stem
+        for pattern in (f"*{clean_name}*", f"*{stem}*", f"{stem}.*", f"{clean_name}*"):
+            for fp in root.rglob(pattern):
+                if fp.is_file() and fp not in found_files:
+                    found_files.append(fp)
+
+    if not found_files and id_candidates:
+        search_keys = {x.removeprefix("gen-") for x in id_candidates} | set(id_candidates)
+        for side in root.rglob("*.json"):
+            try:
+                m = json.loads(side.read_text(encoding="utf-8"))
+                jid = str(m.get("job_id") or "")
+                sk = str(m.get("storage_key") or "")
+                if jid in search_keys or sk in search_keys:
+                    found_files.append(side)
+                    for cand in side.parent.glob(f"{side.stem}.*"):
+                        if cand.is_file() and cand not in found_files:
+                            found_files.append(cand)
+                    break
+            except Exception:
+                pass
+
+    if not found_files and not removed_from_mem:
         return False
 
     # Сбор ключей S3 для удаления

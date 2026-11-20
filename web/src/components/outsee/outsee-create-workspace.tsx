@@ -2096,11 +2096,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const deleteItem = useMutation({
     mutationFn: (item: HistoryItem) =>
-      api.deleteOutseeCreateHistoryItem({ path: item.path || undefined, itemId: item.id }),
+      api.deleteOutseeCreateHistoryItem({
+        path: item.path || undefined,
+        itemId: item.id || undefined,
+        jobId: item.job_id || undefined,
+      }),
     onSuccess: (_, item) => {
       toast.success("Удалено из истории");
-      if (selectedId === item.id) setSelectedId(null);
+      if (selectedId === item.id || (item.job_id && selectedId === item.job_id)) {
+        setSelectedId(null);
+      }
+      setTrackingJobs((prev) =>
+        prev.filter((x) => x.jobId !== item.job_id && x.historyId !== item.id),
+      );
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+      qc.invalidateQueries({ queryKey: ["create-queue"] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -2876,6 +2886,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           const jobMedia = activeJob.media || mediaType || "image";
           item = {
             id: activeJob.history_id || activeJob.job_id,
+            path: (activeJob as any).path || undefined,
+            job_id: activeJob.job_id,
             kind: jobMedia as "image" | "video" | "audio",
             preview_url: (activeJob as any).preview_url || null,
             label: activeJob.prompt_preview || "генерация",
@@ -2883,11 +2895,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             project_slug: null,
             prompt: activeJob.prompt_preview || null,
             status: activeJob.status || "processing",
-            job_id: activeJob.job_id,
             created_at: activeJob.created_at,
             started_at: activeJob.started_at,
             elapsed_sec: (activeJob as any).elapsed_sec,
             elapsed_label: (activeJob as any).elapsed_label,
+            error: (activeJob as any).error || null,
           };
         }
       }
@@ -3489,13 +3501,28 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </div>
               </div>
             ) : (
-              <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#121216]/70 px-6 py-10 text-center backdrop-blur-xl">
-                <ImageIcon className="h-8 w-8 text-white/30" />
-                <div className="text-sm font-medium text-white/70">Нет результата</div>
-                <div className="text-[12px] text-white/40">
-                  Файлы пишутся в{" "}
-                  <span className="font-mono text-white/60">data/generations/</span> на этом
-                  компьютере.
+              <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-black/40 px-8 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-500/30 bg-emerald-500/10 shadow-[0_0_25px_rgba(45,212,191,0.2)]">
+                  <Sparkles className="h-8 w-8 text-[#2dd4bf]" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-base font-semibold text-white/90">
+                    Студия создания медиа
+                  </div>
+                  <div className="text-[13px] leading-relaxed text-white/55">
+                    Опишите задумку в строке внизу и нажмите «Генерировать», либо выберите готовую работу из истории слева.
+                  </div>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-2 text-[11px] text-white/45">
+                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
+                    🎨 Каталог стилей во «Вдохновении»
+                  </span>
+                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
+                    ⚡ Кнопка «Случайный» для идей
+                  </span>
+                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
+                    🪄 «Улучшить» для детального промпта
+                  </span>
                 </div>
               </div>
             )}
