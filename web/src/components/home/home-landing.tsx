@@ -15,26 +15,26 @@ const N = (t: string) => `/prompt-bg/node/${t}.webp`;
  */
 export const HOME_IMAGES: Record<number, { src: string; label: string }> = {
   1: { src: "/home/hero-1.webp", label: "Hero · Мультфильмы" },
-  2: { src: "", label: "Витрина · главный кадр" },
+  2: { src: "/home/showcase-main.webp", label: "Витрина · главный кадр" },
   3: { src: "/home/hero-2.webp", label: "Hero · Сериалы" },
-  4: { src: "", label: "Витрина · кадр" },
+  4: { src: "/home/showcase-1.webp", label: "Витрина · кадр" },
   5: { src: "/home/hero-3.webp", label: "Hero · Кинематограф" },
-  6: { src: "", label: "Витрина · кадр" },
-  7: { src: "", label: "Лента · кадр" },
-  8: { src: "", label: "Витрина · кадр" },
-  9: { src: "", label: "Лента · кадр" },
-  10: { src: "", label: "Витрина · кадр" },
-  11: { src: "", label: "Лента · кадр" },
-  12: { src: "", label: "Лента · кадр" },
+  6: { src: "/home/showcase-2.webp", label: "Витрина · кадр" },
+  7: { src: "/home/showcase-tape-1.webp", label: "Лента · кадр" },
+  8: { src: "/home/showcase-3.webp", label: "Витрина · кадр" },
+  9: { src: "/home/showcase-tape-2.webp", label: "Лента · кадр" },
+  10: { src: "/home/showcase-4.webp", label: "Витрина · кадр" },
+  11: { src: "/home/showcase-tape-3.webp", label: "Лента · кадр" },
+  12: { src: "/home/showcase-tape-4.webp", label: "Лента · кадр" },
 };
 
 export const FORMAT_IMAGES: Record<number, { src: string; label: string }> = {
-  1: { src: "", label: "Мультсериалы" },
-  2: { src: "", label: "Shorts и Reels" },
-  3: { src: "", label: "Объясняющие видео" },
-  4: { src: "", label: "Истории и документалки" },
-  5: { src: "", label: "Факты и подборки" },
-  6: { src: "", label: "Любой свой формат" },
+  1: { src: "/home/format-1.webp", label: "Мультсериалы" },
+  2: { src: "/home/format-2.webp", label: "Shorts и Reels" },
+  3: { src: "/home/format-3.webp", label: "Объясняющие видео" },
+  4: { src: "/home/format-4.webp", label: "Истории и документалки" },
+  5: { src: "/home/format-5.webp", label: "Факты и подборки" },
+  6: { src: "/home/format-6.webp", label: "Любой свой формат" },
 };
 
 function FormatSlot({ i, className = "", style }: { i: number; className?: string; style?: React.CSSProperties }) {
