@@ -23,6 +23,7 @@ import {
   type VoiceLabVoice,
 } from "@/lib/voice-lab-api";
 import { useTranslation } from "@/lib/i18n";
+import { rememberCloneVoices } from "@/components/outsee/voice-library-modal";
 
 const LANGUAGES_RU: Array<{ value: string; label: string }> = [
   { value: "ru", label: "Русский" },
@@ -238,6 +239,7 @@ export function CloneVoiceDialog({
         samples: files,
       });
       setProviderError(result.provider_error);
+      rememberCloneVoices([result.voice]);
       onCreated?.(result.voice, result.provider_error);
       if (result.provider_error) {
         // Сэмплы сохранены, но голос ещё не создан — мастер не закрываем:
@@ -266,6 +268,7 @@ export function CloneVoiceDialog({
   return createPortal(
     <div
       data-params-flyout="true"
+      data-clone-dialog="true"
       role="dialog"
       aria-label="Новый голос"
       style={{

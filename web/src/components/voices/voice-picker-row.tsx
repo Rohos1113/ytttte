@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Mic, Pause, Play, Plus, Search, X } from "lucide-react";
 import {
@@ -201,6 +201,8 @@ type Props = {
   onChange: (voiceId: string, name: string) => void;
   onClone?: () => void;
   disabled?: boolean;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 type PanelPos = { top: number; left: number; width: number; height: number };
@@ -212,9 +214,30 @@ type PanelPos = { top: number; left: number; width: number; height: number };
  * Панель живёт порталом в body, помечена `data-params-flyout="true"` — по ней
  * окно «Параметры» понимает, что клик внутри не должен его закрывать.
  */
-export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
+export function VoicePickerRow({
+  value,
+  onChange,
+  onClone,
+  disabled,
+  isOpen: isOpenProp,
+  onOpenChange,
+}: Props) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const isControlled = typeof isOpenProp === "boolean";
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? (isOpenProp ?? false) : internalOpen;
+
+  const setOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const resolved = typeof next === "function" ? next(open) : next;
+      if (!isControlled) {
+        setInternalOpen(resolved);
+      }
+      onOpenChange?.(resolved);
+    },
+    [isControlled, open, onOpenChange],
+  );
+
   const [tab, setTab] = useState<VoiceTab>("all");
   const [search, setSearch] = useState("");
   const [language, setLanguage] = useState<LanguageFilter>("all");
@@ -317,23 +340,40 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
 
   useEffect(() => () => stopPlayback(), [stopPlayback]);
 
+  const updatePos = useCallback(() => {
+    const panel = rowRef.current?.closest("[data-params-panel]");
+    const rect = (panel instanceof HTMLElement ? panel : rowRef.current)?.getBoundingClientRect();
+    if (rect && rect.height > 0) {
+      const gap = 8;
+      const width = Math.min(470, window.innerWidth - 16);
+      const height = Math.max(360, Math.min(rect.height * 1.5, rect.bottom - 8));
+      const top = Math.max(8, rect.bottom - height);
+      const left = Math.max(8, Math.min(rect.right + gap, window.innerWidth - width - 12));
+      setPos({ top, left, width, height });
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) {
+      updatePos();
+    }
+  }, [open, updatePos]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onResize = () => updatePos();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [open, updatePos]);
+
   const toggle = () => {
     if (!open) {
       setSearch("");
-      // Низ меню — ровно по низу «Параметров», высота в 1.5 раза больше их,
-      // значит верх поднимается выше верха параметров.
-      const panel = rowRef.current?.closest("[data-params-panel]");
-      const rect = (panel instanceof HTMLElement ? panel : rowRef.current)?.getBoundingClientRect();
-      if (rect) {
-        const gap = 8;
-        const width = 470;
-        const height = Math.max(360, Math.min(rect.height * 1.5, rect.bottom - 8));
-        const top = Math.max(8, rect.bottom - height);
-        const left = Math.max(8, Math.min(rect.right + gap, window.innerWidth - width - 12));
-        setPos({ top, left, width, height });
-      }
+      updatePos();
+      setOpen(true);
+    } else {
+      setOpen(false);
     }
-    setOpen((prev) => !prev);
   };
 
   const catalogOptions = useMemo<VoiceOption[]>(() => RU_VOICES.map(catalogOption), []);
@@ -720,7 +760,7 @@ export function VoicePickerRow({ value, onChange, onClone, disabled }: Props) {
               {/* Футер */}
               <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
                 <span className="text-[11px] text-white/40">Найдено: {shownCount}</span>
-                {onClone && clonesAvailable ? (
+                {onClone ? (
                   <button
                     type="button"
                     onClick={() => {

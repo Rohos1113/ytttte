@@ -808,14 +808,20 @@ function PaneSlider({
   title,
   value,
   onChange,
+  highlight,
 }: {
   title: string;
   value: number;
   onChange: (v: number) => void;
+  highlight?: boolean;
 }) {
   return (
     <PaneSection title={title}>
-      <div className="flex items-center gap-2">
+      <div
+        className={`flex items-center gap-2 rounded-lg p-1 transition ${
+          highlight ? "bg-[#2dd4bf]/10 ring-1 ring-[#2dd4bf]/30" : ""
+        }`}
+      >
         <input
           type="range"
           min={0}
@@ -882,14 +888,27 @@ export function ElevenLabsDock({
     "params" | "voice" | "stability" | "similarity" | null
   >(null);
   const open = openChip !== null;
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpenChip(null);
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (boxRef.current?.contains(target)) return;
+      // Не закрывать окно параметров при клике внутри выпадающего меню голосов,
+      // эмоциональных тегов или визарда клонирования (порталы в document.body).
+      if (target.closest("[data-params-flyout]")) return;
+      if (target.closest("[data-clone-dialog]")) return;
+      if (target.closest("[role='dialog']")) return;
+      setOpenChip(null);
+      setVoicePickerOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenChip(null);
+      if (e.key === "Escape") {
+        setOpenChip(null);
+        setVoicePickerOpen(false);
+      }
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -899,8 +918,20 @@ export function ElevenLabsDock({
     };
   }, [open]);
 
-  const togglePanel = (chip: "params" | "voice" | "stability" | "similarity") =>
+  const togglePanel = (chip: "params" | "voice" | "stability" | "similarity") => {
+    if (chip === "voice") {
+      if (openChip === "voice" && voicePickerOpen) {
+        setVoicePickerOpen(false);
+        setOpenChip(null);
+      } else {
+        setOpenChip("voice");
+        setVoicePickerOpen(true);
+      }
+      return;
+    }
+    setVoicePickerOpen(false);
     setOpenChip((prev) => (prev === chip ? null : chip));
+  };
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
@@ -958,17 +989,31 @@ export function ElevenLabsDock({
             </div>
 
             <PaneSection title="Голос (Voice ID)">
-              <VoicePickerRow value={voiceId} onChange={onVoice} onClone={onClone} />
+              <VoicePickerRow
+                value={voiceId}
+                onChange={(vid, name) => {
+                  onVoice(vid, name);
+                  setVoicePickerOpen(false);
+                }}
+                onClone={() => {
+                  setVoicePickerOpen(false);
+                  onClone();
+                }}
+                isOpen={voicePickerOpen}
+                onOpenChange={setVoicePickerOpen}
+              />
             </PaneSection>
 
             <PaneSlider
               title="Стабильность (0–1)"
               value={stability}
+              highlight={openChip === "stability"}
               onChange={(v) => onChange("stability", v)}
             />
             <PaneSlider
               title="Схожесть (0–1)"
               value={similarity}
+              highlight={openChip === "similarity"}
               onChange={(v) => onChange("similarity", v)}
             />
 
@@ -978,7 +1023,10 @@ export function ElevenLabsDock({
 
             <button
               type="button"
-              onClick={onClone}
+              onClick={() => {
+                setVoicePickerOpen(false);
+                onClone();
+              }}
               className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -991,6 +1039,7 @@ export function ElevenLabsDock({
                 data-action="reset-params"
                 onClick={() => {
                   onReset();
+                  setVoicePickerOpen(false);
                   setOpenChip(null);
                 }}
                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
@@ -1000,7 +1049,10 @@ export function ElevenLabsDock({
               </button>
               <button
                 type="button"
-                onClick={() => setOpenChip(null)}
+                onClick={() => {
+                  setVoicePickerOpen(false);
+                  setOpenChip(null);
+                }}
                 className="rounded-lg bg-[#2dd4bf]/15 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25"
               >
                 Готово
