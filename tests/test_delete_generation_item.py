@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from app.services.generation_storage import (
     build_generation_path,
     delete_generation_item,
-    generations_root,
     write_sidecar,
 )
 
