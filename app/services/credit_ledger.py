@@ -107,19 +107,35 @@ async def topup(
     amount_micro: int,
     *,
     memo: str = "",
+    ref_table: str = "",
+    ref_ids: list[int] | list[str] | None = None,
+    entry_id: str = "",
 ) -> int:
-    """Пополнение. Возвращает новый доступный остаток."""
+    """Пополнение. Возвращает новый доступный остаток.
+
+    ``ref_table`` / ``ref_ids`` — на что ссылается пополнение. У купона ссылки
+    нет, у крипто-счёта есть: без неё в истории баланса видно «+1000 кр», но
+    не видно, какой платёж их принёс, и спорный платёж нечем закрыть.
+    ``ref_ids`` у счетов — uuid-строки, а не int: идентификатор счёта в
+    `crypto_invoices` строковый, и приводить его к числу значило бы выдумать
+    связь, которой нет.
+
+    ``entry_id`` — id проводки, когда он нужен вызывающему ДО возврата:
+    крипто-счёт ссылается на проводку (`credited_entry_id`) в той же
+    транзакции, что и начисление. Пусто — генерируется здесь, как раньше.
+    """
     if amount_micro <= 0:
         raise ValueError("пополнение должно быть положительным")
     await ensure_account(session, tenant_id)
     session.add(
         CreditEntry(
-            id=str(uuid.uuid4()),
+            id=entry_id or str(uuid.uuid4()),
             tenant_id=tenant_id,
             hold_id=None,
             delta_micro=int(amount_micro),
             kind="topup",
-            ref_ids=[],
+            ref_table=ref_table,
+            ref_ids=list(ref_ids or []),
             memo=memo,
             created_at=_now(),
         )

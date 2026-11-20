@@ -28,9 +28,9 @@ export function Section({ title, children, right }: { title: string; children: R
   );
 }
 
-export function Btn({ children, primary, disabled, title }: { children: React.ReactNode; primary?: boolean; disabled?: boolean; title?: string }) {
+export function Btn({ children, primary, disabled, title, onClick }: { children: React.ReactNode; primary?: boolean; disabled?: boolean; title?: string; onClick?: () => void }) {
   return (
-    <button type="button" disabled={disabled} title={title} className="h-9 rounded-[10px] px-3 text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-60" style={primary ? { background: "rgba(45,212,191,0.16)", color: ACCENT } : { background: "rgba(255,255,255,0.05)", color: "#d4d4d8" }}>
+    <button type="button" disabled={disabled} title={title} onClick={onClick} className="h-9 rounded-[10px] px-3 text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-60" style={primary ? { background: "rgba(45,212,191,0.16)", color: ACCENT } : { background: "rgba(255,255,255,0.05)", color: "#d4d4d8" }}>
       {children}
     </button>
   );

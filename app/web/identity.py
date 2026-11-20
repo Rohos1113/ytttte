@@ -74,6 +74,13 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
 #: готовая карта для того, кто ищет, за что подёргать.
 DOC_PATHS: frozenset[str] = frozenset({"/api/docs", "/api/openapi.json", "/api/docs/oauth2-redirect"})
 
+#: Вебхук платёжного шлюза: стучится Bitcart, у него нет и не будет нашего
+#: токена. «Свой» он доказывает секретом в пути, и проверка этого секрета —
+#: дело роутера, а не слоя личности: здесь важно только не отбить запрос
+#: раньше, чем до неё дойдёт. В `PUBLIC_PATHS` путь не положить — он
+#: параметризован, поэтому префикс.
+CRYPTO_WEBHOOK_PREFIX = "/api/crypto/webhook/"
+
 #: Что закрывается. Остальное — оболочка SPA и статика: без неё пользователю
 #: нечем показать даже форму входа.
 PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
@@ -176,6 +183,10 @@ def identity_from_scope(scope: dict) -> StudioIdentity | None:
 def path_requires_identity(path: str) -> bool:
     """Нужен ли токен для этого пути."""
     if path in PUBLIC_PATHS or path.startswith("/api/voices/"):
+        return False
+    if path.startswith(CRYPTO_WEBHOOK_PREFIX):
+        # Чужой сервис: токена нет, признак «свой» — секрет в пути, его
+        # сверяет роутер. Здесь только не отказываем до него.
         return False
     return path.startswith(PROTECTED_PREFIXES)
 

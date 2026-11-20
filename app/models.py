@@ -1403,3 +1403,76 @@ class CouponRedemption(Base):
     amount_micro: Mapped[int] = mapped_column(BigInteger)
     redeemed_at: Mapped[datetime] = mapped_column(default=_now, index=True)
 
+
+class CryptoInvoice(Base):
+    """Счёт на пополнение криптой. Наша запись о чужом счёте.
+
+    Правда о платеже живёт в Bitcart, а здесь — её тень и след: что клиент
+    попросил, что ответил шлюз и начислены ли кредиты. Без этой таблицы
+    вебхук (у Bitcart он без подписи и без ретраев) нечем проверить, а
+    потерянное уведомление означало бы оплаченные и не зачисленные деньги.
+
+    **Строка заводится ДО вызова шлюза**, с ``status='new'`` и пустым
+    ``external_id``. Поэтому ``external_id`` обнуляемый: шлюз мог не ответить
+    вовсе, и у двух таких счетов не может быть одного «пустого» идентификатора
+    — UNIQUE(`provider`, `external_id`) на SQLite и Postgres пропускает
+    несколько NULL, но не несколько пустых строк.
+
+    **Начисление идёт только через ``status='credited'``.** Переход в него —
+    один условный UPDATE (`new|paid|partial` → `credited`), поэтому двойной
+    вебхук и одновременная фоновая сверка не могут начислить дважды
+    (`app/services/crypto_payments.py::apply_settlement`). ``credited_entry_id``
+    ссылается на проводку леджера — по ней видно, из какого счёта пришли
+    кредиты.
+
+    Суммы — целыми микродолларами и микрокредитами, как в кассе: дробное в
+    деньгах даёт расхождение на третьем знаке, а сверка леджера обязана
+    сходиться точно. `raw` — последний ответ шлюза без секретов: в нём
+    достаточно для разбора спорного платежа, но не `notification_url`
+    (в нём секрет вебхука).
+    """
+
+    __tablename__ = "crypto_invoices"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_crypto_invoices_ext"),
+        Index("ix_crypto_invoices_tenant_status", "tenant_id", "status"),
+        Index("ix_crypto_invoices_status_updated", "status", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), index=True)
+    provider: Mapped[str] = mapped_column(String(16), default="bitcart")
+    #: id счёта в Bitcart. NULL, пока шлюз не ответил (см. докстроку класса).
+    external_id: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
+    #: Сколько клиент попросил в долларах — микродоллары.
+    amount_usd_micro: Mapped[int] = mapped_column(BigInteger)
+    #: Сколько зачислим — микрокредиты по курсу `usd_per_credit()` на момент счёта.
+    credits_micro: Mapped[int] = mapped_column(BigInteger)
+    #: Наш статус: new | paid | credited | expired | invalid | partial | refunded | error.
+    status: Mapped[str] = mapped_column(String(16), default="new", index=True)
+    #: Сырой статус Bitcart (pending/paid/confirmed/complete/expired/invalid/refunded).
+    invoice_status: Mapped[str] = mapped_column(String(16), default="")
+    #: Уточнение шлюза: paid_partial | paid_over | failed_confirm | "".
+    exception_status: Mapped[str] = mapped_column(String(16), default="")
+    #: Что выбрал клиент (usdt/btc/eth…), сеть (tron/ethereum/bsc…), адрес, URI
+    #: для QR — для истории и для показа счёта после перезагрузки модалки.
+    asset: Mapped[str] = mapped_column(String(16), default="")
+    network: Mapped[str] = mapped_column(String(32), default="")
+    expected_amount: Mapped[str] = mapped_column(String(64), default="")
+    address: Mapped[str] = mapped_column(String(128), default="")
+    payment_url: Mapped[str] = mapped_column(String(512), default="")
+    #: Курс на момент оплаты — справочно, строкой (Decimal не живёт в float).
+    rate_usd: Mapped[str] = mapped_column(String(64), default="")
+    tx_hashes: Mapped[list] = mapped_column(JSON, default=list)
+    #: Методы оплаты для фронта (`normalize_methods`): монета, сеть, адрес, uri.
+    methods: Mapped[list] = mapped_column(JSON, default=list)
+    #: Последний ответ Bitcart без секретов.
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    #: Проводка, которой начислили. NULL — ещё не начисляли.
+    credited_entry_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None)
+    last_error: Mapped[str] = mapped_column(String(255), default="")
+

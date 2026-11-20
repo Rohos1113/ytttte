@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PLANS, PLAN_GROUPS, fmtRub, limitRows } from "@/lib/pricing";
 import { FactoryMini, FactoryStyles } from "@/components/home/factory-cards";
+import { CryptoTopupModal } from "@/components/billing/crypto-topup-modal";
 import { PanelShell, Section, Btn, Chips, StatusPill, Empty, card, ACCENT } from "./ui";
 
 /** Ответ /api/billing/balance — остаток и последние проводки. */
@@ -133,6 +134,11 @@ function useMoneyData() {
   const [projectsVisible, setProjectsVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => {
+    setTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -164,13 +170,14 @@ function useMoneyData() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [tick]);
 
-  return { balance, usage, projects, projectsVisible, error, loading };
+  return { balance, usage, projects, projectsVisible, error, loading, reload };
 }
 
 export function PaymentsPanel({ onClose }: { onClose: () => void }) {
-  const { balance, usage, projects, projectsVisible, error, loading } = useMoneyData();
+  const { balance, usage, projects, projectsVisible, error, loading, reload } = useMoneyData();
+  const [cryptoModalOpen, setCryptoModalOpen] = useState(false);
   const [f, setF] = useState<"Все" | "Пополнения" | "Списания">("Все");
 
   const rows = useMemo(() => {
@@ -269,13 +276,13 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
             {free.reason ? ` · ${free.reason}` : ""}
           </div>
         ) : null}
-        <div className="mt-3 flex gap-2" title="Оплата в студии не подключена">
-          <Btn primary disabled title="оплата не подключена">Пополнить</Btn>
+        <div className="mt-3 flex gap-2">
+          <Btn primary onClick={() => setCryptoModalOpen(true)}>Пополнить</Btn>
           {["500", "2000", "10000"].map((v) => (
-            <Btn key={v} disabled title="оплата не подключена">+{v}</Btn>
+            <Btn key={v} onClick={() => setCryptoModalOpen(true)}>+{v}</Btn>
           ))}
         </div>
-        <div className="mt-1.5 text-[12px] text-zinc-600">Пополнение отключено: студия пока не принимает платежи.</div>
+        <div className="mt-1.5 text-[12px] text-zinc-500">Пополнение баланса криптовалютой (USDT, BTC, ETH и др.)</div>
       </div>
 
       {usage && Object.keys(usage.summary.by_kind).length > 0 ? (
@@ -379,6 +386,15 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
           )}
         </Section>
       ) : null}
+
+      {cryptoModalOpen && (
+        <CryptoTopupModal
+          onClose={() => setCryptoModalOpen(false)}
+          onCredited={() => {
+            reload();
+          }}
+        />
+      )}
     </PanelShell>
   );
 }
