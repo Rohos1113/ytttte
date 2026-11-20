@@ -54,7 +54,7 @@ import { toast } from "sonner";
 import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
-import { errorMessageFromUnknown } from "@/lib/error-message";
+import { errorMessageFromUnknown, humanizeErrorMessage } from "@/lib/error-message";
 import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { isUnfilledAssistantPrompt } from "@/lib/gen-assistant-styles";
 import { cn, parseUtcDate } from "@/lib/utils";
@@ -2144,10 +2144,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             const took =
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
+            const friendlyError = humanizeErrorMessage(job.error) || "Генерация не удалась";
             toast.error(
               took
-                ? `${job.error || "Генерация не удалась"} · ${took}`
-                : job.error || "Генерация не удалась",
+                ? `${friendlyError} · ${took}`
+                : friendlyError,
             );
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
@@ -2165,7 +2166,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
             } else if (matched && matched.status === "failed") {
               unknownCountRef.current.delete(t.jobId);
-              toast.error(matched.error || "Генерация не удалась");
+              toast.error(humanizeErrorMessage(matched.error) || "Генерация не удалась");
               setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
               qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
             } else {
@@ -3455,7 +3456,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               <div className="my-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <div className="text-sm font-bold text-red-300">Ошибка генерации</div>
                 <div className="text-[12px] text-white/60">
-                  {selected.error || "Не удалось получить файл"}
+                  {humanizeErrorMessage(selected.error) || "Не удалось получить файл"}
                 </div>
                 <div className="text-[12px] font-medium text-white/55">
                   Результат ·{" "}

@@ -627,7 +627,13 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "model": meta.get("model"),
                 "status": status,
                 "job_id": meta.get("job_id"),
-                "error": meta.get("error"),
+                "error": (
+                    __import__("app.services.human_error", fromlist=["humanize_media_job_error"]).humanize_media_job_error(
+                        meta.get("error")
+                    )
+                    if meta.get("error")
+                    else None
+                ),
                 "created_at": meta.get("created_at") or meta.get("started_at"),
                 "started_at": meta.get("started_at") or meta.get("created_at"),
                 "finished_at": meta.get("finished_at"),

@@ -271,9 +271,19 @@ def describe_error(exc: Exception) -> tuple[str, str]:
     if code in ("excel_gpt_no_input", "llm_model_refusal"):
         # Текст ошибки сам объясняет, что делать (вход ноды / ответ модели).
         return code, detail[:300] or spec.hint
+
+    from app.services.human_error import clean_technical_noise
+
+    clean_d = clean_technical_noise(detail)
+
     if code == "unknown":
-        return code, (detail[:300] or spec.title)
-    return code, f"{spec.title}: {detail[:200]}"
+        return code, (clean_d[:300] or detail[:300] or spec.title)
+
+    # Если деталь была только сырым дампом JSON или HTTP-кодом, даем понятную подсказку
+    if not clean_d or clean_d.startswith("{") or clean_d in ("{}", "[]"):
+        return code, f"{spec.title} — {spec.hint}"
+
+    return code, f"{spec.title}: {clean_d[:200]}"
 
 
 def format_node_error(exc: Exception) -> str:

@@ -528,9 +528,21 @@ def human_error(error: str | None) -> str:
     text = str(error or "").strip()
     if not text:
         return ""
+    from app.services.human_error import humanize_error
+
     found = _RAW_MESSAGE.search(text)
     if found:
-        return found.group(1).strip().rstrip(".")
+        msg = found.group(1).strip().rstrip(".")
+        if re.search(r"[А-Яа-яЁё]", msg):
+            return msg
+        h = humanize_error(msg)
+        if h and h != "Действие временно не выполнено — попробуйте повторить":
+            return h
+        return msg
+
+    h = humanize_error(text)
+    if h and h != "Действие временно не выполнено — попробуйте повторить":
+        return h
     return _RAW_ERROR.sub("", text).strip().rstrip(".")
 
 
@@ -1010,7 +1022,7 @@ def step_summary(note: StepNote | None) -> str:
     if note is None:
         return ""
     if not note.ok:
-        return f"Не получилось «{note.title}»: {note.error or 'ошибка без пояснения'}."
+        return f"Не получилось «{note.title}»: {human_error(note.error) or 'ошибка без пояснения'}."
     text = " ".join(note.text.split())
     if text:
         return text if len(text) <= _STEP_SUMMARY else text[: _STEP_SUMMARY - 1].rstrip() + "…"
@@ -1317,7 +1329,7 @@ def deterministic_text(facts: TaskFacts) -> str:
     if facts.detail:
         lines.append(facts.detail)
     for note in failed:
-        lines.append(f"Шаг «{note.title}»{_in_project(note, many)}: {note.error or 'ошибка без пояснения'}.")
+        lines.append(f"Шаг «{note.title}»{_in_project(note, many)}: {human_error(note.error) or 'ошибка без пояснения'}.")
     # Чтения состояния перед шагом ничего не меняли: в «успели» только правки.
     changed = [note for note in done if not note.readonly]
     if changed:

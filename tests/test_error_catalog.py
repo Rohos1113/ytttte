@@ -88,3 +88,11 @@ def test_message_format_prefixed() -> None:
 def test_all_codes_listed() -> None:
     codes = all_error_codes()
     assert "gpt_timeout" in codes and "media_download" in codes and "unknown" in codes
+
+
+def test_raw_json_error_is_cleaned() -> None:
+    err = GptApiError('GPT HTTP 502: {"error": {"message": "Bad Gateway"}}', context={"status_code": 502})
+    code, msg = describe_error(err)
+    assert code == "gpt_server"
+    assert "{" not in msg
+    assert "502" not in msg or "сбой шлюза" in msg

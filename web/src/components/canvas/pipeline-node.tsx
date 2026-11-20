@@ -37,7 +37,7 @@ import { cn, parseUtcDate } from "@/lib/utils";
 import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { errorMessageFromUnknown } from "@/lib/error-message";
+import { errorMessageFromUnknown, humanizeErrorMessage } from "@/lib/error-message";
 import {
   assetTrayKindForNodeType,
   useCanvasActionsOptional,
@@ -744,7 +744,9 @@ export function PipelineNode({ data, selected }: NodeProps) {
                 </span>
               )}
               {d.error && d.status === "failed" && (
-                <span className="line-clamp-2 text-[9px] text-destructive">{truncate(d.error, 48)}</span>
+                <span className="line-clamp-2 text-[9px] text-destructive" title={d.error}>
+                  {truncate(humanizeErrorMessage(d.error), 64)}
+                </span>
               )}
             </div>
           </div>
@@ -1265,7 +1267,7 @@ function PosterTile({
           <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 px-4 text-center">
             {error ? (
               <span className="line-clamp-3 text-[12px] text-red-400" title={error}>
-                {truncate(error, 140)}
+                {truncate(humanizeErrorMessage(error), 160)}
               </span>
             ) : null}
             {onRetry ? (

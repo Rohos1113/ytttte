@@ -664,8 +664,10 @@ async def _run_job(
             if job.status == "failed" and "отменен" in (job.error or "").lower():
                 logger.info("create_job.handled_after_cancel id={}: {}", job.id, e)
                 return
+            from app.services.human_error import humanize_media_job_error
+
             job.status = "failed"
-            job.error = str(getattr(e, "reason", None) or e)[:500]
+            job.error = humanize_media_job_error(getattr(e, "reason", None) or e)
             job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
             job.elapsed_sec = max(0, int(round(asyncio.get_running_loop().time() - t0)))
             update_sidecar(
