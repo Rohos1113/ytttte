@@ -21,6 +21,7 @@ def test_elevenlabs_v4_catalog_entry() -> None:
     assert model is not None
     assert model["label"] == "Озвучка ElevenLabs v4"
     assert model["api"] == "elevenlabs"
+    assert model["model"] == "eleven_v4"
     assert model["result"] == "audio"
     assert any(f["name"] == "text" for f in model["fields"])
     assert any(f["name"] == "voice_id" for f in model["fields"])

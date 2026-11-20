@@ -118,6 +118,18 @@ async def test_tts_writes_mp3_and_hits_right_endpoint(
 
 
 @pytest.mark.asyncio
+async def test_tts_custom_model_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[httpx.Request] = []
+    monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning(captured))
+    out = tmp_path / "voice_v4.mp3"
+    await ea.ElevenLabsApi().tts("Текст с тегами.", out, voice_id="VOICE_V4", model_id="eleven_v4")
+    import json
+
+    body = json.loads(captured[0].content)
+    assert body["model_id"] == "eleven_v4"
+
+
+@pytest.mark.asyncio
 async def test_voice_settings_sent_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "elevenlabs_stability", 0.4)
     monkeypatch.setattr(settings, "elevenlabs_similarity_boost", 0.8)

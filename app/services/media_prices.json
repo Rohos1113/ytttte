@@ -89,6 +89,14 @@
       "unit": "char",
       "usd_per_unit": 5e-05
     },
+    "elevenlabs:eleven_v4": {
+      "unit": "char",
+      "usd_per_unit": 0.0001
+    },
+    "elevenlabs:eleven_v4_turbo": {
+      "unit": "char",
+      "usd_per_unit": 5e-05
+    },
     "minimax:image-01": {
       "unit": "item",
       "usd_per_unit": 0.0035

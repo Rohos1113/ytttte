@@ -391,7 +391,7 @@ class Settings(BaseSettings):
     # True — legacy-путь. По умолчанию озвучка идёт по API: он не требует
     # окна браузера, значит конвейер работает headless и из cron.
     elevenlabs_use_cdp: bool = Field(False, alias="ELEVENLABS_USE_CDP")
-    elevenlabs_tts_model: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL")
+    elevenlabs_tts_model: str = Field("eleven_v4", alias="ELEVENLABS_TTS_MODEL")
     elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
     # None = не слать voice_settings, пусть решает пресет голоса.
     elevenlabs_stability: float | None = Field(None, alias="ELEVENLABS_STABILITY")

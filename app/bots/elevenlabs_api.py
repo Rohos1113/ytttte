@@ -177,14 +177,16 @@ class ElevenLabsApi:
         self,
         text: str,
         *,
+        model_id: str | None = None,
         stability: float | None = None,
         similarity: float | None = None,
     ) -> dict[str, object]:
         from app.settings import settings
 
+        chosen_model = (model_id or settings.elevenlabs_tts_model or "eleven_v4").strip()
         body: dict[str, object] = {
             "text": text,
-            "model_id": settings.elevenlabs_tts_model,
+            "model_id": chosen_model,
         }
         voice_settings: dict[str, float | bool] = {}
         stab = stability if stability is not None else settings.elevenlabs_stability
@@ -204,6 +206,7 @@ class ElevenLabsApi:
         voice_id: str,
         out_path: Path,
         *,
+        model_id: str | None = None,
         stability: float | None = None,
         similarity: float | None = None,
     ) -> Path:
@@ -217,7 +220,7 @@ class ElevenLabsApi:
             url,
             headers=self._headers(),
             params={"output_format": settings.elevenlabs_output_format},
-            json=self._body(text, stability=stability, similarity=similarity),
+            json=self._body(text, model_id=model_id, stability=stability, similarity=similarity),
         )
         if resp.status_code == 200:
             data = resp.content or b""
@@ -241,6 +244,7 @@ class ElevenLabsApi:
         *,
         timeout: float = 300,
         voice_id: str | None = None,
+        model_id: str | None = None,
         project_id: int | None = None,
         stability: float | None = None,
         similarity: float | None = None,
@@ -255,9 +259,11 @@ class ElevenLabsApi:
         if not chunks:
             raise ElevenLabsApiError("11Labs API: пустой текст озвучки")
 
+        chosen_model = (model_id or settings.elevenlabs_tts_model or "eleven_v4").strip()
         logger.info(
-            "[#{}] 11Labs API TTS: voice_id={} текст {} симв, кусков {}",
+            "[#{}] 11Labs API TTS: model={} voice_id={} текст {} симв, кусков {}",
             project_id,
+            chosen_model,
             vid,
             len(text or ""),
             len(chunks),
@@ -266,7 +272,7 @@ class ElevenLabsApi:
         async with media_call(
             "elevenlabs",
             "tts",
-            model=settings.elevenlabs_tts_model or "eleven_multilingual_v2",
+            model=chosen_model,
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,
@@ -278,6 +284,7 @@ class ElevenLabsApi:
                         chunks[0],
                         vid,
                         out_path,
+                        model_id=chosen_model,
                         stability=stability,
                         similarity=similarity,
                     )
@@ -290,6 +297,7 @@ class ElevenLabsApi:
                             chunk,
                             vid,
                             part,
+                            model_id=chosen_model,
                             stability=stability,
                             similarity=similarity,
                         )

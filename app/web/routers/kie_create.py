@@ -333,11 +333,18 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                         voice_id_val = str(values.get("voice_id") or values.get("voice") or "").strip() or None
                         stab_val = values.get("stability")
                         sim_val = values.get("similarity")
+                        spec_model = str(spec.get("model") or "").strip()
+                        tts_model = (
+                            "eleven_v4"
+                            if "v4" in spec_model or spec.get("id") == "elevenlabs-v4"
+                            else (spec_model or "eleven_v4")
+                        )
                         api_obj = ElevenLabsApi()
                         generated_file = await api_obj.tts(
                             text=text_val,
                             out_path=out_path,
                             voice_id=voice_id_val,
+                            model_id=tts_model,
                             project_id=project_id or None,
                             stability=float(stab_val) if stab_val is not None else None,
                             similarity=float(sim_val) if sim_val is not None else None,

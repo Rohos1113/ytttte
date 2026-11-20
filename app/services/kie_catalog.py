@@ -1096,7 +1096,7 @@ MODELS: list[dict[str, Any]] = [
         "label": "Озвучка ElevenLabs v4",
         "category": "voice",
         "api": "elevenlabs",
-        "model": "elevenlabs/eleven-v4",
+        "model": "eleven_v4",
         "endpoint": "/v1/text-to-speech",
         "result": "audio",
         "desc": "Сверхреалистичная озвучка ElevenLabs v4. Диапазон 1–10 000 символов, библиотека 200 русских голосов, теги настроения и пауз.",
