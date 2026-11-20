@@ -25,7 +25,6 @@ _KEY_ATTRS: dict[str, str] = {
     "elevenlabs": "elevenlabs_api_key",
     "outsee": "outsee_api_key",
     "gpt": "gpt_api_key",
-    "wavespeed": "wavespeed_api_key",
     "minimax": "minimax_api_key",
 }
 
@@ -344,7 +343,6 @@ async def list_keys() -> list[KeyItem]:
     eleven_key = settings.elevenlabs_api_key
     outsee_key = settings.outsee_api_key
     gpt_key = settings.gpt_api_key or settings.vibecode_api_key
-    wavespeed_key = settings.wavespeed_api_key
     minimax_key = settings.minimax_api_key
 
     return [
@@ -375,13 +373,6 @@ async def list_keys() -> list[KeyItem]:
             env="GPT_API_KEY",
             configured=bool(gpt_key.strip()),
             masked=_mask_key(gpt_key),
-        ),
-        KeyItem(
-            id="wavespeed",
-            label="WaveSpeed",
-            env="WAVESPEED_API_KEY",
-            configured=bool(wavespeed_key.strip()),
-            masked=_mask_key(wavespeed_key),
         ),
         KeyItem(
             id="minimax",

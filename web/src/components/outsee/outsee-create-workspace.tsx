@@ -1784,8 +1784,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const outseeConfigured = Boolean(outseeStatusQ.data?.configured);
   const kieConfigured = Boolean(kieCatalogQ.data?.configured);
   const elevenlabsConfigured = Boolean(
-    (kieCatalogQ.data as Record<string, unknown> | undefined)?.elevenlabs_configured ??
-    (kieCatalogQ.data as Record<string, unknown> | undefined)?.wavespeed_configured,
+    (kieCatalogQ.data as Record<string, unknown> | undefined)?.elevenlabs_configured,
   );
   const isElevenLabsActive =
     kieModel?.id === "elevenlabs-v4" ||

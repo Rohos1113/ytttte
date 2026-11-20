@@ -89,10 +89,6 @@
       "unit": "char",
       "usd_per_unit": 5e-05
     },
-    "wavespeed:elevenlabs/eleven-v4": {
-      "unit": "char",
-      "usd_per_unit": 0.0001
-    },
     "minimax:image-01": {
       "unit": "item",
       "usd_per_unit": 0.0035
@@ -305,7 +301,7 @@
       "unit": "item",
       "usd_per_call": 0.0125
     },
-    "wavespeed:elevenlabs-v4": {
+    "elevenlabs:elevenlabs-v4": {
       "unit": "char",
       "usd_per_unit": 1.5e-05
     },

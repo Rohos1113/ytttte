@@ -1,7 +1,7 @@
 """Модуль для преобразования технических ошибок провайдеров и моделей в человекочитаемый вид (без жаргона и дампов JSON).
 
 Используется:
-  * Вкладкой «Генерация» (Outsee, KIE, ElevenLabs, Suno, Pay52, Wavespeed) — create_jobs.py;
+  * Вкладкой «Генерация» (Outsee, KIE, ElevenLabs, Suno, Pay52) — create_jobs.py;
   * Нодами на холсте и каталогом ошибок — error_catalog.py;
   * Чат-оркестратором и суммаризатором — summarizer.py, plain_ru.py.
 """

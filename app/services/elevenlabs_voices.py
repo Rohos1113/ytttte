@@ -64,7 +64,7 @@ def resolve_elevenlabs_voice_id(project: Project) -> str:
 
     Поддерживает:
       1. Стандартные 9 голосов (ELEVENLABS_VOICES)
-      2. 200 русских голосов из каталога WaveSpeed
+      2. 200 русских голосов из каталога ru_voices
       3. Любой валидный ID голоса (строка от 15 символов)
     """
     meta = getattr(project, "meta", None) or {}
@@ -113,19 +113,7 @@ _voices_probe_cache: dict = {"at": 0.0, "live": None}
 
 
 async def probe_live_voice_ids(*, max_age_s: float = _VOICES_PROBE_TTL_S) -> set[str] | None:
-    """Живые id голосов (кэш 1ч).
-
-    Если настроен WaveSpeed, возвращает все известные голоса без внешних вызовов.
-    """
-    from app.bots.wavespeed_http import wavespeed_configured
-
-    if wavespeed_configured():
-        from app.services.ru_voices import get_ru_voices
-
-        known = {v["id"] for v in ELEVENLABS_VOICES}
-        known.update(v["id"] for v in get_ru_voices() if v.get("id"))
-        return known
-
+    """Живые id голосов (кэш 1ч)."""
     now = time.monotonic()
     cached = _voices_probe_cache
     if cached["live"] is not None and now - cached["at"] < max_age_s:

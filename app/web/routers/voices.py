@@ -1,4 +1,4 @@
-"""REST API для каталога и образцов русских голосов ElevenLabs (WaveSpeed)."""
+"""REST API для каталога и образцов русских голосов ElevenLabs."""
 
 from __future__ import annotations
 

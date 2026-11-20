@@ -157,7 +157,7 @@ def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
     """
     prov = (provider or "").strip().lower()
     clean_model = (model or "").strip()
-    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:", "pay52:"):
+    for pfx in ("kie:", "outsee:", "elevenlabs:", "minimax:", "vibecode:", "pay52:"):
         if clean_model.lower().startswith(pfx):
             clean_model = clean_model[len(pfx) :]
             break
@@ -170,7 +170,7 @@ def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
     if clean_model not in keys:
         keys.append(clean_model)
     # Поиск по альтернативным провайдерам, если модель зарегистрирована под другим
-    for alt_prov in ("kie", "outsee", "elevenlabs", "wavespeed", "minimax", "vibecode", "pay52"):
+    for alt_prov in ("kie", "outsee", "elevenlabs", "minimax", "vibecode", "pay52"):
         k = f"{alt_prov}:{clean_model}"
         if k not in keys:
             keys.append(k)

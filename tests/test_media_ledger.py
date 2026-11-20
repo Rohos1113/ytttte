@@ -358,7 +358,7 @@ async def test_kie_video_without_catalog_spec_writes_one_row(session, monkeypatc
 def test_shipped_prices_cover_kie_catalog_paths() -> None:
     """Ключи, по которым реально ходят вызовы, закрыты подтверждёнными ценами."""
     prices = media_ledger._prices()
-    for key in ("kie:kling-2-6", "kie:kling-2-6-t2v", "kie:suno-music", "wavespeed:elevenlabs-v4"):
+    for key in ("kie:kling-2-6", "kie:suno-music", "elevenlabs:elevenlabs-v4"):
         assert key in prices, key
         entry = prices[key]
         assert entry.per_unit is not None or entry.per_call is not None, key

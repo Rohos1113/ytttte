@@ -546,7 +546,7 @@ def _clean_model_name(raw: str) -> tuple[str, str]:
 
     raw_clean = (raw or "unknown").strip()
     clean = raw_clean
-    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:", "pay52:"):
+    for pfx in ("kie:", "outsee:", "elevenlabs:", "minimax:", "vibecode:", "pay52:"):
         if clean.lower().startswith(pfx):
             clean = clean[len(pfx) :]
             break

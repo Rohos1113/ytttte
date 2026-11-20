@@ -62,9 +62,7 @@ def elevenlabs_api_key() -> str:
 
 
 def elevenlabs_api_configured() -> bool:
-    from app.bots.wavespeed_http import wavespeed_configured
-
-    return bool(elevenlabs_api_key() or wavespeed_configured())
+    return bool(elevenlabs_api_key())
 
 
 def _log_error(kind: str, text: str, *, node: str = "tts") -> None:
@@ -166,9 +164,7 @@ class ElevenLabsApi:
 
     def __init__(self) -> None:
         if not elevenlabs_api_configured():
-            raise ElevenLabsApiError(
-                "ELEVENLABS_API_KEY или WAVESPEED_API_KEY пуст — задай ключ API"
-            )
+            raise ElevenLabsApiError("ELEVENLABS_API_KEY пуст — задайте ключ API")
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -211,59 +207,32 @@ class ElevenLabsApi:
         stability: float | None = None,
         similarity: float | None = None,
     ) -> Path:
-        from app.bots.wavespeed_http import (
-            WaveSpeedError,
-            wavespeed_configured,
-        )
-        from app.bots.wavespeed_http import (
-            run_generation as wavespeed_run_generation,
-        )
         from app.settings import settings
 
-        # 1. Прямой официальный ElevenLabs API (основной)
-        if elevenlabs_api_key():
-            url = f"{_API_BASE}/text-to-speech/{voice_id}"
-            resp = await client.post(
-                url,
-                headers=self._headers(),
-                params={"output_format": settings.elevenlabs_output_format},
-                json=self._body(text, stability=stability, similarity=similarity),
-            )
-            if resp.status_code == 200:
-                data = resp.content or b""
-                if len(data) >= 500:
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    out_path.write_bytes(data)
-                    return out_path
-                msg = f"11Labs API: подозрительно короткий ответ ({len(data)} байт)"
-                _log_error(kind="short_audio", text=msg)
-                raise ElevenLabsApiError(msg)
+        if not elevenlabs_api_key():
+            raise ElevenLabsApiError("ELEVENLABS_API_KEY пуст — задайте ключ API")
 
-            detail = resp.text[:300]
-            msg = f"11Labs API HTTP {resp.status_code}: {detail}"
-            _log_error(kind=f"http_{resp.status_code}", text=msg)
-            if not wavespeed_configured():
-                raise ElevenLabsApiError(msg)
-            logger.warning("{}. Пробуем откат на WaveSpeed...", msg)
+        url = f"{_API_BASE}/text-to-speech/{voice_id}"
+        resp = await client.post(
+            url,
+            headers=self._headers(),
+            params={"output_format": settings.elevenlabs_output_format},
+            json=self._body(text, stability=stability, similarity=similarity),
+        )
+        if resp.status_code == 200:
+            data = resp.content or b""
+            if len(data) >= 500:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(data)
+                return out_path
+            msg = f"11Labs API: подозрительно короткий ответ ({len(data)} байт)"
+            _log_error(kind="short_audio", text=msg)
+            raise ElevenLabsApiError(msg)
 
-        # 2. Fallback провайдер: WaveSpeed (ElevenLabs v4)
-        if wavespeed_configured():
-            payload: dict[str, Any] = {"text": text, "voice_id": voice_id}
-            stab = stability if stability is not None else settings.elevenlabs_stability
-            if stab is not None:
-                payload["stability"] = float(stab)
-            sim = similarity if similarity is not None else settings.elevenlabs_similarity_boost
-            if sim is not None:
-                payload["similarity"] = float(sim)
-            try:
-                res = await wavespeed_run_generation(payload, out_path)
-                return res.file_path
-            except WaveSpeedError as e:
-                msg = f"WaveSpeed ElevenLabs v4 ошибка: {e}"
-                _log_error(kind="wavespeed_error", text=msg)
-                raise ElevenLabsApiError(msg) from e
-
-        raise ElevenLabsApiError("Нет настроенного провайдера озвучки (задайте ELEVENLABS_API_KEY)")
+        detail = resp.text[:300]
+        msg = f"11Labs API HTTP {resp.status_code}: {detail}"
+        _log_error(kind=f"http_{resp.status_code}", text=msg)
+        raise ElevenLabsApiError(msg)
 
     async def tts(
         self,
@@ -277,7 +246,6 @@ class ElevenLabsApi:
         similarity: float | None = None,
     ) -> Path:
         """Озвучить текст в `out_path` (mp3). Возвращает путь к файлу."""
-        from app.bots.wavespeed_http import wavespeed_configured
         from app.services.elevenlabs_voices import DEFAULT_ELEVENLABS_VOICE_ID
         from app.services.media_ledger import media_call
         from app.settings import settings
@@ -287,31 +255,18 @@ class ElevenLabsApi:
         if not chunks:
             raise ElevenLabsApiError("11Labs API: пустой текст озвучки")
 
-        is_direct = bool(elevenlabs_api_key())
-        is_ws = wavespeed_configured()
-        if is_direct:
-            provider_title = "11Labs API"
-            ledger_provider = "elevenlabs"
-        elif is_ws:
-            provider_title = "WaveSpeed (11Labs v4)"
-            ledger_provider = "wavespeed"
-        else:
-            provider_title = "11Labs API"
-            ledger_provider = "elevenlabs"
-
         logger.info(
-            "[#{}] {} TTS: voice_id={} текст {} симв, кусков {}",
+            "[#{}] 11Labs API TTS: voice_id={} текст {} симв, кусков {}",
             project_id,
-            provider_title,
             vid,
             len(text or ""),
             len(chunks),
         )
 
         async with media_call(
-            ledger_provider,
+            "elevenlabs",
             "tts",
-            model=(settings.elevenlabs_tts_model or "eleven_multilingual_v2") if is_direct else "elevenlabs/eleven-v4",
+            model=settings.elevenlabs_tts_model or "eleven_multilingual_v2",
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,
@@ -344,5 +299,5 @@ class ElevenLabsApi:
                         part.unlink(missing_ok=True)
 
         size = out_path.stat().st_size if out_path.is_file() else 0
-        logger.info("[#{}] {}: mp3 сохранён → {} ({} байт)", project_id, provider_title, out_path, size)
+        logger.info("[#{}] 11Labs API: mp3 сохранён → {} ({} байт)", project_id, out_path, size)
         return out_path

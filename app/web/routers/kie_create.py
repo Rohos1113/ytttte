@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from loguru import logger
 
-from app.bots import kie_http, pay52_video, wavespeed_http
+from app.bots import kie_http, pay52_video
 from app.services import kie_catalog
 from app.services.create_jobs import enqueue_generation, get_job
 from app.settings import settings
@@ -37,7 +37,6 @@ async def get_catalog() -> dict[str, Any]:
         **kie_catalog.catalog_for_ui(),
         # Флаг готовности важен до первого вызова /generate.
         "configured": kie_http.kie_configured(),
-        "wavespeed_configured": wavespeed_http.wavespeed_configured(),
         "elevenlabs_configured": elevenlabs_api_configured(),
         "pay52_configured": pay52_video.pay52_configured(),
     }
@@ -218,16 +217,16 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
     errors = kie_catalog.validate_values(spec, values)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors[:6]))
-    is_wavespeed = spec.get("api") in ("wavespeed", "elevenlabs") or spec.get("id") == "elevenlabs-v4"
+    is_elevenlabs = spec.get("api") == "elevenlabs" or spec.get("id") == "elevenlabs-v4"
     is_pay52 = spec.get("api") == "pay52" or (
         "seedance" in spec.get("id", "").lower() and pay52_video.pay52_video_configured(spec)
     )
-    if is_wavespeed:
+    if is_elevenlabs:
         from app.bots.elevenlabs_api import elevenlabs_api_configured
-        if not (wavespeed_http.wavespeed_configured() or elevenlabs_api_configured()):
+        if not elevenlabs_api_configured():
             raise HTTPException(
                 status_code=503,
-                detail="ElevenLabs API не настроен (задайте ELEVENLABS_API_KEY или WAVESPEED_API_KEY)",
+                detail="ElevenLabs API не настроен (задайте ELEVENLABS_API_KEY)",
             )
     elif is_pay52:
         if not pay52_video.pay52_video_configured(spec):
@@ -280,14 +279,9 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                     detail=f"Недостаточно кредитов: {exc}",
                 ) from exc
 
-    if is_wavespeed:
-        from app.bots.elevenlabs_api import elevenlabs_api_key
-        if elevenlabs_api_key():
-            provider_name = "elevenlabs"
-            provider_label = "ElevenLabs"
-        else:
-            provider_name = "wavespeed"
-            provider_label = "WaveSpeed"
+    if is_elevenlabs:
+        provider_name = "elevenlabs"
+        provider_label = "ElevenLabs"
     elif is_pay52:
         provider_name = "pay52"
         provider_label = "52pay"
@@ -318,8 +312,8 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         from app.services.media_ledger import capture_rows, media_call
 
         try:
-            # Факт пишем здесь: kie_http.run_generation / wavespeed_http /
-            # pay52_video — это транспорт без учёта, и «Генерация» зовёт их
+            # Факт пишем здесь: kie_http.run_generation / pay52_video /
+            # elevenlabs_api — это транспорт без учёта, и «Генерация» зовёт их
             # напрямую. capture_rows собирает id ровно этих строк, чтобы
             # списать по факту, а не по оценке каталога.
             with capture_rows() as rows:
@@ -331,33 +325,29 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                     unit=ledger_unit,
                     project_id=project_id or None,
                 ) as call:
-                    if is_wavespeed:
+                    if is_elevenlabs:
                         from app.bots.elevenlabs_api import (
                             ElevenLabsApi,
-                            elevenlabs_api_key,
                         )
-                        if elevenlabs_api_key():
-                            text_val = str(values.get("text") or values.get("prompt") or "")
-                            voice_id_val = str(values.get("voice_id") or values.get("voice") or "").strip() or None
-                            stab_val = values.get("stability")
-                            sim_val = values.get("similarity")
-                            api_obj = ElevenLabsApi()
-                            generated_file = await api_obj.tts(
-                                text=text_val,
-                                out_path=out_path,
-                                voice_id=voice_id_val,
-                                project_id=project_id or None,
-                                stability=float(stab_val) if stab_val is not None else None,
-                                similarity=float(sim_val) if sim_val is not None else None,
-                            )
-                            from app.bots.outsee import GenerationResult
-                            res = GenerationResult(
-                                file_path=generated_file,
-                                gen_id=f"el-{uuid.uuid4().hex[:10]}",
-                                raw_url=None,
-                            )
-                        else:
-                            res = await wavespeed_http.run_generation(payload, out_path)
+                        text_val = str(values.get("text") or values.get("prompt") or "")
+                        voice_id_val = str(values.get("voice_id") or values.get("voice") or "").strip() or None
+                        stab_val = values.get("stability")
+                        sim_val = values.get("similarity")
+                        api_obj = ElevenLabsApi()
+                        generated_file = await api_obj.tts(
+                            text=text_val,
+                            out_path=out_path,
+                            voice_id=voice_id_val,
+                            project_id=project_id or None,
+                            stability=float(stab_val) if stab_val is not None else None,
+                            similarity=float(sim_val) if sim_val is not None else None,
+                        )
+                        from app.bots.outsee import GenerationResult
+                        res = GenerationResult(
+                            file_path=generated_file,
+                            gen_id=f"el-{uuid.uuid4().hex[:10]}",
+                            raw_url=None,
+                        )
                     elif is_pay52:
                         res = await pay52_video.run_generation(spec, payload, out_path)
                     elif result_kind == "text":

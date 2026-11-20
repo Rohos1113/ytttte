@@ -254,7 +254,7 @@ async def run(
             "[#{}] generate_audio: файла озвучки нет в {} — {}",
             project.id,
             project.data_dir / "audio",
-            "online TTS (WaveSpeed/11Labs)"
+            "online TTS (ElevenLabs)"
             if (settings.audio_use_elevenlabs_fallback or elevenlabs_api_configured())
             else "ошибка (TTS выкл.)",
         )
@@ -329,7 +329,7 @@ async def run(
         raise RuntimeError(
             f"[#{project.id}] нет озвучки в {audio_hint} — положите voice.mp3 или "
             f"voice_full_*.wav (проект «{project.slug}»). "
-            "TTS отключён: задайте WAVESPEED_API_KEY / ELEVENLABS_API_KEY или включите AUDIO_USE_ELEVENLABS_FALLBACK=1"
+            "TTS отключён: задайте ELEVENLABS_API_KEY или включите AUDIO_USE_ELEVENLABS_FALLBACK=1"
         )
 
     # П.25: озвучка по HTTP API — браузер не нужен, конвейер работает

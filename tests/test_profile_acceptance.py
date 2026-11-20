@@ -156,15 +156,15 @@ async def test_accept_stats_accounting_from_media_calls(env) -> None:
 async def test_accept_keys_persist_file(env) -> None:
     c, a = env["client"], env["admin"]
     r = await c.put(
-        "/api/profile/keys/wavespeed",
+        "/api/profile/keys/minimax",
         headers=a.auth,
-        json={"value": "persist-wavespeed-key-9999"},  # gitleaks:allow
+        json={"value": "persist-minimax-key-9999"},  # gitleaks:allow
     )
     assert r.status_code == 200, r.text
     assert r.json()["configured"] is True
     path = env["tmp_path"] / "data" / "studio_api_keys.json"
     assert path.is_file()
-    assert "persist-wavespeed-key-9999" in path.read_text(encoding="utf-8")
+    assert "persist-minimax-key-9999" in path.read_text(encoding="utf-8")
 
 
 async def test_accept_ratings_and_node_reviews_shape(env) -> None:
