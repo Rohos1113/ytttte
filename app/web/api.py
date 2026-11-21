@@ -827,7 +827,31 @@ def _mount_frontend(app: FastAPI) -> None:
         )
         return html
 
+    # Пересборка UI (`bump_studio_version.py`, `npm run build`) на несколько
+    # секунд делает out неполным. Раньше в этот момент страница получала 500 и
+    # оставалась белой до ручного F5 — теперь отдаём страницу-перезагрузку,
+    # которая сама подхватит собранную версию.
+    _BUILDING_HTML = """<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="2">
+<title>Video Pipeline — UI пересобирается</title>
+<style>body{font-family:Segoe UI,sans-serif;max-width:560px;margin:48px auto;padding:0 16px;line-height:1.5;color:#222}</style>
+</head><body>
+<h1>UI пересобирается</h1>
+<p>Сборка идёт прямо сейчас. Страница обновится сама через пару секунд.</p>
+<p>Если висит дольше минуты — нажми F5 или запусти <code>npm run build</code> в <code>web/</code>.</p>
+</body></html>"""
+
     def _html_response(path: Path) -> HTMLResponse:
+        if not path.is_file():
+            return HTMLResponse(
+                content=_BUILDING_HTML,
+                status_code=503,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Retry-After": "2",
+                },
+            )
         body = path.read_text(encoding="utf-8")
         body = _patch_index_html_version(body)
         return HTMLResponse(
@@ -868,13 +892,14 @@ def _mount_frontend_missing_help(app: FastAPI, out_dir: Path) -> None:
 
     html = f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><title>Video Pipeline</title>
+<meta http-equiv="refresh" content="3">
 <style>
 body{{font-family:Segoe UI,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;line-height:1.5}}
 code{{background:#f0f0f0;padding:2px 6px;border-radius:4px}}
 ol{{padding-left:1.2rem}}
 </style></head><body>
 <h1>API работает, UI не собран</h1>
-<p>Бэкенд запущен, но папки <code>{out_dir}</code> нет.</p>
+<p>Папки <code>{out_dir}</code> нет — страница сама обновится, как только сборка закончится.</p>
 <h2>Windows (из корня video-pipeline)</h2>
 <ol>
 <li>Меню: <strong>6. Build Web UI</strong> или <strong>* Quick start</strong></li>

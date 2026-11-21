@@ -68,14 +68,15 @@ def _npm_cmd() -> list[str]:
 
 
 def build_web_out() -> None:
-    """Собрать web/out — папка коммитится в git для обновления без npm у пользователя."""
-    import shutil
+    """Собрать web/out — папка коммитится в git для обновления без npm у пользователя.
 
+    Старую сборку НЕ удаляем: студия отдаёт UI из этой папки, и `rmtree` перед
+    долгим `npm install` оставлял работающую вкладку без интерфейса. Next при
+    экспорте сам перезаписывает свои файлы; лишние старые чанки безвредны.
+    """
     web = ROOT / "web"
     out = web / "out"
     npm = _npm_cmd()
-    if out.is_dir():
-        shutil.rmtree(out)
     subprocess.run([*npm, "install"], cwd=web, check=True)
     subprocess.run([*npm, "run", "build"], cwd=web, check=True)
     if not (out / "index.html").is_file():
