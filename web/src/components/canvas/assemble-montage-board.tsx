@@ -1783,7 +1783,7 @@ function ShotMediaBar({
   // Та же полоса, что в кадровой сетке: меню «Действия», корзина, загрузка.
   // У шота просто другой набор пунктов и ручек — вид не меняется.
   return (
-    <div className={cn(off && "pointer-events-none opacity-60")}>
+    <div className={cn(off && "opacity-60")}>
       <MediaActionBar
         kind="image"
         actions={[
@@ -2572,6 +2572,17 @@ export function AssembleMontageBoard({
     // остаются на кнопке «Применить правки» при переключении.
   });
 
+  // Пустая доска сама наполняется: шаги создают кадры в фоне, поэтому пока
+  // кадров нет — тянем доску раз в 5 с. Иначе только что открытый проект
+  // выглядит «монтаж не работает, там ничего нет».
+  useEffect(() => {
+    if (!open || projectId == null) return;
+    if (board.isLoading || board.isError) return;
+    if ((board.data?.frames?.length ?? 0) > 0) return;
+    const timer = window.setInterval(() => void board.refetch(), 5000);
+    return () => window.clearInterval(timer);
+  }, [open, projectId, board.isLoading, board.isError, board.data, board.refetch]);
+
   // Видимость строк доски хранится в meta проекта (переживает перезагрузку),
   // читаем её из того же кэша ["project", projectId], что и остальная студия.
   const projectQuery = useQuery({
@@ -2646,8 +2657,11 @@ export function AssembleMontageBoard({
   const shotUnits = useMemo<ShotUnit[]>(() => ranges.flatMap(rangeShotUnits), [ranges]);
   // Доска показывает РЕАЛЬНОЕ число кадров: колонка = запланированный шот из
   // attrs["кадры"] (S1-K1…). Проекты без плана живут в старой сетке по кадрам.
+  // Раскладка по шотам — только если план шотов есть у ВСЕХ кадров. Иначе
+  // кадры без плана попадали в шотовую ветку и их ячейки «Кадры»/«Закадр»
+  // оставались пустыми без картинки и кнопок (а доска выглядела сломанной).
   const shotMode = useMemo(
-    () => shotUnits.some((unit) => unit.shot),
+    () => shotUnits.length > 0 && shotUnits.every((unit) => unit.shot),
     [shotUnits],
   );
   const coverageOn = Boolean(board.data?.show_coverage_rows);
@@ -4854,7 +4868,6 @@ export function AssembleMontageBoard({
           ) : null}
           <ShotMediaBar
             busy={shotBusyKey === shotBusyId(unit.frame.number, shot.id || "")}
-            disabled={!shot.id}
             onRegen={() => regenShotImage(unit.frame.number, shot.id || "")}
             onEditPrompt={() =>
               setShotPrompt({
@@ -5282,7 +5295,14 @@ export function AssembleMontageBoard({
           <div className="flex items-center gap-3">
             <Clapperboard className="h-7 w-7 text-amber-400" />
             <div>
-              <h2 className="text-base font-semibold">Панель монтажа</h2>
+              <h2 className="text-base font-semibold">
+                Панель монтажа
+                {projectQuery.data?.title ? (
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    · {projectQuery.data.title}
+                  </span>
+                ) : null}
+              </h2>
               <p className="text-xs text-muted-foreground">
                 {swapPick
                   ? `Обмен ${swapPick.kind === "image" ? "картинок" : "видео"}: выбран #${swapPick.frameNumber}.${swapPick.shot} — нажмите ↔ на другом слоте (Esc — отмена)`
@@ -5291,6 +5311,9 @@ export function AssembleMontageBoard({
               {/* Строка счётчиков всегда держит высоту: её появление на первой
                   правке сдвигало доску вниз и клик уезжал с кнопки. */}
               <p className="mt-1 flex min-h-[1rem] flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                <span className="text-muted-foreground/80">
+                  кадров {frames.length} · шотов {shotUnits.length}
+                </span>
                 {highlights.length > 0 && (
                   <span>
                     <span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400/80" />
@@ -5530,9 +5553,11 @@ export function AssembleMontageBoard({
             {!board.isLoading && !board.isError && frames.length === 0 && (
               <div className="flex flex-col items-start gap-3">
                 <p className="text-sm text-muted-foreground">
-                  Кадров нет — добавьте первую ячейку закадра или положите{" "}
-                  <code className="text-[11px]">project.xlsx</code> / файлы{" "}
-                  <code className="text-[11px]">scenes/</code>.
+                  В проекте
+                  {projectQuery.data?.title ? ` «${projectQuery.data.title}»` : ""} пока
+                  0 кадров — доска заполнится сама, когда пройдёт шаг
+                  «Разбивка на кадры» (панель подтягивает данные каждые 5 с).
+                  Можно добавить кадр вручную.
                 </p>
                 <Button
                   type="button"
