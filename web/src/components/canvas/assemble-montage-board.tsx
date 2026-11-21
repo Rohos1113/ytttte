@@ -218,13 +218,6 @@ type PromptModalState = {
   mode: "prompt" | "correction";
 } | null;
 
-/** Промт картинки одного шота плана (S1-K1) — правится прямо на доске. */
-type ShotPromptState = {
-  frameNumber: number;
-  shotId: string;
-  initialText: string;
-} | null;
-
 type AiChangeModalState = {
   kind: "image" | "video";
   frameNumber: number;
@@ -959,10 +952,7 @@ function ShotColGroup({
       <col style={{ width: 11 * 16 }} />
       {ranges.flatMap((range) =>
         rangeShotUnits(range).map((unit) => (
-          // В режиме шотов колонка = один шот: ширина ровно colRem,
-          // иначе кадры с двумя слотами получали двойную колонку и теряли
-          // половину картинки.
-          <col key={`col-${unit.key}`} style={{ width: colRem * 16 }} />
+          <col key={`col-${unit.key}`} style={{ width: framePairRem(unit.frame, colRem) * 16 }} />
         )),
       )}
     </colgroup>
@@ -1751,174 +1741,6 @@ const MediaActionBar = memo(function MediaActionBar({
   );
 });
 
-/**
- * Действия картинки шота на доске (режим «колонка = шот»).
- *
- * В режиме шотов ячейка «Кадры» — это `images/<S1-K1>.png`, а не кадр целиком,
- * поэтому полоса действий кадра сюда не подходила: у шота свои ручки
- * (`shot-image-regen` / `shot-prompt` / `shot-image-upload` / `shot-image-delete`).
- */
-function ShotMediaBar({
-  busy,
-  disabled,
-  onRegen,
-  onEditPrompt,
-  onUpload,
-  onDelete,
-}: {
-  busy: boolean;
-  disabled?: boolean;
-  onRegen: () => void;
-  onEditPrompt: () => void;
-  onUpload: (file: File) => void;
-  onDelete: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const off = busy || disabled;
-  return (
-    <div className="flex items-center gap-1">
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0"
-        title="Перерисовать картинку шота по его промту (платно)"
-        onClick={onRegen}
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={off}
-        className="h-7 flex-1 px-2 text-[10px]"
-        title="Править промт картинки этого шота"
-        onClick={onEditPrompt}
-      >
-        <FileText className="mr-1 h-3.5 w-3.5" />
-        Промт шота
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0"
-        title="Загрузить картинку шота с компьютера"
-        onClick={() => inputRef.current?.click()}
-      >
-        <Upload className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0 text-destructive/80"
-        title="Удалить картинку шота"
-        onClick={onDelete}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onUpload(f);
-          e.target.value = "";
-        }}
-      />
-    </div>
-  );
-}
-
-/** Промт картинки шота: правка сохраняется в план сразу, без очереди кадра. */
-function ShotPromptModal({
-  state,
-  busy,
-  onClose,
-  onSubmit,
-}: {
-  state: ShotPromptState;
-  busy: boolean;
-  onClose: () => void;
-  onSubmit: (text: string) => void;
-}) {
-  if (!state) return null;
-  return (
-    <ShotPromptModalBody
-      key={`${state.frameNumber}:${state.shotId}`}
-      state={state}
-      busy={busy}
-      onClose={onClose}
-      onSubmit={onSubmit}
-    />
-  );
-}
-
-function ShotPromptModalBody({
-  state,
-  busy,
-  onClose,
-  onSubmit,
-}: {
-  state: NonNullable<ShotPromptState>;
-  busy: boolean;
-  onClose: () => void;
-  onSubmit: (text: string) => void;
-}) {
-  const [text, setText] = useState(state.initialText);
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[10110] flex items-center justify-center bg-black/70 p-4"
-      onMouseDown={onClose}
-    >
-      <div
-        className="w-full max-w-2xl rounded-xl border border-white/15 bg-card p-4 shadow-xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold">
-          Промт картинки · шот {state.shotId} · кадр #{state.frameNumber}
-        </h3>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Сохраняется в план шотов сразу. Картинку перерисует кнопка
-          «Перерисовать» — отдельного шага в очереди кадра для шота нет.
-        </p>
-        <textarea
-          className="mt-3 min-h-[220px] w-full rounded-lg border border-white/15 bg-black/30 p-3 text-xs leading-snug"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Промт картинки шота не найден — вставьте текст вручную…"
-          autoFocus
-        />
-        <div className="mt-3 flex justify-end gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={busy}>
-            Отмена
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || !text.trim()}
-            onClick={() => onSubmit(text.trim())}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 const MONTAGE_IMAGE_DRAG = "application/x-vp-montage-image";
 
 type ImageSlotRef = { frameNumber: number; shot: 1 | 2; slot?: "parent" };
@@ -2549,9 +2371,6 @@ export function AssembleMontageBoard({
   const [pendingOps, setPendingOps] = useState<MontagePendingOp[]>([]);
   const [promptModal, setPromptModal] = useState<PromptModalState>(null);
   const [aiChangeModal, setAiChangeModal] = useState<AiChangeModalState>(null);
-  /** Действия картинки шота в режиме «колонка = шот». */
-  const [shotPrompt, setShotPrompt] = useState<ShotPromptState>(null);
-  const [shotBusyKey, setShotBusyKey] = useState<string | null>(null);
   const [selectedOpKeys, setSelectedOpKeys] = useState<Set<string>>(new Set());
   const [highlights, setHighlights] = useState<string[]>([]);
   const [failedHighlights, setFailedHighlights] = useState<string[]>([]);
@@ -2685,12 +2504,10 @@ export function AssembleMontageBoard({
   const ranges = useMemo(() => sceneRanges(frames), [frames]);
   /** Колонки доски по шотам: одна колонка = один запланированный шот кадра. */
   const shotUnits = useMemo<ShotUnit[]>(() => ranges.flatMap(rangeShotUnits), [ranges]);
-  // Доска показывает РЕАЛЬНОЕ число кадров: колонка = запланированный шот из
-  // attrs["кадры"] (S1-K1…). Проекты без плана живут в старой сетке по кадрам.
-  const shotMode = useMemo(
-    () => shotUnits.some((unit) => unit.shot),
-    [shotUnits],
-  );
+  // Версия 17.11 18:49: сетка доски — ПО КАДРАМ (две колонки на кадр, слоты
+  // shot1/shot2). Шоты из attrs["кадры"] колонок не задают — они остаются
+  // данными ноды «Шоты». Ветки shotMode в разметке остались, но выключены.
+  const shotMode = false;
   const coverageOn = Boolean(board.data?.show_coverage_rows);
   const frameAspect = board.data?.frame_aspect ?? null;
   const colRem = coverageOn ? frameColRem(frameAspect) : FRAME_COL_REM;
@@ -4476,74 +4293,6 @@ export function AssembleMontageBoard({
     queueOp(op);
   };
 
-  // ── Действия картинки шота (режим «колонка = шот») ───────────────────────
-  // У шота своя ручка в плане: и промт, и перерисовка идут по shot_id, а не
-  // через очередь кадра. Ошибку показываем тостом, занятость — по ячейке.
-  const shotBusyId = (frameNumber: number, shotId: string) =>
-    `${frameNumber}:${shotId}`;
-
-  const runShotAction = async (
-    frameNumber: number,
-    shotId: string,
-    action: () => Promise<unknown>,
-    okText: string,
-  ) => {
-    if (projectId == null || !shotId) return;
-    const key = shotBusyId(frameNumber, shotId);
-    setShotBusyKey(key);
-    try {
-      await action();
-      toast.success(okText);
-      await board.refetch();
-    } catch (error) {
-      toast.error(errorMessageFromUnknown(error));
-    } finally {
-      setShotBusyKey((current) => (current === key ? null : current));
-    }
-  };
-
-  const regenShotImage = (frameNumber: number, shotId: string) => {
-    if (projectId == null) return;
-    void runShotAction(
-      frameNumber,
-      shotId,
-      () => api.regenMontageShotImage(projectId, frameNumber, shotId),
-      `Картинка шота ${shotId} перерисована`,
-    );
-  };
-
-  const uploadShotImage = (frameNumber: number, shotId: string, file: File) => {
-    if (projectId == null) return;
-    void runShotAction(
-      frameNumber,
-      shotId,
-      () => api.uploadMontageShotImage(projectId, frameNumber, shotId, file),
-      `Картинка шота ${shotId} загружена`,
-    );
-  };
-
-  const deleteShotImage = (frameNumber: number, shotId: string) => {
-    if (projectId == null) return;
-    void runShotAction(
-      frameNumber,
-      shotId,
-      () => api.deleteMontageShotImage(projectId, frameNumber, shotId),
-      `Картинка шота ${shotId} удалена`,
-    );
-  };
-
-  const submitShotPrompt = (text: string) => {
-    if (projectId == null || !shotPrompt) return;
-    const { frameNumber, shotId } = shotPrompt;
-    setShotPrompt(null);
-    void runShotAction(
-      frameNumber,
-      shotId,
-      () => api.saveMontageShotPrompt(projectId, frameNumber, shotId, text),
-      `Промт шота ${shotId} сохранён`,
-    );
-  };
-
   const pendingSlotKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const op of pendingOps) {
@@ -4843,73 +4592,37 @@ export function AssembleMontageBoard({
     }
     if (key === "image1") {
       const url = shot.image_url ?? null;
-      const prompt = (shot.промт_картинки || "").trim();
-      return (
-        <div className="flex flex-col gap-1">
-          {url ? (
-            <button
-              type="button"
-              title={`Открыть ${shot.id || "шот"}`}
-              onClick={() =>
-                showPreview({
-                  url,
-                  kind: "image",
-                  label: `${shot.id || "шот"} · кадр #${unit.frame.number}`,
-                })
-              }
-              className="group block w-full overflow-hidden rounded-lg border border-white/10 bg-black"
-              style={tallMediaStyle(frameAspect)}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={url}
-                alt={shot.id || "шот"}
-                loading="lazy"
-                decoding="async"
-                // object-contain: кадр показываем целиком, без обрезки по краям.
-                className="h-full w-full object-contain transition group-hover:brightness-110"
-              />
-            </button>
-          ) : (
-            <div
-              title={`${shot.id || "шот"}: кадр не сгенерирован`}
-              style={tallMediaStyle(frameAspect)}
-              className="flex items-center justify-center rounded-md border border-dashed border-white/10 bg-black/20 text-[10px] text-white/25"
-            >
-              нет кадра
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-1 font-mono text-[9px] leading-tight text-white/40">
-            <span className="truncate">{shot.id || "шот"}</span>
-            <span className="truncate">{shot.план || ""}</span>
-          </div>
-          {prompt ? (
-            <details className="rounded border border-white/10 bg-black/30 px-1 py-0.5">
-              <summary className="cursor-pointer list-none font-mono text-[9px] text-white/50 hover:text-white/80">
-                промт картинки · {prompt.length} зн.
-              </summary>
-              <div className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[9px] leading-snug text-white/60">
-                {prompt}
-              </div>
-            </details>
-          ) : null}
-          <ShotMediaBar
-            busy={shotBusyKey === shotBusyId(unit.frame.number, shot.id || "")}
-            disabled={!shot.id}
-            onRegen={() => regenShotImage(unit.frame.number, shot.id || "")}
-            onEditPrompt={() =>
-              setShotPrompt({
-                frameNumber: unit.frame.number,
-                shotId: shot.id || "",
-                initialText: prompt,
-              })
-            }
-            onUpload={(file) =>
-              uploadShotImage(unit.frame.number, shot.id || "", file)
-            }
-            onDelete={() => deleteShotImage(unit.frame.number, shot.id || "")}
+      if (!url) {
+        // Пока still шота не сгенерирован — колонка пустая (только габарит).
+        return (
+          <div
+            title={`${shot.id || "шот"}: кадр не сгенерирован`}
+            className="h-24 rounded-md border border-dashed border-white/10 bg-black/20"
           />
-        </div>
+        );
+      }
+      return (
+        <button
+          type="button"
+          title={`Открыть ${shot.id || "шот"}`}
+          onClick={() =>
+            showPreview({
+              url,
+              kind: "image",
+              label: `${shot.id || "шот"} · кадр #${unit.frame.number}`,
+            })
+          }
+          className="block w-full"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={shot.id || "шот"}
+            loading="lazy"
+            decoding="async"
+            className="block h-24 w-full rounded-md border border-white/10 bg-black object-cover"
+          />
+        </button>
       );
     }
     if (key === "timestamps") {
@@ -5710,7 +5423,7 @@ export function AssembleMontageBoard({
                                       ? "bg-rose-950/40 text-rose-200/80"
                                       : null,
                                   )}
-                                  style={frameColStyle(colRem)}
+                                  style={frameColStyle(framePairRem(unit.frame, colRem))}
                                   title={
                                     unit.shot
                                       ? `${unit.shot.id || "шот"} · кадр #${unit.frame.number}${
@@ -6010,7 +5723,7 @@ export function AssembleMontageBoard({
                                     <td
                                       key={`${row.key}-shot-scene-${range.key}`}
                                       colSpan={units.length}
-                                      style={{ width: units.length * colRem * 16 }}
+                                      style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
                                       className="border-l border-white/15 px-2 py-2 align-top"
                                     >
                                       {collapsed ? (
@@ -6030,7 +5743,7 @@ export function AssembleMontageBoard({
                                       ui === 0 ? "border-l border-white/15" : null,
                                     )}
                                     style={{
-                                      ...frameColStyle(colRem),
+                                      ...frameColStyle(framePairRem(unit.frame, colRem)),
                                       contentVisibility: "auto",
                                       containIntrinsicSize: "auto 240px auto 180px",
                                     }}
@@ -6567,7 +6280,7 @@ const rowLabel = item
                                     <td
                                       key={`${rowKey}-shot-scene-${range.key}`}
                                       colSpan={units.length}
-                                      style={{ width: units.length * colRem * 16 }}
+                                      style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
                                       className="border-l border-white/15 px-2 py-2 align-top"
                                     >
                                       {hasPlacement ? (
@@ -6720,16 +6433,6 @@ const rowLabel = item
         onClose={() => setPromptModal(null)}
         onSubmit={submitPromptModal}
         busy={applyMutation.isPending}
-      />
-      <ShotPromptModal
-        state={shotPrompt}
-        onClose={() => setShotPrompt(null)}
-        onSubmit={submitShotPrompt}
-        busy={
-          shotPrompt
-            ? shotBusyKey === shotBusyId(shotPrompt.frameNumber, shotPrompt.shotId)
-            : false
-        }
       />
       <AiChangeModal
         state={aiChangeModal}
