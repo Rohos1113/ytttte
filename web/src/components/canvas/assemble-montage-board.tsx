@@ -1635,6 +1635,7 @@ type SwapSlotPick = {
 
 const MediaActionBar = memo(function MediaActionBar({
   kind,
+  actions: actionsOverride,
   onRegen,
   onEditPrompt,
   onAiChange,
@@ -1646,6 +1647,8 @@ const MediaActionBar = memo(function MediaActionBar({
   swapBusy,
 }: {
   kind: "image" | "video";
+  /** Свой набор пунктов меню «Действия» (например, ручки шота). */
+  actions?: { label: string; action: () => void }[];
   onRegen: () => void;
   onEditPrompt: () => void;
   onAiChange: () => void;
@@ -1671,7 +1674,9 @@ const MediaActionBar = memo(function MediaActionBar({
     { label: "Редактировать промт", action: onEditPrompt },
     { label: "ИИзменение", action: onAiChange },
   ];
-  const actions = kind === "image" ? imageActions : videoActions;
+  const actions =
+    actionsOverride ??
+    (kind === "image" ? imageActions : videoActions);
 
   return (
     <div className="mt-2 flex items-center gap-1">
@@ -1775,67 +1780,21 @@ function ShotMediaBar({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const off = busy || disabled;
+  // Та же полоса, что в кадровой сетке: меню «Действия», корзина, загрузка.
+  // У шота просто другой набор пунктов и ручек — вид не меняется.
   return (
-    <div className="flex items-center gap-1">
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0"
-        title="Перерисовать картинку шота по его промту (платно)"
-        onClick={onRegen}
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={off}
-        className="h-7 flex-1 px-2 text-[10px]"
-        title="Править промт картинки этого шота"
-        onClick={onEditPrompt}
-      >
-        <FileText className="mr-1 h-3.5 w-3.5" />
-        Промт шота
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0"
-        title="Загрузить картинку шота с компьютера"
-        onClick={() => inputRef.current?.click()}
-      >
-        <Upload className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={off}
-        className="h-7 w-7 shrink-0 text-destructive/80"
-        title="Удалить картинку шота"
-        onClick={onDelete}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onUpload(f);
-          e.target.value = "";
-        }}
+    <div className={cn(off && "pointer-events-none opacity-60")}>
+      <MediaActionBar
+        kind="image"
+        actions={[
+          { label: "Перегенерация без редакции", action: onRegen },
+          { label: "Редактировать промт", action: onEditPrompt },
+        ]}
+        onRegen={onRegen}
+        onEditPrompt={onEditPrompt}
+        onAiChange={onEditPrompt}
+        onDelete={onDelete}
+        onUpload={onUpload}
       />
     </div>
   );

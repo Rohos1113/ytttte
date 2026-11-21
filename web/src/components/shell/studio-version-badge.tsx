@@ -73,6 +73,32 @@ export function StudioVersionBadge() {
     window.location.reload();
   };
 
+  // Вкладка со старым бандлом обновляется сама. Иначе после каждой пересборки
+  // UI человек остаётся на старом экране (а если попал в момент сборки — на
+  // пустой странице) и выглядит это как «кнопки пропали». Один раз на сборку,
+  // и не дёргаем, если человек прямо сейчас что-то печатает.
+  useEffect(() => {
+    if (!clientStale || typeof window === "undefined") return;
+    const key = `studio-ui-autoreload:${server?.build ?? 0}`;
+    try {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement as HTMLElement | null;
+      const editing =
+        active != null &&
+        (active.tagName === "TEXTAREA" ||
+          active.tagName === "INPUT" ||
+          active.isContentEditable);
+      if (editing) return;
+      reload();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [clientStale, server?.build]);
+
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
