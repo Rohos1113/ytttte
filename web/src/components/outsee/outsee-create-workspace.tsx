@@ -18,7 +18,6 @@ import {
   Coins,
   Copy,
   CornerDownLeft,
-  Dices,
   Disc,
   Download,
   ExternalLink,
@@ -34,6 +33,7 @@ import {
   Paperclip,
   Pause,
   Play,
+  Plus,
   Radio,
   Repeat,
   RotateCcw,
@@ -49,12 +49,13 @@ import {
   VolumeX,
   X,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
-import { errorMessageFromUnknown, humanizeErrorMessage } from "@/lib/error-message";
+import { errorMessageFromUnknown } from "@/lib/error-message";
 import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { isUnfilledAssistantPrompt } from "@/lib/gen-assistant-styles";
 import { cn, parseUtcDate } from "@/lib/utils";
@@ -67,7 +68,6 @@ import {
   OUTSEE_TYPE_TABS,
   chipOptions,
   clampToOptions,
-  detailLabel,
   dockChipsForModel,
   getAudioModel,
   getImageModel,
@@ -84,13 +84,15 @@ import { estimateCreatePrice } from "@/lib/create-pricing";
 import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
 import { inspirationPromptSuffix, inspirationStyle } from "@/lib/inspiration-styles";
 import { InspirationMenu } from "./inspiration-menu";
-import { getVoiceById, resolveVoiceName } from "./voice-library-modal";
+import { VoiceLibraryModal, getVoiceById, resolveVoiceName } from "./voice-library-modal";
+import { VoicePickerRow } from "@/components/voices/voice-picker-row";
+import { AudioTagsRow } from "@/components/voices/audio-tags-row";
 import { CloneVoiceDialog } from "@/components/voices/clone-voice-dialog";
 import {
   MentionMenu,
+  ModelSettingsDock,
   RefCategory,
-  SeedanceDock,
-  ElevenLabsDock,
+  SegmentedPills,
   framesFromKieValues,
   refToken,
   refsFromKieFields,
@@ -99,11 +101,25 @@ import {
   type RefKind,
 } from "./gen-dock-parts";
 import {
-  estimateKie,
-  kieChipFields,
-  kieFileFields,
-  kieMainTextField,
-} from "@/lib/kie-pricing";
+  estimateSettingsUsd,
+  formatMoneyUsd,
+  formatUsd,
+  dropDuplicatePresets,
+  outseePresetFamilyIds,
+  isKieFieldVisible,
+  kieEffectiveFields,
+  kieFamilyMode,
+  kieFamilyModes,
+  kieFileFieldsIn,
+  kieFieldsKnown,
+  kieMainTextName,
+  kieModeOptions,
+  settingDefaultPairs,
+  kieSettingDescriptors,
+  outseeSettingDescriptors,
+  valuesForMode,
+} from "@/lib/model-settings";
+import { kieRowSlug, KIE_MODE_SEP, parseKieSlug, pickerRowsForMedia } from "@/lib/kie-picker-items";
 
 // Kie-каталог включен по умолчанию; выключить: NEXT_PUBLIC_KIE_CREATE=0.
 // (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
@@ -117,12 +133,6 @@ const KIE_FRAME_FIELDS = new Set(["first_frame_url", "last_frame_url", "first_fr
 function isSeedanceModel(m: KieModelSpec | null): boolean {
   return Boolean(m && m.id.toLowerCase().startsWith("seedance"));
 }
-
-/** Поля Seedance, которые рисует SeedanceDock, — из общего списка чипов их убираем. */
-const SEEDANCE_DOCK_FIELDS = new Set(["aspect_ratio", "resolution", "duration", "generate_audio"]);
-
-/** Поля ElevenLabs, которые рисует ElevenLabsDock (голос + слайдеры), — из чипов убираем. */
-const ELEVENLABS_DOCK_FIELDS = new Set(["voice_id", "stability", "similarity"]);
 
 /**
  * Крупные PNG Kie рвёт на загрузке (ReadError). Перед отправкой ужимаем фото
@@ -917,13 +927,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [instrumental, setInstrumental] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
-  const [showNegativePrompt, setShowNegativePrompt] = useState(false);
   /** Стиль из «Вдохновения» — каталог помощника; ядро стиля дописывается к промпту фото. */
   const [stylePreset, setStylePreset] = useState("");
   const activeStyle = inspirationStyle(stylePreset);
   const [downloadFormat, setDownloadFormat] = useState<"png" | "jpg" | "webp">("png");
   const [batchCount, setBatchCount] = useState<1 | 2 | 4>(1);
-  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [soraSize, setSoraSize] = useState<"small" | "large">("small");
   const [firstFrameDataUrl, setFirstFrameDataUrl] = useState<string | null>(null);
   const [lastFrameDataUrl, setLastFrameDataUrl] = useState<string | null>(null);
@@ -953,7 +961,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   >(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = localStorage.getItem("studio_tracking_jobs");
+      const raw = sessionStorage.getItem("studio_tracking_jobs");
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -963,7 +971,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem("studio_tracking_jobs", JSON.stringify(trackingJobs));
+      sessionStorage.setItem("studio_tracking_jobs", JSON.stringify(trackingJobs));
     } catch {
       // ignore
     }
@@ -977,6 +985,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [openChip, setOpenChip] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [kieValues, setKieValues] = useState<Record<string, unknown>>({});
+  /** Режим семейства kie.ai (шаг 8); null — плоская модель без modes. */
+  const [kieModeId, setKieModeId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -985,6 +995,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const multiRefInputRef = useRef<HTMLInputElement>(null);
+  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  /** Мастер клонирования: открывается из окна «Параметры» рядом с выбором голоса. */
   const [cloneVoiceOpen, setCloneVoiceOpen] = useState(false);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1008,12 +1020,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const newPos = start + inserted.length;
       textarea.setSelectionRange(newPos, newPos);
     });
-  };
-
-  /** Выбор голоса из выпадающего меню ElevenLabsDock (вместо старого модала). */
-  const handleVoiceChange = (voiceId: string, name: string) => {
-    setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
-    toast.success(`Выбран голос: ${name}`);
   };
   const referenceImagesRef = useRef<RefImage[]>([]);
 
@@ -1069,40 +1075,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       if (d.job_id) s.add(d.job_id);
       if (d.history_id) s.add(d.history_id);
     }
-    for (const r of createQueueQ.data?.running ?? []) {
-      if (r.job_id) s.add(r.job_id);
-      if (r.history_id) s.add(r.history_id);
-    }
-    for (const w of createQueueQ.data?.waiting ?? []) {
-      if (w.job_id) s.add(w.job_id);
-      if (w.history_id) s.add(w.history_id);
-    }
     return s;
-  }, [trackingJobs, draftJobs, createQueueQ.data?.running, createQueueQ.data?.waiting]);
-
-  // Автосинхронизация с сервером: если вкладка была закрыта или страница перезагружена,
-  // все активные задачи с сервера гарантированно подхватываются в trackingJobs
-  useEffect(() => {
-    const activeFromServer = [
-      ...(createQueueQ.data?.running ?? []),
-      ...(createQueueQ.data?.waiting ?? []),
-    ];
-    if (!activeFromServer.length) return;
-    setTrackingJobs((prev) => {
-      const existing = new Set(prev.map((t) => t.jobId));
-      const toAdd: { provider: "outsee" | "kie"; jobId: string; historyId: string }[] = [];
-      for (const job of activeFromServer) {
-        if (job.job_id && !existing.has(job.job_id)) {
-          toAdd.push({
-            provider: (job.provider === "outsee" ? "outsee" : "kie") as "outsee" | "kie",
-            jobId: job.job_id,
-            historyId: job.history_id || `gen-${job.job_id}`,
-          });
-        }
-      }
-      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
-    });
-  }, [createQueueQ.data?.running, createQueueQ.data?.waiting]);
+  }, [trackingJobs, draftJobs]);
 
   const runningJobs = useMemo(() => {
     const fromQueue = createQueueQ.data?.running ?? [];
@@ -1174,6 +1148,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     setInstrumental(Boolean(s.instrumental));
     setPrompt("");
     setSoraSize(s.sora_size === "large" ? "large" : "small");
+    // Режим семейства: валидность проверит эффект сброса при смене модели.
+    if (typeof s.kie_mode_id === "string" && s.kie_mode_id) setKieModeId(s.kie_mode_id);
     setSettingsHydrated(true);
   }, [open, settingsQ.data, settingsHydrated]);
 
@@ -1300,8 +1276,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     let finalStartMs = nowTs;
     if (jobKey && localJobStartRef.current.has(jobKey)) {
       const cached = localJobStartRef.current.get(jobKey)!;
-      if (candidateStartMs != null && Math.abs(candidateStartMs - cached) > 2000) {
-        // Сервер вернул более актуальную метку старта (после обновления страницы или рассинхронизации)
+      if (candidateStartMs != null && candidateStartMs < cached - 1500) {
+        // Сервер вернул более раннюю метку старта (например, после обновления страницы или резолва очереди)
         finalStartMs = candidateStartMs;
         localJobStartRef.current.set(jobKey, candidateStartMs);
       } else {
@@ -1326,29 +1302,94 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const dockChips = dockChipsForModel(activeSlug, mediaType);
 
   // ---- KIE: модель выбрана из общего пикера (slug "kie:<id>") ----
-  const kieModels = useMemo(
-    () =>
-      (kieCatalogQ.data?.models ?? []).filter((m) => {
-        const id = m.id.toLowerCase();
-        // GPT Image 2, Nano Banana 2, Veo 3.1 Lite — строго Outsee
-        if (id.includes("veo") || id.includes("gpt-image") || id.includes("banana")) {
-          return false;
-        }
-        return true;
-      }),
-    [kieCatalogQ.data],
-  );
+  /**
+   * Все семейства каталога — источник правды для Create (KIE): никаких
+   * скрытых подстрок. Раньше veo/gpt-image/banana уводились «строго в Outsee»,
+   * из-за чего 10 реальных семейств пропадали из пикера.
+   */
+  const kieModels = useMemo(() => kieCatalogQ.data?.models ?? [], [kieCatalogQ.data]);
+  /**
+   * Слаг строки пикера: `kie:<семья>~<режим>` — одна строка меню на режим.
+   * Без режима (`kie:<семья>`) остаются старые настройки и плоские записи.
+   */
+  const kieSlug = useMemo(() => parseKieSlug(activeSlug), [activeSlug]);
   const kieModel = useMemo(() => {
-    if (!activeSlug.startsWith("kie:")) return null;
-    return kieModels.find((m) => m.id === activeSlug.slice(4)) ?? null;
-  }, [activeSlug, kieModels]);
+    if (!kieSlug) return null;
+    return kieModels.find((m) => m.id === kieSlug.familyId) ?? null;
+  }, [kieSlug, kieModels]);
   const kieActive = kieModel != null;
-  const kieTextField = kieModel ? kieMainTextField(kieModel) : null;
+
+  /** Слаг строки пикера для семейства: сразу с первым режимом. */
+  const slugForFamily = (familyId: string): string => {
+    const fam = kieModels.find((m) => m.id === familyId) ?? null;
+    return kieRowSlug(familyId, kieFamilyModes(fam)[0]?.id ?? null);
+  };
+
+  /**
+   * Дефолтная семья каталога для вкладки: предпочтительная, иначе первая.
+   * Нужна, когда выбранный slug — пресет outsee, которого в curated-каталоге
+   * больше нет (модель удалена владельцем): подсветить такую строку нечем.
+   */
+  const defaultKieSlugFor = (type: "image" | "video"): string | null => {
+    const list = kieModels.filter(
+      (m) => (m.media ?? (m.result === "video" ? "video" : "image")) === type,
+    );
+    const preferred = type === "image" ? "nano-banana-2" : "veo-3-1";
+    const fam = list.find((m) => m.id === preferred) ?? list[0];
+    return fam ? slugForFamily(fam.id) : null;
+  };
+
+  /**
+   * Пресет outsee в пикере скрыт: у него есть KIE-эквивалент, а KIE — источник
+   * правды (одна строка на режим). Если такой slug остался выбранным
+   * (дефолт/старые настройки) или его семейство уже удалено из curated-каталога —
+   * переводим выбор на строку семейства, иначе она не подсветится и генерация
+   * уйдёт не туда.
+   */
+  useEffect(() => {
+    const ids = new Set(kieModels.map((m) => m.id.toLowerCase()));
+    if (mediaType === "image" && !imageSlug.startsWith("kie:")) {
+      const mapped = outseePresetFamilyIds(imageSlug).find((id) => ids.has(id));
+      const target = mapped ? slugForFamily(mapped) : defaultKieSlugFor("image");
+      if (target && target !== imageSlug) setImageSlug(target);
+    } else if (mediaType === "video" && !videoSlug.startsWith("kie:")) {
+      const mapped = outseePresetFamilyIds(videoSlug).find((id) => ids.has(id));
+      const target = mapped ? slugForFamily(mapped) : defaultKieSlugFor("video");
+      if (target && target !== videoSlug) setVideoSlug(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaType, imageSlug, videoSlug, kieModels]);
+
+  /** Режимы семейства (шаг 8): пусто у старых плоских моделей каталога. */
+  const kieModes = useMemo(() => kieFamilyModes(kieModel), [kieModel]);
+  const kieMode = useMemo(() => kieFamilyMode(kieModel, kieModeId), [kieModel, kieModeId]);
+  /** Поля активного режима — из них строятся чипы, секции и валидация payload. */
+  const kieModeFields = useMemo(
+    () => kieEffectiveFields(kieModel, kieModeId),
+    [kieModel, kieModeId],
+  );
+  const kieTextField = useMemo(() => kieMainTextName(kieModeFields), [kieModeFields]);
+  /**
+   * Озвучка ElevenLabs. Голос, клоны и аудио-теги — не отдельные панели, а
+   * строки внутри общего окна «Параметры» (владелец попросил 15.11.2026).
+   */
+  const elevenlabsAudio =
+    mediaType === "audio" &&
+    (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4"));
+  /**
+   * Схема полей режима известна? «Настройки неизвестны» пишем только при
+   * fields_known === false (или пустых полях без флага), иначе — «нет
+   * дополнительных настроек» (все поля файловые/промпт).
+   */
+  const kieModeFieldsKnown = useMemo(
+    () => kieFieldsKnown(kieModel, kieModeId),
+    [kieModel, kieModeId],
+  );
 
   // ---- Seedance (KIE): плитки референсов, режим Omni / Первый+Последний ----
   const seedanceIsKie = mediaType === "video" && kieActive && isSeedanceModel(kieModel);
 
-  const kieFileFieldList = useMemo(() => (kieModel ? kieFileFields(kieModel) : []), [kieModel]);
+  const kieFileFieldList = useMemo(() => kieFileFieldsIn(kieModeFields), [kieModeFields]);
   /** Плиточный док в новом дизайне — для любой KIE-модели, у которой есть слоты файлов. */
   const kieTilesActive = Boolean(kieActive && kieFileFieldList.length > 0);
   const omniRefFields = useMemo(
@@ -1440,43 +1481,41 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const applySeedancePreset = (preset: "fast" | "quality") => {
     setSeedancePreset(preset);
-    const resField = kieModel?.fields.find((f) => f.name === "resolution");
+    const resField = kieModeFields.find((f) => f.name === "resolution");
     if (!resField) return;
     const options = resField.options || [];
     const next = preset === "fast" ? "480p" : options.includes("720p") ? "720p" : options[0];
     if (next) handleKieValueChange("resolution", next);
   };
 
-  /** Сброс параметров панели «Параметры» к дефолтам модели. */
-  const resetSeedanceParams = () => {
-    const defaults: [string, unknown][] = [];
-    for (const name of ["aspect_ratio", "resolution", "duration", "generate_audio"]) {
-      const f = kieModel?.fields.find((x) => x.name === name);
-      if (f?.default !== undefined) defaults.push([name, f.default]);
-    }
-    if (defaults.length === 0) return;
-    setKieValues((prev) => {
-      const next = { ...prev };
-      for (const [name, value] of defaults) next[name] = value;
-      return next;
-    });
-    const resDefault = String(kieModel?.fields.find((x) => x.name === "resolution")?.default ?? "");
-    setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
-  };
+  /**
+   * Дескрипторы окна «Параметры» KIE-модели — из полей активного режима.
+   * Файлы, главный текст, формат и скрытые show_if поля в окно не попадают.
+   */
+  const kieSettings = useMemo(
+    () =>
+      kieSettingDescriptors(kieModeFields, {
+        values: kieValues,
+        mainTextField: kieTextField,
+      }),
+    [kieModeFields, kieValues, kieTextField],
+  );
 
-  /** Сброс панели «Параметры» озвучки ElevenLabs к дефолтам модели. */
-  const resetElevenLabsParams = () => {
-    const defaults: [string, unknown][] = [];
-    for (const name of ELEVENLABS_DOCK_FIELDS) {
-      const f = kieModel?.fields.find((x) => x.name === name);
-      if (f?.default !== undefined) defaults.push([name, f.default]);
-    }
+  /** Сброс параметров панели «Параметры» к дефолтам активного режима. */
+  const resetKieSettings = () => {
+    const defaults = settingDefaultPairs(kieSettings);
     if (defaults.length === 0) return;
     setKieValues((prev) => {
       const next = { ...prev };
       for (const [name, value] of defaults) next[name] = value;
       return next;
     });
+    if (seedanceIsKie) {
+      const resDefault = String(
+        kieModeFields.find((x) => x.name === "resolution")?.default ?? "",
+      );
+      setSeedancePreset(resDefault === "480p" ? "fast" : "quality");
+    }
   };
 
   const switchSeedanceMode = (mode: "omni" | "frames") => {
@@ -1490,6 +1529,174 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     } else {
       setRefItems("first_frame_url", [], []);
       setRefItems("last_frame_url", [], []);
+    }
+  };
+
+  /**
+   * Значения для полей режима: только их дефолты. Старые values НЕ переносим
+   * (иначе цена и payload тянутся от предыдущего режима), исключение — файлы
+   * и референсы, которые новый режим реально поддерживает.
+   */
+  const valuesForFields = (
+    fields: ReturnType<typeof kieEffectiveFields>,
+    prev: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const next: Record<string, unknown> = {};
+    for (const f of fields) {
+      if (f.default !== undefined) next[f.name] = f.default;
+    }
+    const fileNames = new Set(kieFileFieldsIn(fields).map((f) => f.name));
+    for (const [k, v] of Object.entries(prev)) {
+      if (!fileNames.has(k)) continue;
+      if (v === undefined || v === null) continue;
+      next[k] = v;
+    }
+    return next;
+  };
+
+  /** Выбранный слаг кладём в состояние той вкладки, на которой стоим. */
+  const setActiveSlug = (slug: string) => {
+    if (mediaType === "image") setImageSlug(slug);
+    else if (mediaType === "video") setVideoSlug(slug);
+    else setAudioSlug(slug);
+  };
+
+  /**
+   * Значения под режим: чужие поля убираем, чтобы в payload не уехало поле,
+   * которого у выбранного режима нет; кэш оценки прошлого режима сбрасываем.
+   */
+  const resetKieValuesForMode = (
+    family: typeof kieModel,
+    modeId: string | null | undefined,
+  ) => {
+    const nextMode = kieFamilyMode(family, modeId);
+    // Режим с пустыми fields не подменяем полями семейства: иначе значения
+    // уходили бы в мёртвые ключи (backend поля режима не берёт).
+    const nextFields = nextMode ? (nextMode.fields ?? []) : (family?.fields ?? []);
+    qc.removeQueries({ predicate: (query) => query.queryKey[0] === "kie-estimate" });
+    setKieModeId(nextMode?.id ?? null);
+    setKieValues((prev) => valuesForFields(nextFields, prev));
+    setKieRefNames(
+      (prev) => valuesForMode(prev, nextFields) as Record<string, string[]>,
+    );
+    return nextMode;
+  };
+
+  /**
+   * Переключение режима семейства из дока: слаг пикера тоже несёт режим,
+   * иначе в меню подсветится другая строка.
+   */
+  const switchKieMode = (modeId: string) => {
+    resetKieValuesForMode(kieModel, modeId);
+    if (seedanceIsKie) {
+      const prevRes = String(kieValues.resolution ?? "");
+      setSeedancePreset(prevRes === "480p" ? "fast" : "quality");
+    }
+    if (kieModel) setActiveSlug(kieRowSlug(kieModel.id, modeId));
+  };
+
+  /** Клик по строке пикера: строка = семейство + режим. */
+  const selectPickerSlug = (slug: string) => {
+    const parsed = parseKieSlug(slug);
+    if (!parsed) {
+      setActiveSlug(slug);
+      applyModelDefaults(slug, mediaType);
+      return;
+    }
+    const family = kieModels.find((m) => m.id === parsed.familyId) ?? null;
+    resetKieValuesForMode(family, parsed.modeId ?? kieFamilyModes(family)[0]?.id ?? null);
+    setActiveSlug(slug);
+  };
+
+  /** Семейство/каталог сменились — активный режим сбрасывается на первый. */
+  useEffect(() => {
+    // Режим из сохранённых настроек мог прийти от другого семейства.
+    if (kieModes.some((m) => m.id === kieModeId)) return;
+    setKieModeId(kieModes[0]?.id ?? null);
+  }, [kieModel?.id, kieModeId, kieModes]);
+
+  /**
+   * Режим берём со слага пикера: он главнее состояния. Слаг без режима
+   * (`kie:<семья>` из старых настроек) переводим на строку режима, иначе в
+   * пикере не подсветится ни одна строка.
+   */
+  useEffect(() => {
+    if (!kieModel || !kieModes.length) return;
+    const slugMode = kieSlug?.modeId;
+    const valid = slugMode && kieModes.some((m) => m.id === slugMode) ? slugMode : null;
+    if (valid) {
+      if (valid !== kieModeId) resetKieValuesForMode(kieModel, valid);
+      return;
+    }
+    const fallback = kieModes.find((m) => m.id === kieModeId)?.id ?? kieModes[0]?.id;
+    if (!fallback) return;
+    const next = kieRowSlug(kieModel.id, fallback);
+    if (next !== activeSlug) setActiveSlug(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kieModel, kieModes, kieSlug, kieModeId, activeSlug]);
+
+  /** Опции селектора режима для дока. */
+  const kieModeOptionList = useMemo(() => kieModeOptions(kieModel), [kieModel]);
+
+  /**
+   * Одно окно настроек для outsee-пресетов: aspect / resolution / detail /
+   * duration / audio. Порядок и опции — из каталога (dockChipsForModel +
+   * chipOptions), значения живут в прежних state-полях.
+   */
+  const outseeSettings = useMemo(() => {
+    if (kieActive || mediaType === "audio") return [];
+    const chips = dockChipsForModel(activeSlug, mediaType);
+    return outseeSettingDescriptors({
+      chips,
+      options: {
+        aspect: chipOptions(activeSlug, "aspect").map((o) => ({ id: o, label: o })),
+        resolution: chipOptions(activeSlug, "resolution").map((o) => ({ id: o, label: o })),
+        detail: OUTSEE_DETAIL_LEVELS.map((d) => ({ id: d.id, label: d.label, hint: d.hint })),
+        duration: chipOptions(activeSlug, "duration").map((o) => ({ id: o, label: `${o}с` })),
+      },
+      defaults: {
+        aspect:
+          mediaType === "image"
+            ? imageModel.defaults.aspectRatio
+            : videoModel.defaults.aspectRatio,
+        resolution:
+          mediaType === "image"
+            ? imageModel.defaults.imageResolution
+            : videoModel.defaults.resolution,
+        detail: mediaType === "image" ? imageModel.defaults.detailLevel : undefined,
+        duration:
+          mediaType === "video" && videoModel.defaults.duration != null
+            ? String(videoModel.defaults.duration)
+            : undefined,
+        audio: mediaType === "video" ? videoModel.defaults.generateAudio : undefined,
+      },
+    });
+  }, [kieActive, mediaType, activeSlug, imageModel, videoModel]);
+
+  /** Значения окна outsee-настроек: читаются из прежних state-полей. */
+  const outseeSettingValues: Record<string, unknown> = {
+    aspect,
+    resolution: mediaType === "image" ? resolution : videoResolution,
+    detail,
+    duration,
+    audio: generateAudio,
+  };
+
+  /** Запись значений окна outsee-настроек — в прежние state-поля. */
+  const handleOutseeSettingChange = (name: string, value: unknown) => {
+    if (name === "aspect") setAspect(String(value));
+    else if (name === "resolution") {
+      if (mediaType === "image") setResolution(String(value));
+      else setVideoResolution(String(value));
+    } else if (name === "detail") setDetail(String(value));
+    else if (name === "duration") setDuration(String(value));
+    else if (name === "audio") setGenerateAudio(Boolean(value));
+  };
+
+  /** Сброс окна outsee-настроек к дефолтам модели. */
+  const resetOutseeSettings = () => {
+    for (const [name, value] of settingDefaultPairs(outseeSettings)) {
+      handleOutseeSettingChange(name, value);
     }
   };
 
@@ -1729,38 +1936,105 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     return hasFrames && hasRefs;
   }, [mediaType, firstFrameDataUrl, lastFrameDataUrl, referenceImages.length]);
 
-  const kiePrice = useMemo(() => {
-    if (!kieModel || !kieCatalogQ.data) return null;
+  /** Значения, по которым считается цена: настройки + главное текстовое поле. */
+  const kieEstimateValues = useMemo(() => {
     const vals = { ...kieValues };
     if (kieTextField) vals[kieTextField] = prompt;
-    return estimateKie(kieModel, vals, kieCatalogQ.data.credit_usd);
-  }, [kieModel, kieValues, prompt, kieTextField, kieCatalogQ.data]);
+    return vals;
+  }, [kieValues, kieTextField, prompt]);
+
+  /**
+   * Точная цена с сервера (POST /api/kie-create/estimate) — главный источник,
+   * когда backend отдаёт семейства с режимами. Пока эндпоинта нет, запрос
+   * выключен и цена считается локально по usd_rules (фолбэк на кредиты).
+   */
+  const kieEstimateQ = useQuery({
+    queryKey: [
+      "kie-estimate",
+      kieModel?.id ?? "",
+      kieModeId ?? "",
+      JSON.stringify(kieEstimateValues),
+    ],
+    queryFn: () =>
+      api.kieEstimate({
+        model_id: kieModel!.id,
+        ...(kieModeId ? { mode: kieModeId } : {}),
+        values: kieEstimateValues,
+      }),
+    enabled: Boolean(kieActive && kieModel && kieModes.length > 0),
+    retry: false,
+    staleTime: 15_000,
+  });
+
+  /**
+   * Цена текущего режима. Приоритет: серверный estimate, но только если
+   * ответ относится к ТЕКУЩЕМУ семейству/режиму (иначе из-за кэша в шапке
+   * залипала цена прошлого режима). null/0 и `known:false` — «цена уточняется».
+   */
+  const kiePrice = useMemo(() => {
+    if (!kieModel || !kieCatalogQ.data) return null;
+    const local = estimateSettingsUsd({
+      model: kieModel,
+      modeId: kieModeId,
+      values: kieEstimateValues,
+      creditUsd: kieCatalogQ.data.credit_usd,
+    });
+    const est = kieEstimateQ.data;
+    const estFamily = est?.family_id ?? null;
+    const estMode = est?.mode_id ?? null;
+    const estFresh =
+      Boolean(est) &&
+      (!estFamily || estFamily === kieModel.id) &&
+      (!estMode || estMode === (kieModeId ?? ""));
+    const serverUsd =
+      estFresh && typeof est?.usd_client === "number"
+        ? est.usd_client
+        : estFresh && typeof est?.usd === "number"
+          ? est.usd
+          : null;
+    // Контракт: usd_client = null (или known:false) — цену посчитать нельзя.
+    const explicitlyUnknown =
+      estFresh && (est?.known === false || est?.usd_client === null);
+    if (estFresh && explicitlyUnknown) {
+      return { usd: null, usdKie: est?.usd_kie ?? local.usd_kie, pending: true };
+    }
+    if (estFresh && serverUsd != null) {
+      // 0 — честная бесплатная цена, не «уточняется».
+      return { usd: serverUsd, usdKie: est?.usd_kie ?? local.usd_kie, pending: false };
+    }
+    const localUsd = local.source === "pending" ? null : local.usd_client;
+    return {
+      usd: localUsd,
+      usdKie: local.usd_kie,
+      pending: local.source === "pending" || localUsd == null,
+    };
+  }, [kieModel, kieModeId, kieEstimateValues, kieCatalogQ.data, kieEstimateQ.data]);
 
   useEffect(() => {
-    // Сохраняем совместимые поля при смене модели KIE
-    setKieValues((prev) => {
-      const next: Record<string, unknown> = {};
-      if (prev.aspect_ratio) next.aspect_ratio = prev.aspect_ratio;
-      if (prev.resolution) next.resolution = prev.resolution;
-      if (prev.quality) next.quality = prev.quality;
-      return next;
-    });
+    // Смена модели: values — дефолты активного режима новой модели (файлы
+    // переносим, только если новый режим их поддерживает). Иначе в payload и
+    // цену попадают чужие поля от предыдущей модели.
+    setKieValues((prev) => valuesForFields(kieModeFields, prev));
+    setKieRefNames((prev) => valuesForMode(prev, kieModeFields) as Record<string, string[]>);
+    // Кэш estimate прошлых моделей/режимов сбрасываем: цена не должна залипать.
+    qc.removeQueries({ predicate: (query) => query.queryKey[0] === "kie-estimate" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSlug]);
 
-  // Трим каталога Create: outsee — только GPT Image 2 / Nano Banana 2 /
-  // Veo 3.1 Lite; аудио — только KIE (Suno/ElevenLabs не дублируются).
+  // Трим каталога Create: медиа — только семейства из curated-каталога KIE
+  // (пресеты outsee скрыты), аудио — только KIE (Suno/ElevenLabs не дублируются).
   useEffect(() => {
     if (!kieCatalogQ.data) return;
-    const isKie = (s: string) => kieModels.some((m) => `kie:${m.id}` === s);
-    if (
-      mediaType === "image" &&
-      !isKie(imageSlug) &&
-      !["gpt-image-2", "nano-banana-2"].includes(imageSlug)
-    ) {
-      setImageSlug("gpt-image-2");
+    // Слаг строки пикера несёт режим (`kie:<семья>~<режим>`) — сверяем семейство.
+    const isKie = (s: string) => {
+      const parsed = parseKieSlug(s);
+      return Boolean(parsed && kieModels.some((m) => m.id === parsed.familyId));
+    };
+    if (mediaType === "image" && !isKie(imageSlug)) {
+      setImageSlug(defaultKieSlugFor("image") ?? "gpt-image-2");
     }
-    if (mediaType === "video" && !isKie(videoSlug) && videoSlug !== "veo-3-1-lite") {
-      setVideoSlug("veo-3-1-lite");
+    if (mediaType === "video" && !isKie(videoSlug)) {
+      setVideoSlug(defaultKieSlugFor("video") ?? "veo-3-1-lite");
     }
     if (mediaType === "audio" && !isKie(audioSlug)) {
       setAudioSlug(
@@ -1783,28 +2057,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const currentWired = false;
   const outseeConfigured = Boolean(outseeStatusQ.data?.configured);
   const kieConfigured = Boolean(kieCatalogQ.data?.configured);
-  const elevenlabsConfigured = Boolean(
-    (kieCatalogQ.data as Record<string, unknown> | undefined)?.elevenlabs_configured,
-  );
-  const isElevenLabsActive =
-    kieModel?.id === "elevenlabs-v4" ||
-    activeSlug === "elevenlabs-v4" ||
-    activeSlug === "kie:elevenlabs-v4";
-
-  /** Дефолтный voice_id из каталога — показываем «Marina», даже если в состоянии пусто. */
-  const elevenLabsVoiceId = useMemo(() => {
-    const raw = String(kieValues["voice_id"] ?? "").trim();
-    if (raw) return raw;
-    const def = kieModel?.fields.find((f) => f.name === "voice_id")?.default;
-    return def == null ? "" : String(def);
-  }, [kieValues, kieModel]);
-
-  /** Имя выбранного голоса для чипа дока и панели («Marina (Ж)»). */
-  const voiceChipName = useMemo(() => {
-    const ru = getVoiceById(elevenLabsVoiceId);
-    if (ru) return `${ru.name} (${ru.gender === "female" ? "Ж" : "М"})`;
-    return resolveVoiceName(elevenLabsVoiceId) || elevenLabsVoiceId || "Голос";
-  }, [elevenLabsVoiceId]);
 
   const autoProvider: "outsee" | null = useMemo(() => {
     if (kieActive) return null;
@@ -1818,9 +2070,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       ? (createQueueQ.data?.max_parallel_outsee ?? 5)
       : (createQueueQ.data?.max_parallel ?? 5);
 
-  const canApiDirect = kieActive
-    ? (isElevenLabsActive ? elevenlabsConfigured : kieConfigured)
-    : autoProvider != null;
+  const canApiDirect = kieActive ? kieConfigured : autoProvider != null;
   const currentIcon = kieActive && kieModel
     ? modelIconForId(kieModel.id)
     : modelIconForId(
@@ -1838,28 +2088,56 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         ? videoModel.price
         : audioModel.price;
 
+  // Клиентская цена outsee: токены каталога × $0.10 × 1.25, только доллары.
+  const outseePrice = useMemo(
+    () =>
+      kieActive
+        ? null
+        : estimateCreatePrice({
+            media: mediaType,
+            model: activeSlug,
+            resolution: mediaType === "video" ? videoResolution : resolution,
+            duration: Number(duration) || 10,
+            size: soraSize,
+            catalogPrice: currentCatalogPrice,
+          }),
+    [
+      kieActive,
+      mediaType,
+      activeSlug,
+      videoResolution,
+      resolution,
+      duration,
+      soraSize,
+      currentCatalogPrice,
+    ],
+  );
+
   const basePriceLabel = kieActive
     ? kiePrice
-      ? `$${kiePrice.usd.toFixed(3)} · ${kiePrice.credits} кр`
+      ? kiePrice.pending || kiePrice.usd == null
+        ? "цена уточняется"
+        : formatUsd(kiePrice.usd)
       : "—"
-    : estimateCreatePrice({
-        media: mediaType,
-        model: activeSlug,
-        resolution,
-        duration: Number(duration) || 10,
-        size: soraSize,
-        catalogPrice: currentCatalogPrice,
-      }).label;
+    : (outseePrice?.label ?? "—");
 
   const priceLabel = useMemo(() => {
     if ((mediaType === "image" || mediaType === "video") && batchCount > 1) {
       if (kieActive && kiePrice) {
-        return `$${(kiePrice.usd * batchCount).toFixed(3)} · ${kiePrice.credits * batchCount} кр`;
+        if (kiePrice.pending || kiePrice.usd == null) return "цена уточняется";
+        if (kiePrice.usd === 0) return "бесплатно";
+        return `${formatUsd(kiePrice.usd * batchCount)} (x${batchCount})`;
+      }
+      if (outseePrice) {
+        if (outseePrice.usdClient === 0) return "бесплатно";
+        if (outseePrice.usdClient > 0) {
+          return `${formatUsd(outseePrice.usdClient * batchCount)} (x${batchCount})`;
+        }
       }
       return `${basePriceLabel} (x${batchCount})`;
     }
     return basePriceLabel;
-  }, [basePriceLabel, mediaType, batchCount, kieActive, kiePrice]);
+  }, [basePriceLabel, mediaType, batchCount, kieActive, kiePrice, outseePrice]);
 
   useEffect(() => {
     if (mediaType === "image") {
@@ -2053,6 +2331,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     image_provider: "outsee",
     video_provider: "outsee",
     sora_size: soraSize,
+    // Режим семейства KIE переживает перезагрузку страницы.
+    kie_mode_id: kieModeId,
   });
 
   const saveGlobal = useMutation({
@@ -2095,21 +2375,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const deleteItem = useMutation({
     mutationFn: (item: HistoryItem) =>
-      api.deleteOutseeCreateHistoryItem({
-        path: item.path || undefined,
-        itemId: item.id || undefined,
-        jobId: item.job_id || undefined,
-      }),
+      api.deleteOutseeCreateHistoryItem({ path: item.path || undefined, itemId: item.id }),
     onSuccess: (_, item) => {
       toast.success("Удалено из истории");
-      if (selectedId === item.id || (item.job_id && selectedId === item.job_id)) {
-        setSelectedId(null);
-      }
-      setTrackingJobs((prev) =>
-        prev.filter((x) => x.jobId !== item.job_id && x.historyId !== item.id),
-      );
+      if (selectedId === item.id) setSelectedId(null);
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
-      qc.invalidateQueries({ queryKey: ["create-queue"] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -2124,8 +2394,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
-  const unknownCountRef = useRef<Map<string, number>>(new Map());
-
   useEffect(() => {
     if (!trackingJobs.length) return;
     let cancelled = false;
@@ -2136,7 +2404,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           if (cancelled) return;
           qc.invalidateQueries({ queryKey: ["create-queue"] });
           if (job.status === "done") {
-            unknownCountRef.current.delete(t.jobId);
             const took =
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
@@ -2149,47 +2416,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
           } else if (job.status === "failed") {
-            unknownCountRef.current.delete(t.jobId);
             const took =
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
-            const friendlyError = humanizeErrorMessage(job.error) || "Генерация не удалась";
             toast.error(
               took
-                ? `${friendlyError} · ${took}`
-                : friendlyError,
+                ? `${job.error || "Генерация не удалась"} · ${took}`
+                : job.error || "Генерация не удалась",
             );
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
-          } else if (job.status === "unknown") {
-            // Задача не найдена в памяти сервера — проверяем историю на случай, если она уже завершена на диске
-            const currentHistory = historyQ.data ?? [];
-            const matched = currentHistory.find(
-              (h) => h.id === t.historyId || h.job_id === t.jobId,
-            );
-            if (matched && matched.status === "done") {
-              unknownCountRef.current.delete(t.jobId);
-              toast.success(`Готово · ${matched.model || "файл"}`);
-              if (t.historyId) setSelectedId(t.historyId);
-              setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
-              qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
-            } else if (matched && matched.status === "failed") {
-              unknownCountRef.current.delete(t.jobId);
-              toast.error(humanizeErrorMessage(matched.error) || "Генерация не удалась");
-              setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
-              qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
-            } else {
-              const count = (unknownCountRef.current.get(t.jobId) || 0) + 1;
-              unknownCountRef.current.set(t.jobId, count);
-              if (count >= 6) {
-                unknownCountRef.current.delete(t.jobId);
-                setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
-                qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
-              }
-            }
-          } else {
-            // Задача в процессе или очереди — сбрасываем счетчик неизвестных
-            unknownCountRef.current.delete(t.jobId);
           }
         } catch {
           /* job may not be ready yet */
@@ -2202,14 +2438,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [trackingJobs, qc, historyQ.data]);
-
-  const handleRandomPrompt = () => {
-    const available = RANDOM_PROMPTS.filter((p) => p !== prompt);
-    const chosen = available[Math.floor(Math.random() * available.length)];
-    setPrompt(chosen);
-    toast.success("Случайный промпт подставлен 🎲");
-  };
+  }, [trackingJobs, qc]);
 
   /**
    * Двойной клик по картинке в истории: применить её конфигурацию
@@ -2240,28 +2469,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     }
     setAssistantOpen(true);
     toast.success("Конфигурация изображения применена к панели снизу");
-  };
-
-  const handleEnhancePrompt = async () => {
-    const text = prompt.trim();
-    if (!text) {
-      toast.error("Сначала напишите краткую идею в поле ввода");
-      return;
-    }
-    setIsEnhancingPrompt(true);
-    try {
-      const res = await api.enhanceOutseeCreatePrompt({
-        prompt: text,
-      });
-      if (res?.enhanced_prompt) {
-        setPrompt(res.enhanced_prompt);
-        toast.success("Промпт улучшен ИИ ✨");
-      }
-    } catch {
-      toast.error("Не удалось улучшить промпт");
-    } finally {
-      setIsEnhancingPrompt(false);
-    }
   };
 
   const createGenerate = useMutation({
@@ -2355,6 +2562,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               m.id === paramModelId ||
               `kie:${m.id}` === normalizedModel ||
               m.id === normalizedModel ||
+              m.id === parseKieSlug(normalizedModel)?.familyId ||
               m.label.toLowerCase() === normalizedModel.toLowerCase(),
           ) ||
           (retry?.provider === "kie" || retry?.project_slug === "kie"
@@ -2371,32 +2579,45 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           retry?.project_slug === "kie" ||
           (Boolean(kieActive && kieModel) && !retry);
         if (isKie) {
+          if (!kieConfigured) {
+            throw new Error("KIE_API_KEY не задан в .env");
+          }
+          // Слаг пикера может нести режим: семейство берём до разделителя.
+          const slugFamilyId = parseKieSlug(normalizedModel)?.familyId ?? null;
+          const slugModeId = parseKieSlug(normalizedModel)?.modeId ?? null;
           const effectiveKieModel =
             matchedKie ??
-            (normalizedModel.startsWith("kie:") ? kieModels.find((m) => m.id === normalizedModel.slice(4)) : null) ??
+            (slugFamilyId ? kieModels.find((m) => m.id === slugFamilyId) : null) ??
             kieModel ??
             (targetMediaType === "audio" ? kieModels.find((m) => m.id === "suno-music") : null);
           const modelId =
             effectiveKieModel?.id ||
             paramModelId ||
-            (normalizedModel.startsWith("kie:") ? normalizedModel.slice(4) : null) ||
+            slugFamilyId ||
             kieModel?.id ||
             (targetMediaType === "audio" ? "suno-music" : null);
           if (!modelId) {
             throw new Error("Не удалось определить модель KIE");
           }
-
-          const isElevenLabs =
-            modelId === "elevenlabs-v4" ||
-            normalizedModel === "kie:elevenlabs-v4" ||
-            effectiveKieModel?.id === "elevenlabs-v4";
-          if (isElevenLabs) {
-            if (!elevenlabsConfigured) {
-              throw new Error("ELEVENLABS_API_KEY не задан в Настройках или .env");
-            }
-          } else if (!kieConfigured) {
-            throw new Error("KIE_API_KEY не задан в .env");
-          }
+          /**
+           * Режим семейства (шаг 8): при retry — из сохранённых params, иначе
+           * текущий выбор в доке. model_id уходит id семейства, режим — полем mode.
+           */
+          const sameFamily =
+            Boolean(effectiveKieModel && kieModel) && effectiveKieModel!.id === kieModel!.id;
+          const payloadModeId = retry
+            ? typeof retryParams.mode === "string" && retryParams.mode
+              ? retryParams.mode
+              : null
+            : sameFamily
+              ? (slugModeId ?? kieModeId)
+              : slugModeId;
+          const payloadFields = (() => {
+            const base = effectiveKieModel ?? kieModel;
+            const mode = payloadModeId ? kieFamilyMode(base, payloadModeId) : null;
+            // Режим с пустыми fields не подменяем полями семейства (см. switchKieMode).
+            return mode ? (mode.fields ?? []) : (base?.fields ?? []);
+          })();
           const storedVals = (retryParams.values && typeof retryParams.values === "object"
             ? retryParams.values
             : retryParams) as Record<string, unknown>;
@@ -2406,21 +2627,23 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           delete vals.model_id;
           delete vals.values;
 
-          const textField = effectiveKieModel ? kieMainTextField(effectiveKieModel) : kieTextField;
+          const textField = effectiveKieModel ? kieMainTextName(payloadFields) : kieTextField;
           if (textField) vals[textField] = text;
-          else if (retry) {
+          else if (!payloadFields.length) {
+            // Режим без известных полей: только промпт, если он есть. Остальные
+            // ключи режима неизвестны — мёртвых значений в payload не будет.
+            if (text.trim()) vals["prompt"] = text;
+          } else if (retry) {
             const pField = Object.keys(vals).find((k) => k.toLowerCase().includes("prompt")) || "prompt";
             vals[pField] = text;
           }
           if (targetNegativePrompt.trim() && !retry) {
-            const negField = (effectiveKieModel || kieModel)?.fields.find((f) =>
-              f.name.toLowerCase().includes("neg"),
-            );
+            const negField = payloadFields.find((f) => f.name.toLowerCase().includes("neg"));
             if (negField) vals[negField.name] = targetNegativePrompt.trim();
           }
 
           // Синхронизация чипов (соотношение сторон, разрешение, качество) в поля модели KIE
-          const kieFields = (effectiveKieModel || kieModel)?.fields || [];
+          const kieFields = payloadFields;
           const aspectField = kieFields.find(
             (f) =>
               f.name === "aspect_ratio" ||
@@ -2443,7 +2666,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 vals[aspectField.name] = match || strVal;
               }
             }
-          } else if (targetAspect) {
+          } else if (targetAspect && kieFields.length > 0) {
+            // Фолбэк только для моделей, у которых поля есть, но аспекта среди
+            // них нет. Режимам с неизвестными полями мёртвый ключ не шлём.
             vals["aspect_ratio"] = targetAspect.includes(":") ? targetAspect : targetAspect.replace("_", ":");
           }
 
@@ -2503,7 +2728,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 : refUrls;
 
           if (effectiveKieModel) {
-            const fields = effectiveKieModel.fields || [];
+            const fields = payloadFields;
             const fieldNames = new Set(fields.map((f) => f.name));
 
             // 1. Модели с отдельными полями первого кадра, последнего кадра или референсов (напр. Seedance 2.0 / 2.5)
@@ -2584,9 +2809,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           }
           if (effectiveKieModel) {
             const isInst = Boolean(vals.instrumental ?? instrumental);
-            const missing = effectiveKieModel.fields
+            const missing = payloadFields
               .filter((f) => f.required)
-              .filter((f) => kieFieldVisible(f, vals))
+              .filter((f) => isKieFieldVisible(f, vals))
               .filter((f) => {
                 if (f.name === "prompt" && (isInst || modelId === "suno-music")) return false;
                 const v = vals[f.name] ?? f.default;
@@ -2600,7 +2825,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             }
           }
           void api.putOutseeCreateSettings(settingsPayload()).catch(() => undefined);
-          const res = await api.kieGenerate({ model_id: modelId, values: vals });
+          const res = await api.kieGenerate({
+            model_id: modelId,
+            // Режим семейства (шаг 8): model_id — семейство, mode — режим.
+            ...(payloadModeId ? { mode: payloadModeId } : {}),
+            values: vals,
+          });
           return {
             job_id: res.job.job_id,
             history_id: res.job.history_id,
@@ -2765,6 +2995,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     const p = (item.params ?? {}) as Record<string, unknown>;
     const rawModel = item.model ? String(item.model) : "";
     const paramModelId = typeof p.model_id === "string" ? p.model_id : "";
+    // Повтор сохраняет и режим: он лежит в слаге строки и/или в params.mode.
+    const retryModeId =
+      parseKieSlug(rawModel)?.modeId ?? (typeof p.mode === "string" ? p.mode : null);
 
     const matchedKie =
       kieModels.find(
@@ -2772,6 +3005,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           m.id === paramModelId ||
           `kie:${m.id}` === rawModel ||
           m.id === rawModel ||
+          m.id === parseKieSlug(rawModel)?.familyId ||
           m.label.toLowerCase() === rawModel.toLowerCase(),
       ) ||
       (item.provider === "kie" || item.project_slug === "kie"
@@ -2779,17 +3013,18 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         : null);
 
     if (matchedKie) {
+      const retrySlug = kieRowSlug(matchedKie.id, retryModeId);
       const isKieVideo = matchedKie.result === "video" || matchedKie.media === "video" || item.kind === "video";
       const isKieAudio = matchedKie.result === "audio" || matchedKie.media === "audio" || item.kind === "audio";
       if (isKieVideo) {
         setMediaType("video");
-        setVideoSlug(`kie:${matchedKie.id}`);
+        setVideoSlug(retrySlug);
       } else if (isKieAudio) {
         setMediaType("audio");
-        setAudioSlug(`kie:${matchedKie.id}`);
+        setAudioSlug(retrySlug);
       } else {
         setMediaType("image");
-        setImageSlug(`kie:${matchedKie.id}`);
+        setImageSlug(retrySlug);
       }
       const vals = (p.values && typeof p.values === "object" ? p.values : p) as Record<string, unknown>;
       setKieValues({ ...vals });
@@ -2885,8 +3120,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           const jobMedia = activeJob.media || mediaType || "image";
           item = {
             id: activeJob.history_id || activeJob.job_id,
-            path: (activeJob as any).path || undefined,
-            job_id: activeJob.job_id,
             kind: jobMedia as "image" | "video" | "audio",
             preview_url: (activeJob as any).preview_url || null,
             label: activeJob.prompt_preview || "генерация",
@@ -2894,11 +3127,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             project_slug: null,
             prompt: activeJob.prompt_preview || null,
             status: activeJob.status || "processing",
+            job_id: activeJob.job_id,
             created_at: activeJob.created_at,
             started_at: activeJob.started_at,
             elapsed_sec: (activeJob as any).elapsed_sec,
             elapsed_label: (activeJob as any).elapsed_label,
-            error: (activeJob as any).error || null,
           };
         }
       }
@@ -2950,9 +3183,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   if (!open) return null;
 
   const TypeIcon = ({ id }: { id: OutseeMediaType }) => {
-    if (id === "video") return <Video className="h-4 w-4" strokeWidth={1.7} />;
-    if (id === "audio") return <Music className="h-4 w-4" strokeWidth={1.7} />;
-    return <ImageIcon className="h-4 w-4" strokeWidth={1.7} />;
+    if (id === "video") return <Video className="h-[22px] w-[22px] shrink-0" strokeWidth={1.7} />;
+    if (id === "audio") return <Music className="h-[22px] w-[22px] shrink-0" strokeWidth={1.7} />;
+    return <ImageIcon className="h-[22px] w-[22px] shrink-0" strokeWidth={1.7} />;
   };
 
   return (
@@ -3467,7 +3700,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               <div className="my-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <div className="text-sm font-bold text-red-300">Ошибка генерации</div>
                 <div className="text-[12px] text-white/60">
-                  {humanizeErrorMessage(selected.error) || "Не удалось получить файл"}
+                  {selected.error || "Не удалось получить файл"}
                 </div>
                 <div className="text-[12px] font-medium text-white/55">
                   Результат ·{" "}
@@ -3500,36 +3733,22 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </div>
               </div>
             ) : (
-              <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-black/40 px-8 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
-                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-500/30 bg-emerald-500/10 shadow-[0_0_25px_rgba(45,212,191,0.2)]">
-                  <Sparkles className="h-8 w-8 text-[#2dd4bf]" />
-                </div>
-                <div className="space-y-1.5">
-                  <div className="text-base font-semibold text-white/90">
-                    Студия создания медиа
-                  </div>
-                  <div className="text-[13px] leading-relaxed text-white/55">
-                    Опишите задумку в строке внизу и нажмите «Генерировать», либо выберите готовую работу из истории слева.
-                  </div>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center justify-center gap-2 text-[11px] text-white/45">
-                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
-                    🎨 Каталог стилей во «Вдохновении»
-                  </span>
-                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
-                    ⚡ Кнопка «Случайный» для идей
-                  </span>
-                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1">
-                    🪄 «Улучшить» для детального промпта
-                  </span>
+              <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#121216]/70 px-6 py-10 text-center backdrop-blur-xl">
+                <ImageIcon className="h-8 w-8 text-white/30" />
+                <div className="text-sm font-medium text-white/70">Нет результата</div>
+                <div className="text-[12px] text-white/40">
+                  Файлы пишутся в{" "}
+                  <span className="font-mono text-white/60">data/generations/</span> на этом
+                  компьютере.
                 </div>
               </div>
             )}
           </div>
 
           {/* prompt dock + vertical type toggle */}
-          <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 lg:px-5 lg:pb-4">
-            <div className="flex items-end gap-2">
+          <div className="absolute bottom-0 left-0 right-0 z-10 pb-3 pl-1.5 pr-3 lg:pb-4 lg:pl-2.5 lg:pr-5">
+            {/* Зазор слева и справа от колонки кнопок одинаковый: pl-1.5/lg:pl-2.5 = gap-1.5/lg:gap-2.5. */}
+            <div className="flex items-end gap-1.5 lg:gap-2.5">
               {/* cs-typetoggle */}
               <div className="flex shrink-0 flex-col gap-2">
                 {/* Вдохновение — каталог стилей, тот же, что в помощнике над промптом */}
@@ -3546,18 +3765,17 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         setModelOpen(false);
                       }}
                       aria-pressed={active}
+                      aria-label={t.label}
+                      title={t.label}
                       data-media-type={t.id}
                       className={cn(
-                        "flex min-w-[76px] flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 transition-all duration-200",
+                        "flex h-[54px] w-[77px] shrink-0 items-center justify-center rounded-xl border p-0 transition-all duration-200",
                         active
                           ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_18px_rgba(45,212,191,0.25)]"
                           : "border-white/10 bg-[#16161b]/90 text-white/45 hover:border-white/20 hover:bg-[#1e1e24] hover:text-white",
                       )}
                     >
                       <TypeIcon id={t.id} />
-                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em]">
-                        {t.label}
-                      </span>
                     </button>
                   );
                 })}
@@ -3677,10 +3895,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     kieModels={kieModels}
                     creditUsd={kieCatalogQ.data?.credit_usd ?? 0.005}
                     onSelect={(slug) => {
-                      if (mediaType === "image") setImageSlug(slug);
-                      else if (mediaType === "video") setVideoSlug(slug);
-                      else setAudioSlug(slug);
-                      if (!slug.startsWith("kie:")) applyModelDefaults(slug, mediaType);
+                      selectPickerSlug(slug);
                       setModelOpen(false);
                     }}
                   />
@@ -3696,9 +3911,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 {!kieTilesActive &&
                   kieActive &&
                   kieModel &&
-                  kieFileFields(kieModel).filter((f) => f.kind !== "images").length > 0 && (
+                  kieFileFieldList.filter((f) => f.kind !== "images").length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
-                    {kieFileFields(kieModel)
+                    {kieFileFieldList
                       .filter((f) => f.kind !== "images")
                       .map((f) => (
                         <KieAttachButton
@@ -3783,6 +3998,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           <RefCategory
                             kind="image"
                             addLabel="Первый кадр"
+                            slot="first"
                             showNumber={false}
                             showCount={false}
                             max={1}
@@ -3796,6 +4012,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           <RefCategory
                             kind="image"
                             addLabel="Последний кадр"
+                            slot="last"
                             showNumber={false}
                             showCount={false}
                             max={1}
@@ -3827,6 +4044,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               key={f.name}
                               kind="image"
                               addLabel={isLast ? "Последний кадр" : "Первый кадр"}
+                              slot={isLast ? "last" : "first"}
                               items={frameRefs.filter((r) => r.field === f.name)}
                               max={f.max_items ?? 1}
                               busy={refBusyField === f.name}
@@ -3868,6 +4086,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                                 key={f.name}
                                 kind="image"
                                 addLabel={isLast ? "Последний кадр" : "Первый кадр"}
+                                slot={isLast ? "last" : "first"}
                                 items={frameRefs.filter((r) => r.field === f.name)}
                                 max={f.max_items ?? 1}
                                 busy={refBusyField === f.name}
@@ -4194,62 +4413,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </div>
                   </div>
                 )}
-                {/* Actions and Negative Prompt for image mode */}
-                {mediaType === "image" && (
-                  <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-white/[0.06] bg-white/[0.015] px-3 py-1.5 lg:px-4">
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={handleRandomPrompt}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-white/70 transition hover:border-[#2dd4bf]/40 hover:bg-[#2dd4bf]/10 hover:text-white"
-                        title="Подставить готовый красивый пример промпта"
-                      >
-                        <Dices className="h-3 w-3 text-[#2dd4bf]" />
-                        <span>Случайный</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isEnhancingPrompt}
-                        onClick={handleEnhancePrompt}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2 py-0.5 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20 disabled:opacity-50"
-                        title="Улучшить и детализировать текущий промпт с помощью ИИ"
-                      >
-                        {isEnhancingPrompt ? (
-                          <Loader2 className="h-3 w-3 animate-spin text-[#2dd4bf]" />
-                        ) : (
-                          <FileText className="h-3 w-3 text-[#2dd4bf]" />
-                        )}
-                        <span>{isEnhancingPrompt ? "Улучшаем…" : "Улучшить"}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowNegativePrompt((v) => !v)}
-                        className={cn(
-                          "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-0.5 font-mono text-[10px] transition",
-                          showNegativePrompt || negativePrompt
-                            ? "bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/30"
-                            : "bg-white/[0.04] text-white/45 hover:text-white",
-                        )}
-                      >
-                        <span>⛔ Негативный</span>
-                        {negativePrompt && <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {/* Actions and Negative Prompt for image mode — убраны: полоска с кнопками
+                    «Случайный / Улучшить / Негативный» больше не нужна, промпт вводится сразу. */}
 
-                {/* Expandable Negative Prompt input */}
-                {mediaType === "image" && showNegativePrompt && (
-                  <div className="border-b border-white/[0.06] bg-black/20 px-3 py-2 lg:px-4">
-                    <input
-                      type="text"
-                      value={negativePrompt}
-                      onChange={(e) => setNegativePrompt(e.target.value)}
-                      placeholder="Отрицательный промпт: чего НЕ должно быть на картинке (напр. размытие, лишние пальцы, текст, мусор)..."
-                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none selection:bg-[#2dd4bf]/40 selection:text-white"
-                    />
-                  </div>
-                )}
                 {(!kieActive || kieTextField) && (
                   <div className="relative px-3 pt-3 lg:px-4">
                     <MentionMenu
@@ -4382,10 +4548,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         kieModels={kieModels}
                         creditUsd={kieCatalogQ.data?.credit_usd ?? 0.005}
                         onSelect={(slug) => {
-                          if (mediaType === "image") setImageSlug(slug);
-                          else if (mediaType === "video") setVideoSlug(slug);
-                          else setAudioSlug(slug);
-                          if (!slug.startsWith("kie:")) applyModelDefaults(slug, mediaType);
+                          selectPickerSlug(slug);
                           setModelOpen(false);
                         }}
                       />
@@ -4432,149 +4595,140 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </div>
                   )}
 
-                  {!kieActive && dockChips.map((chip) => {
-                    if (chip === "audio") {
-                      return (
-                        <button
-                          key="audio"
-                          type="button"
-                          onClick={() => setGenerateAudio((v) => !v)}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
-                            generateAudio
-                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
-                              : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
-                          )}
-                          title={generateAudio ? "Со звуком" : "Без звука"}
-                        >
-                          {OUTSEE_CHIP_LABELS.audio}
-                          <span className="font-mono text-[10px] text-white/45">
-                            {generateAudio ? "on" : "off"}
-                          </span>
-                        </button>
-                      );
-                    }
-                    if (chip === "image-input") {
-                      return null;
-                    }
-                    if (chip === "instrumental") {
-                      return (
-                        <button
-                          key="instrumental"
-                          type="button"
-                          onClick={() => setInstrumental((v) => !v)}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
-                            !instrumental
-                              ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
-                              : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
-                          )}
-                          title="Вокал on = не instrumental"
-                        >
-                          {OUTSEE_CHIP_LABELS.instrumental}
-                          <span className="font-mono text-[10px] text-white/40">
-                            {instrumental ? "off" : "on"}
-                          </span>
-                        </button>
-                      );
-                    }
+                  {/* Аудио: вокал / инструментал — своя кнопка, вкладка audio как была */}
+                  {!kieActive && mediaType === "audio" && dockChips.includes("instrumental") && (
+                    <button
+                      type="button"
+                      onClick={() => setInstrumental((v) => !v)}
+                      className={cn(
+                        "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
+                        !instrumental
+                          ? "border-[#2dd4bf]/40 bg-[#2dd4bf]/15 text-[#2dd4bf]"
+                          : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
+                      )}
+                      title="Вокал on = не instrumental"
+                    >
+                      {OUTSEE_CHIP_LABELS.instrumental}
+                      <span className="font-mono text-[10px] text-white/40">
+                        {instrumental ? "off" : "on"}
+                      </span>
+                    </button>
+                  )}
 
-                    const opts = chipOptions(activeSlug, chip);
-                    if (!opts.length) return null;
-
-                    let display = aspect;
-                    let onSelect = setAspect;
-                    let selectedVal = aspect;
-                    if (chip === "resolution") {
-                      display = mediaType === "image" ? resolution : videoResolution;
-                      onSelect = mediaType === "image" ? setResolution : setVideoResolution;
-                      selectedVal = display;
-                    } else if (chip === "detail") {
-                      display = `Детализация: ${detailLabel(detail)}`;
-                      onSelect = setDetail;
-                      selectedVal = detail;
-                    } else if (chip === "duration") {
-                      display = `${duration}с`;
-                      onSelect = setDuration;
-                      selectedVal = duration;
-                    }
-
-                    const options =
-                      chip === "detail"
-                        ? OUTSEE_DETAIL_LEVELS.map((d) => ({
-                            id: d.id,
-                            label: d.label,
-                            hint: d.hint,
-                          }))
-                        : chip === "duration"
-                          ? opts.map((d) => ({ id: d, label: `${d}с` }))
-                          : opts.map((o) => ({ id: o, label: o }));
-
-                    return (
-                      <OptionDropdown
-                        key={chip}
-                        label={OUTSEE_CHIP_LABELS[chip] || chip}
-                        value={display}
-                        selectedValue={selectedVal}
-                        open={openChip === chip}
-                        onOpenChange={(v) => {
-                          setOpenChip(v ? chip : null);
-                          if (v) setModelOpen(false);
-                        }}
-                        options={options}
-                        onSelect={onSelect}
-                        mono={chip !== "detail"}
-                      />
-                    );
-                  })}
-
-                  {/* Seedance (KIE): Формат · Разрешение · Время · Звук + Omni/Fast */}
-                  {seedanceIsKie && kieModel && (
-                    <SeedanceDock
-                      fields={kieModel.fields}
-                      values={kieValues}
-                      onChange={handleKieValueChange}
-                      onReset={resetSeedanceParams}
-                      mode={seedanceMode}
-                      onMode={switchSeedanceMode}
-                      preset={seedancePreset}
-                      onPreset={applySeedancePreset}
+                  {/* Одно окно настроек outsee-пресетов: aspect · resolution · detail · duration · audio */}
+                  {!kieActive && mediaType !== "audio" && (
+                    <ModelSettingsDock
+                      settings={outseeSettings}
+                      values={outseeSettingValues}
+                      onChange={handleOutseeSettingChange}
+                      onReset={resetOutseeSettings}
+                      priceLabel={basePriceLabel}
+                      onPanelOpen={() => {
+                        setModelOpen(false);
+                        setOpenChip(null);
+                      }}
                     />
                   )}
 
-                  {/* ElevenLabs: док «Параметры» озвучки — голос, слайдеры, теги, клонирование */}
-                  {kieActive && isElevenLabsActive && kieModel && (
-                    <ElevenLabsDock
-                      voiceName={voiceChipName}
-                      voiceId={elevenLabsVoiceId}
+                  {/* Одно окно настроек KIE-модели; у Seedance рядом фирменные Omni/Fast */}
+                  {kieActive && kieModel && (
+                    <ModelSettingsDock
+                      settings={kieSettings}
                       values={kieValues}
                       onChange={handleKieValueChange}
-                      onVoice={handleVoiceChange}
-                      onClone={() => setCloneVoiceOpen(true)}
-                      onInsertTag={handleInsertAudioTag}
-                      onReset={resetElevenLabsParams}
-                      priceLabel={priceLabel}
+                      onReset={resetKieSettings}
+                      priceLabel={basePriceLabel}
+                      onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
+                      onPanelOpen={() => {
+                        setModelOpen(false);
+                        setOpenChip(null);
+                      }}
+                      formatVoice={(value) => {
+                        const id = String(value || "");
+                        const voice = getVoiceById(id);
+                        if (voice) {
+                          return `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`;
+                        }
+                        // Клон из реестра voice-lab: имя берём из кэша модалки,
+                        // иначе в чипе торчал бы voice_id провайдера.
+                        return resolveVoiceName(id) ?? (id || "Выбрать голос");
+                      }}
+                      // Голос — выпадашкой вправо внутри «Параметров», не модалкой.
+                      renderVoice={
+                        elevenlabsAudio
+                          ? () => (
+                              <VoicePickerRow
+                                value={String(kieValues["voice_id"] || "")}
+                                onChange={(voiceId, voiceName) => {
+                                  setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
+                                  toast.success(`Голос: ${voiceName}`);
+                                }}
+                                onClone={() => setCloneVoiceOpen(true)}
+                              />
+                            )
+                          : undefined
+                      }
+                      // Аудио-теги и клонирование — там же, в «Параметрах».
+                      panelExtras={
+                        elevenlabsAudio ? (
+                          <>
+                            <AudioTagsRow onInsertTag={handleInsertAudioTag} />
+                            <button
+                              type="button"
+                              onClick={() => setCloneVoiceOpen(true)}
+                              title="Загрузить записи и создать свой голос"
+                              className="flex h-8 w-full items-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-2 text-[11px] font-medium text-[#2dd4bf] transition hover:border-[#2dd4bf]/60 hover:bg-[#2dd4bf]/20"
+                            >
+                              <Plus className="h-3 w-3" />
+                              Клонировать голос
+                            </button>
+                          </>
+                        ) : undefined
+                      }
+                      modes={kieModeOptionList}
+                      modeId={kieMode?.id ?? null}
+                      onModeChange={kieModeOptionList.length > 0 ? switchKieMode : undefined}
+                      fieldsKnown={kieModeFieldsKnown}
+                      extras={
+                        seedanceIsKie ? (
+                          <>
+                            <SegmentedPills<"omni" | "frames">
+                              ariaLabel="Режим Seedance"
+                              options={[
+                                { id: "omni", label: "Omni", title: "Ссылки: фото, видео, аудио" },
+                                {
+                                  id: "frames",
+                                  label: "Первый+Последний",
+                                  title: "Только первый и последний кадр",
+                                },
+                              ]}
+                              value={seedanceMode}
+                              onChange={switchSeedanceMode}
+                            />
+                            <SegmentedPills<"fast" | "quality">
+                              ariaLabel="Пресет качества"
+                              options={[
+                                {
+                                  id: "fast",
+                                  label: "Fast",
+                                  icon: <Zap className="h-2.5 w-2.5" />,
+                                  title: "Fast: 480p — дешевле и быстрее",
+                                },
+                                {
+                                  id: "quality",
+                                  label: "Quality",
+                                  icon: <Zap className="h-2.5 w-2.5" />,
+                                  title: "Quality: 720p и выше — дороже",
+                                },
+                              ]}
+                              value={seedancePreset}
+                              onChange={applySeedancePreset}
+                            />
+                          </>
+                        ) : undefined
+                      }
                     />
                   )}
-
-                  {/* KIE: динамические настройки модели из каталога */}
-                  {kieActive &&
-                    kieModel &&
-                    kieChipFields(kieModel)
-                      .filter((f) => !(seedanceIsKie && SEEDANCE_DOCK_FIELDS.has(f.name)))
-                      .filter((f) => !(isElevenLabsActive && ELEVENLABS_DOCK_FIELDS.has(f.name)))
-                      .filter((f) => kieFieldVisible(f, kieValues))
-                      .map((f) => (
-                        <KieFieldChip
-                          key={f.name}
-                          field={f}
-                          values={kieValues}
-                          openChip={openChip}
-                          setOpenChip={setOpenChip}
-                          setModelOpen={setModelOpen}
-                          onChange={handleKieValueChange}
-                        />
-                      ))}
 
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {!kieActive && mediaType === "video" &&
@@ -4621,17 +4775,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     {kieActive && kieCreditsQ.data?.credits != null && (
                       <div
                         className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5 font-mono text-[11px] text-white/60"
-                        title="Баланс kie.ai"
+                        title={`Баланс kie.ai: ${formatMoneyUsd(
+                          kieCreditsQ.data.credits * (kieCatalogQ.data?.credit_usd ?? 0.005),
+                        )}`}
                       >
-                        {kieCreditsQ.data.credits.toFixed(0)} кр
+                        {formatMoneyUsd(
+                          kieCreditsQ.data.credits * (kieCatalogQ.data?.credit_usd ?? 0.005),
+                        )}
                       </div>
                     )}
                     <div
                       className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5 font-mono text-[11px] text-white/80"
                       title={
                         kieActive
-                          ? "kie.ai: 1 кр = $0.005. Цена за выбранные параметры."
-                          : "1 токен = $0.10 (10¢). Цена за выбранные параметры."
+                          ? "kie.ai: цена с наценкой студии 25%, пересчитывается по настройкам."
+                          : "Цена в долларах с наценкой студии 25% за выбранные параметры."
                       }
                     >
                       <Coins className="h-3 w-3 text-[#2dd4bf]" strokeWidth={2.5} />
@@ -4666,8 +4824,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       disabled={
                         createGenerate.isPending ||
                         (kieActive
-                          ? (kieTextField && !prompt.trim()) ||
-                            (isElevenLabsActive ? !elevenlabsConfigured : !kieConfigured)
+                          ? (kieTextField && !prompt.trim()) || !kieConfigured
                           : !prompt.trim() || !canApiDirect)
                       }
                       onClick={() => {
@@ -4688,10 +4845,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           ? "Уже ставится в очередь…"
                           : isVideoConflict
                             ? "Нельзя совмещать кадры (старт/финиш) и референсы — выберите один режим"
-                            : isElevenLabsActive && !elevenlabsConfigured
-                              ? "Нужен ELEVENLABS_API_KEY в Настройках или .env"
-                              : !canApiDirect
-                                ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
+                            : !canApiDirect
+                              ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
                               : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
                     >
@@ -4950,29 +5105,37 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         </div>
       )}
 
-      {/* Визард клонирования голоса («Новый голос», 3 шага) — встаёт справа от панели «Параметры» */}
+      {/* Voice Library Modal */}
+      <VoiceLibraryModal
+        open={voiceLibraryOpen}
+        onOpenChange={setVoiceLibraryOpen}
+        selectedVoiceId={String(kieValues["voice_id"] || "ymDCYd8puC7gYjxIamPt")}
+        onSelectVoice={(voiceId, voiceName) => {
+          setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
+          toast.success(`Выбран голос: ${voiceName}`);
+        }}
+      />
+
+      {/* Мастер клонирования: открывается из строки «Голос» в «Параметрах» */}
       <CloneVoiceDialog
         open={cloneVoiceOpen}
         onOpenChange={setCloneVoiceOpen}
-        onCreated={(voice) => {
-          const vid = voice.external_voice_id || voice.id;
-          handleVoiceChange(vid, voice.name);
+        onCreated={(voice, providerError) => {
+          toast.success(
+            providerError
+              ? `«${voice.name}»: сэмплы сохранены, голос появится с ключом ElevenLabs`
+              : `Голос «${voice.name}» создан`,
+          );
+          // Готовый клон сразу подставляем в модель — иначе человек создал
+          // голос и всё равно ищет его в списке.
+          const providerId = voice.external_voice_id?.trim();
+          if (voice.status === "ready" && providerId) {
+            setKieValues((prev) => ({ ...prev, voice_id: providerId }));
+          }
         }}
       />
     </div>
   );
-}
-
-function kieFieldVisible(f: KieField, values: Record<string, unknown>): boolean {
-  if (!f.show_if) return true;
-  return Object.entries(f.show_if).every(([k, want]) => {
-    const got = values[k];
-    if (typeof want === "boolean") {
-      const truthy = got === true || String(got).toLowerCase() === "true";
-      return truthy === want;
-    }
-    return String(got ?? "") === String(want);
-  });
 }
 
 /** KIE: одна настройка модели в виде чипа (select/toggle/number/text). */
@@ -4996,18 +5159,16 @@ function KieFieldChip({
   const v = values[field.name] ?? field.default;
 
   if (field.name === "voice_id" || field.name === "voice") {
-    const vStr = String(v || "");
-    const voice = getVoiceById(vStr);
-    const resolved = resolveVoiceName(vStr);
+    const voice = getVoiceById(String(v || ""));
     const displayName = voice
       ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
-      : resolved || vStr || "Выбрать голос";
+      : String(v || "Выбрать голос");
     return (
       <button
         type="button"
         onClick={onOpenVoiceModal}
         className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#2dd4bf]/20 hover:border-[#2dd4bf]/60"
-        title="Открыть библиотеку русских голосов и клонов"
+        title="Открыть библиотеку русских голосов (200)"
       >
         <Mic className="h-3.5 w-3.5 text-[#2dd4bf]" />
         <span className="text-white/60">Голос:</span>
@@ -5514,8 +5675,8 @@ const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
   {
     id: "elevenlabs-v4",
     slug: "kie:elevenlabs-v4",
-    name: "Озвучка ElevenLabs",
-    desc: "Официальный ElevenLabs API: 200 русских премиум-голосов, клонирование и аудио-теги",
+    name: "Озвучка ElevenLabs v4",
+    desc: "Новейшая модель v4, библиотека 200 русских голосов, аудио-теги эмоций",
     iconType: "speech",
   },
 ];
@@ -5616,11 +5777,6 @@ function ModelPickerPopover({
         : "Аудио движки и режимы";
   const models = pickerModelsForType(mediaType);
   const kieForType = kieModels.filter((m) => {
-    const id = m.id.toLowerCase();
-    // GPT Image 2, Nano Banana 2, Veo 3.1 Lite — строго через Outsee!
-    if (id.includes("veo") || id.includes("gpt-image") || id.includes("banana")) {
-      return false;
-    }
     const media =
       m.media || (m.category === "video" ? "video" : m.category === "image" ? "image" : "audio");
     return media === mediaType;
@@ -5687,17 +5843,6 @@ function ModelPickerPopover({
     );
   }, [models, q]);
 
-  const filteredKie = useMemo(() => {
-    if (!q) return kieForType;
-    return kieForType.filter(
-      (m) =>
-        m.label.toLowerCase().includes(q) ||
-        (m.desc || "").toLowerCase().includes(q) ||
-        (m.hint || "").toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q),
-    );
-  }, [kieForType, q]);
-
   const unifiedItems = useMemo(() => {
     // Collect icons from base models for quick lookup
     const iconBySlug = new Map<string, string>();
@@ -5708,51 +5853,81 @@ function ModelPickerPopover({
       }
     }
 
-    // Build authoritative KIE items first
-    const kieModelIds = new Set<string>();
-    const kieItems = filteredKie.map((m) => {
+    // Вкладка целиком (не результат поиска): иначе при поиске пресеты-дубли
+    // «всплывали» обратно, потому что их семья не попадала в список строк.
+    const kieIdSet = new Set<string>();
+    for (const m of kieForType) {
       const rawId = m.id.toLowerCase();
-      const cleanId = rawId.replace(/[-_]/g, "");
-      kieModelIds.add(rawId);
-      kieModelIds.add(cleanId);
-      const est = estimateKie(m, {}, creditUsd);
+      kieIdSet.add(rawId);
+      kieIdSet.add(rawId.replace(/[-_]/g, ""));
+    }
 
+    // Плоский список: каждая связка «семейство + режим» — отдельная строка меню
+    // (Seedream 5 · Pro: текст → картинка и т.д.), как было до перехода на семейства.
+    const kieItems = pickerRowsForMedia(kieForType, mediaType, {
+      creditUsd,
+      query: q,
+    }).map((row) => {
+      const rawId = row.familyId.toLowerCase();
+      const cleanId = rawId.replace(/[-_]/g, "");
       const icon = modelIconForId(rawId, iconBySlug.get(rawId) || iconBySlug.get(cleanId));
 
       return {
-        slug: `kie:${m.id}`,
-        label: m.label,
-        desc: m.hint || m.desc,
+        slug: row.slug,
+        /** Семейство и режим строки: по ним пикер подсвечивает карточку модели,
+            даже когда в доке выбран не первый режим семейства. */
+        familyId: row.familyId,
+        modeId: row.modeId,
+        label: row.label,
+        desc: row.desc,
+        modeSummary: row.modeSummary,
+        /** Бренд из каталога семейств (шаг 8) — если backend его отдаёт. */
+        brandName: row.brandName,
         icon,
-        letter: m.label.slice(0, 1),
+        letter: row.label.slice(0, 1),
         isKie: true,
-        isTop: Boolean(m.is_top || m.isTop),
+        isTop: row.isTop,
         priceLabel: null as string | null,
-        priceUsd: est.usd > 0 ? est.usd : null,
+        /** 0 — бесплатная семья/режим, форматтер покажет «бесплатно». */
+        priceUsd: row.priceUsd,
+        /** Единицы tokens/megapixel без правила: цену даст серверный estimate. */
+        pricePending: row.pricePending,
       };
     });
 
-    // Only include remaining base models that are NOT present in KIE
-    const remainingBaseItems = filteredModels
+    // Строки-пресеты outsee: только без KIE-эквивалента (Suno 5.5, ElevenLabs).
+    // Пресеты удалённых моделей тоже скрыты — в пикере лишь curated-каталог KIE.
+    const remainingBaseItems = dropDuplicatePresets(filteredModels, kieIdSet)
       .filter((m) => {
         const s = m.slug.toLowerCase();
         const c = s.replace(/[-_]/g, "");
-        return !kieModelIds.has(s) && !kieModelIds.has(c);
+        return !kieIdSet.has(s) && !kieIdSet.has(c);
       })
       .map((m) => ({
         slug: m.slug,
         label: m.displayName,
         desc: m.description,
+        modeSummary: null as string | null,
+        brandName: null as string | null,
         icon: modelIconForId(m.slug, m.icon),
         letter: null as string | null,
         isKie: false,
         isTop: Boolean(m.isTop || m.slug === "veo-3-1-lite"),
-        priceLabel: m.price ? m.price : null,
-        priceUsd: null as number | null,
+        // «от $X» — по минимальным настройкам (1K / 5с), только доллары с наценкой.
+        priceLabel: null as string | null,
+        priceUsd:
+          estimateCreatePrice({
+            media: mediaType,
+            model: m.slug,
+            resolution: "1K",
+            duration: 5,
+            catalogPrice: m.price,
+          }).usdClient ?? null,
+        pricePending: false,
       }));
 
     return [...kieItems, ...remainingBaseItems];
-  }, [filteredModels, filteredKie, creditUsd]);
+  }, [filteredModels, kieForType, creditUsd, mediaType, q]);
 
   const topItems = useMemo(() => unifiedItems.filter((i) => i.isTop), [unifiedItems]);
   const otherItems = useMemo(() => unifiedItems.filter((i) => !i.isTop), [unifiedItems]);
@@ -5760,6 +5935,11 @@ function ModelPickerPopover({
 
   // ---- модели, сгруппированные по брендам (как в эталоне) ----
   const brandOf = (item: (typeof unifiedItems)[number]): { id: string; name: string } => {
+    // Бренд семейства из каталога шага 8 — он точнее, чем разбор по названию.
+    const known = item.brandName;
+    if (known) {
+      return { id: known.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name: known };
+    }
     const hay = `${item.slug} ${item.label}`.toLowerCase();
     const rule = BRAND_RULES.find((r) => r.match.test(hay));
     return rule ? { id: rule.id, name: rule.name } : { id: "other", name: "Другие" };
@@ -5781,8 +5961,17 @@ function ModelPickerPopover({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unifiedItems]);
 
+  // Слаг пикера адресует конкретный режим (kie:family~mode), а карточка — всё
+  // семейство: без сравнения по семейству после переключения режима в доке
+  // карточка модели в списке гаснет.
+  const selectedFamilyKey = selectedSlug.includes(KIE_MODE_SEP)
+    ? selectedSlug.slice(0, selectedSlug.indexOf(KIE_MODE_SEP))
+    : selectedSlug;
+  const isActiveItem = (item: { slug: string; familyId?: string }) =>
+    item.slug === selectedSlug || (Boolean(item.familyId) && selectedFamilyKey === kieRowSlug(item.familyId!));
+
   const selectedBrandId = useMemo(() => {
-    const sel = unifiedItems.find((i) => i.slug === selectedSlug);
+    const sel = unifiedItems.find((i) => isActiveItem(i));
     return sel ? brandOf(sel).id : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unifiedItems, selectedSlug]);
@@ -5793,18 +5982,29 @@ function ModelPickerPopover({
     brandGroups.find((b) => b.id === (hoverBrandId ?? openBrandId ?? selectedBrandId)) ?? brandGroups[0] ?? null;
 
   const renderModelRow = (item: (typeof unifiedItems)[number]) => {
-    const active = item.slug === selectedSlug;
+    const active = isActiveItem(item);
+    // Единое правило: 0 → «бесплатно», null/unknown → «цена уточняется»,
+    // >0 → «от $X» (мельче цента — $0.01, без $0.00).
     const priceText =
       item.priceUsd !== null && item.priceUsd !== undefined
-        ? `от $${item.priceUsd.toFixed(2)}`
-        : item.priceLabel
-          ? (/^от\s/i.test(item.priceLabel) ? item.priceLabel : `от ${item.priceLabel}`)
-          : null;
+        ? item.priceUsd === 0
+          ? "бесплатно"
+          : `от ${formatUsd(item.priceUsd)}`
+        : item.pricePending
+          ? "цена уточняется"
+          : item.priceLabel
+            ? /^от\s/i.test(item.priceLabel)
+              ? item.priceLabel
+              : `от ${item.priceLabel}`
+            : null;
     return (
       <button
         key={item.slug}
         type="button"
         onClick={() => onSelect(item.slug)}
+        data-model-card={item.slug}
+        data-model-family={"familyId" in item ? (item as { familyId?: string }).familyId ?? "" : ""}
+        data-model-active={active ? "1" : "0"}
         className={cn(
           "group flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition",
           active
@@ -5849,7 +6049,8 @@ function ModelPickerPopover({
   const renderAudioActionCard = (action: AudioActionSpec) => {
     const active = selectedSlug === action.slug || selectedSlug.replace(/^kie:/, "") === action.id;
     const kieM = kieForType.find((m) => m.id === action.id);
-    const est = kieM ? estimateKie(kieM, {}, creditUsd) : null;
+    // Аудио — плоские модели каталога: кредиты × курс × наценка студии, в $.
+    const est = kieM ? estimateSettingsUsd({ model: kieM, creditUsd }) : null;
     const priceNote = kieM?.pricing?.note;
 
     return (
@@ -5894,10 +6095,10 @@ function ModelPickerPopover({
                 <Coins className="h-2.5 w-2.5 text-[#5eead4]" />
                 {priceNote}
               </span>
-            ) : est?.usd ? (
+            ) : est && est.source !== "pending" && est.usd_client != null && est.usd_client >= 0 ? (
               <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
                 <Coins className="h-2.5 w-2.5 text-[#5eead4]" />
-                {`$${est.usd.toFixed(3)}`}
+                {formatUsd(est.usd_client)}
               </span>
             ) : null}
           </div>
@@ -5922,6 +6123,7 @@ function ModelPickerPopover({
       }}
       role="dialog"
       aria-label={title}
+      data-selected-slug={selectedSlug}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {/* Sticky Header with Search */}

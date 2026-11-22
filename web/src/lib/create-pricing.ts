@@ -1,6 +1,12 @@
 /**
- * Клиентский расчет цены Create: 1 токен = $0.10.
+ * Клиентский расчёт цены Create.
+ *
+ * База — токены площадки по $0.10 (`TOKEN_USD`). В UI показываем ТОЛЬКО доллары
+ * с наценкой студии 25%: usd_client = tokens × $0.10 × 1.25.
+ * Токены остаются внутри (для сверки с сайтом), в подписи не попадают.
  */
+
+import { STUDIO_MARKUP, formatUsd } from "./model-settings.ts";
 
 export const TOKEN_USD = 0.1;
 
@@ -45,8 +51,9 @@ function roundTokens(n: number): number {
   return Math.max(0.1, Math.round(n * 10) / 10);
 }
 
-function fmtTokens(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(n);
+/** Токены площадки → клиентские доллары с наценкой студии (4 знака внутри). */
+export function tokensToUsdClient(tokens: number): number {
+  return Math.round(tokens * TOKEN_USD * STUDIO_MARKUP * 10000) / 10000;
 }
 
 function parseCatalogPrice(raw?: string | null): number | null {
@@ -64,6 +71,16 @@ function parseCatalogPrice(raw?: string | null): number | null {
   return val;
 }
 
+/**
+ * Цена из каталога outsee (строка в токенах, например «от 3») → клиентская
+ * в долларах с наценкой студии. Нужна, чтобы пикер показывал «от $X», а не токены.
+ */
+export function catalogPriceUsdClient(raw?: string | null): number | null {
+  const tokens = parseCatalogPrice(raw ?? null);
+  if (tokens == null || tokens <= 0) return null;
+  return tokensToUsdClient(tokens);
+}
+
 export function estimateCreatePrice(opts: {
   media: Media;
   model: string;
@@ -71,7 +88,7 @@ export function estimateCreatePrice(opts: {
   duration?: number;
   size?: string;
   catalogPrice?: string;
-}): { tokens: number; usd: number; label: string } {
+}): { tokens: number; usd: number; usdClient: number; label: string } {
   const { media, model } = opts;
   let base = 0;
   if (media === "image") {
@@ -96,10 +113,8 @@ export function estimateCreatePrice(opts: {
     base = parsed && parsed > 0 ? parsed : 1;
   }
   const tokens = roundTokens(base);
+  /** База в $ без наценки — для внутренних сверок. */
   const usd = Math.round(tokens * TOKEN_USD * 100) / 100;
-  return {
-    tokens,
-    usd,
-    label: `${fmtTokens(tokens)} ток · $${usd.toFixed(2)}`,
-  };
+  const usdClient = tokensToUsdClient(tokens);
+  return { tokens, usd, usdClient, label: formatUsd(usdClient) };
 }

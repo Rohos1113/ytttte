@@ -71,6 +71,45 @@ export interface KiePricingRule {
   credits: number;
 }
 
+/** Ценовое правило в долларах (шаг 8 backend): наценка студии 25% уже учтена. */
+export interface KieUsdRule {
+  when: Record<string, unknown>;
+  usd_kie: number;
+  usd_client?: number;
+  markup?: number;
+}
+
+export interface KiePricing {
+  /** "unknown" — backend не смог определить единицу, цену в UI не считаем. */
+  unit: "gen" | "sec" | "1k_chars" | "image" | "tokens" | "megapixel" | "unknown";
+  rules: KiePricingRule[];
+  default: number;
+  note?: string;
+  /** Цены в $: правила, дефолт по генерации и цена kie.ai без наценки (null — нет цены). */
+  usd_rules?: KieUsdRule[];
+  usd_default_client?: number | null;
+  usd_default_kie?: number | null;
+}
+
+/** Режим семейства kie.ai: один эндпоинт/тип задачи со своими полями и ценой. */
+export interface KieModeSpec {
+  id: string;
+  label: string;
+  /** id модели в API kie.ai (может отличаться от id семейства). */
+  kie_id?: string;
+  task_type?: string;
+  api?: string;
+  desc?: string;
+  fields: KieField[];
+  /**
+   * Схема полей известна. false — контракт не знает полей режима
+   * (UI пишет «настройки неизвестны»); true при пустых fields — полей нет.
+   */
+  fields_known?: boolean;
+  pricing: KiePricing;
+  constraints?: string[];
+}
+
 export interface KieModelSpec {
   id: string;
   label: string;
@@ -83,14 +122,17 @@ export interface KieModelSpec {
   is_top?: boolean;
   isTop?: boolean;
   badge?: string;
+  brand?: string;
   result: "video" | "image" | "audio" | "text";
   fields: KieField[];
-  pricing: {
-    unit: "gen" | "sec" | "1k_chars";
-    rules: KiePricingRule[];
-    default: number;
-    note?: string;
-  };
+  /** Схема полей семейства известна (см. KieModeSpec.fields_known). */
+  fields_known?: boolean;
+  pricing: KiePricing;
+  /** Семейство: несколько режимов в одной карточке (нет у старых записей). */
+  modes?: KieModeSpec[];
+  /** «от $X» для строки семейства в пикере. */
+  price_from_usd?: number;
+  modes_count?: number;
 }
 
 export interface KieCatalog {
@@ -2882,7 +2924,12 @@ export const api = {
     http<{ configured: boolean; credits: number | null; usd: number | null }>(
       `/api/kie-create/credits`,
     ),
-  kieGenerate: (body: { model_id: string; values: Record<string, unknown> }) =>
+  kieGenerate: (body: {
+    model_id: string;
+    /** Режим семейства (шаг 8): {model_id: family_id, mode: mode_id}. */
+    mode?: string;
+    values: Record<string, unknown>;
+  }) =>
     http<{
       job: {
         job_id: string;
@@ -2892,8 +2939,32 @@ export const api = {
         model: string;
         queue_position?: number | null;
       };
-      estimate: { credits: number; usd: number; note?: string };
+      estimate: { credits: number; usd: number; note?: string; usd_client?: number | null; family_id?: string };
     }>(`/api/kie-create/generate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Точная цена по режиму и настройкам (доллары с наценкой студии). */
+  kieEstimate: (body: {
+    model_id: string;
+    mode?: string;
+    values: Record<string, unknown>;
+  }) =>
+    http<{
+      /** Ответ относится к этому семейству/режиму — защита от залипания цены. */
+      family_id?: string;
+      mode_id?: string;
+      /** Контракт шага 8: usd_client главный (null — цена неизвестна), usd — синоним. */
+      usd_client?: number | null;
+      usd?: number | null;
+      usd_kie?: number | null;
+      credits?: number | null;
+      unit?: string;
+      /** false — backend цену посчитать не смог (unit unknown и т.п.). */
+      known?: boolean;
+      note?: string;
+      breakdown?: { when?: Record<string, unknown>; credits?: number; usd_kie?: number }[];
+    }>(`/api/kie-create/estimate`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

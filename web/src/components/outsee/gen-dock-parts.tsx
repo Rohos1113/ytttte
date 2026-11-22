@@ -5,7 +5,8 @@
  * — квадратные плитки референсов с номером внутри категории и меткой типа
  *   (фото / видео / аудио), счётчики вида «Фото 2/9»;
  * — меню вставки референса по «@» с фактическими именами вложений;
- * — сегментные переключатели Seedance: Omni / Первый+Последний, Fast / Quality;
+ * — общее окно настроек ModelSettingsDock: одни чипы открывают одну панель
+ *   «Параметры» с секциями, у семейства — переключатель режимов;
  * — чип параметра (иконка + значение + шеврон) и панель предпросмотра модели.
  *
  * Акцент один: GEN_ACCENT (изумрудный студии). Все остальные цвета — существующая
@@ -18,24 +19,32 @@ import {
   Clock,
   Eye,
   Film,
+  Hash,
   ImageIcon,
+  Images,
   Layers,
   Loader2,
   Maximize2,
   Mic,
   Music,
   Plus,
+  Power,
   RotateCcw,
   SlidersHorizontal,
+  Type,
   Volume2,
   VolumeX,
   X,
-  Zap,
 } from "lucide-react";
-import type { KieField } from "@/lib/api";
 import { REF_KIND_LABEL, refToken, type GenRef, type RefKind } from "@/lib/gen-dock-refs";
-import { VoicePickerRow } from "@/components/voices/voice-picker-row";
-import { AudioTagsRow } from "@/components/voices/audio-tags-row";
+import {
+  durationNumbers,
+  formatSettingChip,
+  modelSettingValue,
+  settingIsOn,
+  type ModelSettingDescriptor,
+  type ModelSettingIcon,
+} from "@/lib/model-settings";
 import { cn } from "@/lib/utils";
 
 /** Изумрудный акцент студии; им помечены активные элементы окна генерации. */
@@ -58,6 +67,54 @@ export function refKindIcon(kind: RefKind, className = "h-3 w-3") {
   if (kind === "video") return <Film className={className} />;
   if (kind === "audio") return <Music className={className} />;
   return <ImageIcon className={className} />;
+}
+
+/** Слот кадра: у «первого» и «последнего» кадра свои иконки, а не общая картинка. */
+export type FrameSlot = "first" | "last";
+
+/**
+ * «Первый кадр»: рамка кадра + планка слева, стрелка указывает ВЛЕВО — на планку,
+ * то есть в начало (кадр начинается с неё). Рисунок зеркален «последнему кадру»
+ * (там планка справа и стрелка вправо), поэтому при 18 px глифы различаются
+ * направлением, а не толщиной линий.
+ */
+function FirstFrameGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="1.8" y="3" width="12.4" height="10" rx="1.6" />
+      <path d="M4.4 4.6v6.8" strokeLinecap="round" />
+      <path d="M10.8 8H6.5M7.6 6.3 5.8 8 7.6 9.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** «Последний кадр»: рамка кадра + планка справа и стрелка в неё (кадр заканчивается). */
+function LastFrameGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="1.8" y="3" width="12.4" height="10" rx="1.6" />
+      <path d="M11.6 4.6v6.8" strokeLinecap="round" />
+      <path d="M5.2 8h4.3M8.4 6.3 10.2 8 8.4 9.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function frameSlotIcon(slot: FrameSlot, className = "h-3 w-3") {
+  return slot === "first" ? <FirstFrameGlyph className={className} /> : <LastFrameGlyph className={className} />;
 }
 
 /** Одна квадратная плитка референса: 68×68, номер категории, метка типа, удаление. */
@@ -139,10 +196,11 @@ export function RefTile({
   );
 }
 
-/** Пунктирная плитка «+ Фото 2/9». */
+/** Пунктирная плитка референса: только иконка, высота вдвое меньше плитки (34 px). */
 export function AddTile({
   kind,
   label,
+  slot,
   count,
   max,
   showCount = true,
@@ -153,6 +211,8 @@ export function AddTile({
 }: {
   kind: RefKind;
   label?: string;
+  /** Кадровые слоты рисуют свою иконку: первый кадр / последний кадр. */
+  slot?: FrameSlot;
   count: number;
   max: number;
   /** Для аудио и кадров счётчик не нужен — только подпись. */
@@ -168,9 +228,11 @@ export function AddTile({
     <button
       type="button"
       data-ref-add={kind}
+      data-ref-slot={slot}
       onClick={onClick}
       disabled={disabled || busy}
-      title={label ? `Добавить: ${label}` : `Добавить ${REF_KIND_LABEL[kind].toLowerCase()} (${count}/${max})`}
+      title={showCount ? `Добавить: ${text}` : `Добавить: ${base}`}
+      aria-label={showCount ? `Добавить: ${text}` : `Добавить: ${base}`}
       onDragOver={
         onDropFiles
           ? (e) => {
@@ -188,7 +250,7 @@ export function AddTile({
           : undefined
       }
       className={cn(
-        "flex h-[68px] w-[68px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border-dashed bg-white/[0.025] text-white/45 transition-colors",
+        "flex h-[34px] w-[68px] shrink-0 items-center justify-center rounded-lg border-dashed bg-white/[0.025] text-white/45 transition-colors",
         "border-[1.5px] border-white/10 hover:bg-white/[0.06] hover:text-white/80",
         (disabled || busy) && "cursor-not-allowed opacity-40 hover:bg-white/[0.025]",
       )}
@@ -196,10 +258,18 @@ export function AddTile({
       {busy ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
-        <>
-          {refKindIcon(kind, "h-3.5 w-3.5")}
-          <span className="max-w-[62px] text-center text-[10px] font-medium leading-[1.1]">{text}</span>
-        </>
+        <span className="relative flex items-center justify-center">
+          {/* У каждого типа свой рисунок: фото ≠ видео ≠ аудио ≠ первый/последний кадр */}
+          {slot ? (
+            frameSlotIcon(slot, "h-[18px] w-[18px]")
+          ) : kind === "image" ? (
+            <Images className="h-[18px] w-[18px]" />
+          ) : (
+            refKindIcon(kind, "h-[18px] w-[18px]")
+          )}
+          {/* Маленький плюс уголком: плитка именно добавляет, а не показывает */}
+          <Plus className="absolute -right-[7px] -bottom-[5px] h-2.5 w-2.5 text-[#2dd4bf]" />
+        </span>
       )}
     </button>
   );
@@ -215,6 +285,7 @@ export function RefCategory({
   showNumber = true,
   showCount = true,
   addLabel,
+  slot,
   onAddFiles,
   onAddClick,
   onRemove,
@@ -231,6 +302,8 @@ export function RefCategory({
   showCount?: boolean;
   /** Подпись пунктирной плитки (по умолчанию «Фото N/M»). */
   addLabel?: string;
+  /** Кадровый слот: рисует свою иконку на пунктирной плитке. */
+  slot?: FrameSlot;
   onAddFiles?: (files: File[]) => void;
   onAddClick: () => void;
   onRemove: (refItem: GenRef) => void;
@@ -253,6 +326,7 @@ export function RefCategory({
         <AddTile
           kind={kind}
           label={addLabel}
+          slot={slot}
           count={items.length}
           max={max}
           showCount={showCount}
@@ -515,40 +589,289 @@ function ToggleSwitch({
   );
 }
 
-/** Подсказки под разрешением — как в эталоне: у части значений свой пресет. */
-const RESOLUTION_HINT: Record<string, string> = {
-  "480p": "только Fast",
-  "1080p": "только Quality",
-  "4k": "только Quality",
-  "4K": "только Quality",
-};
+/** Иконка чипа по смыслу настройки. */
+function settingIcon(icon: ModelSettingIcon, value: unknown) {
+  switch (icon) {
+    case "aspect":
+      return <Maximize2 className="h-3 w-3" />;
+    case "resolution":
+      return <Layers className="h-3 w-3" />;
+    case "duration":
+      return <Clock className="h-3 w-3" />;
+    case "sound":
+      return settingIsOn(value) ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />;
+    case "voice":
+      return <Mic className="h-3 w-3" />;
+    case "number":
+      return <Hash className="h-3 w-3" />;
+    case "range":
+      return <SlidersHorizontal className="h-3 w-3" />;
+    case "toggle":
+      return <Power className="h-3 w-3" />;
+    case "select":
+      return <ChevronDown className="h-3 w-3" />;
+    case "text":
+    default:
+      return <Type className="h-3 w-3" />;
+  }
+}
+
+/** Общие классы кнопки-опции в панели «Параметры». */
+const OPTION_CLASS = (active: boolean) =>
+  cn(
+    "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-medium transition",
+    active
+      ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
+      : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
+  );
+
+/** Один контрол панели: select — сетка кнопок, toggle — тумблер, number — степпер, text — поле. */
+function SettingControl({
+  descriptor,
+  value,
+  onChange,
+  onOpenVoiceModal,
+  formatVoice,
+}: {
+  descriptor: ModelSettingDescriptor;
+  value: unknown;
+  onChange: (name: string, v: unknown) => void;
+  onOpenVoiceModal?: () => void;
+  formatVoice?: (value: unknown) => string;
+}) {
+  const d = descriptor;
+
+  if (d.kind === "select") {
+    const options = d.options ?? [];
+    const current = String(value ?? "");
+    const isAspect = d.name === "aspect" || d.name === "aspect_ratio";
+    const cols = isAspect || options.length > 6 ? "grid-cols-3" : "grid-cols-2";
+    return (
+      <div className={cn("grid gap-1.5", cols)}>
+        {options.map((o) => {
+          const active = o.id === current;
+          // Подсказка — только из данных опции. Никаких карт «1080p = только
+          // Quality»: у разных моделей разрешения доступны на разных тирах.
+          const hint = o.hint;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              {...(isAspect ? { "data-ratio": o.id } : {})}
+              {...(d.name === "resolution" ? { "data-resolution": o.id } : {})}
+              data-setting-option={o.id}
+              onClick={() => onChange(d.name, o.id)}
+              className={OPTION_CLASS(active)}
+            >
+              {isAspect && /^\d+:\d+$/.test(o.id) && <RatioGlyph ratio={o.id} />}
+              <span>{o.label}</span>
+              {hint && <span className="text-[9px] font-normal text-white/35">{hint}</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (d.kind === "toggle") {
+    const on = settingIsOn(value);
+    return (
+      <div
+        data-setting-option={on ? "on" : "off"}
+        className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2"
+      >
+        <span className="text-[11px] leading-tight text-white/75">{d.hint || d.label}</span>
+        <ToggleSwitch on={on} label={d.label} onToggle={() => onChange(d.name, !on)} />
+      </div>
+    );
+  }
+
+  if (d.kind === "duration") {
+    const current = Number(value);
+    return (
+      <div className="grid grid-cols-6 gap-1.5">
+        {durationNumbers(d).map((n) => {
+          const active = Number.isFinite(current) && current === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              data-duration={n}
+              data-setting-option={String(n)}
+              onClick={() => onChange(d.name, d.valueType === "string" ? String(n) : n)}
+              className={cn(
+                "h-8 rounded-lg border text-[11px] font-medium tabular-nums transition",
+                active
+                  ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
+                  : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
+              )}
+            >
+              {n}
+              {d.suffix ?? ""}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (d.kind === "number") {
+    const num = Number(value);
+    const step = d.step ?? 1;
+    const bump = (dir: 1 | -1) => {
+      const base = Number.isFinite(num) ? num : Number(d.min ?? 0);
+      let next = base + dir * step;
+      if (d.min !== undefined) next = Math.max(d.min, next);
+      if (d.max !== undefined) next = Math.min(d.max, next);
+      onChange(d.name, Number(next.toFixed(6)));
+    };
+    return (
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={`${d.label}: меньше`}
+          onClick={() => bump(-1)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-[14px] text-white/70 transition hover:border-white/20 hover:text-white"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          data-setting-option={Number.isFinite(num) ? String(num) : ""}
+          value={Number.isFinite(num) ? String(num) : ""}
+          min={d.min}
+          max={d.max}
+          step={step}
+          onChange={(e) => onChange(d.name, e.target.value === "" ? undefined : Number(e.target.value))}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 font-mono text-[12px] text-white/90 outline-none focus:border-[#2dd4bf]/50"
+        />
+        <button
+          type="button"
+          aria-label={`${d.label}: больше`}
+          onClick={() => bump(1)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-[14px] text-white/70 transition hover:border-white/20 hover:text-white"
+        >
+          +
+        </button>
+      </div>
+    );
+  }
+
+  if (d.kind === "range") {
+    const raw = Number(value);
+    const num = Number.isFinite(raw) ? raw : Number(d.min ?? 0);
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          data-setting-option={String(num)}
+          min={d.min ?? 0}
+          max={d.max ?? 1}
+          step={d.step ?? 0.01}
+          value={num}
+          onChange={(e) => onChange(d.name, parseFloat(e.target.value))}
+          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
+        />
+        <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[#2dd4bf]">
+          {num.toFixed(2)}
+        </span>
+      </div>
+    );
+  }
+
+  if (d.kind === "voice") {
+    return (
+      <button
+        type="button"
+        data-setting-option="voice"
+        onClick={onOpenVoiceModal}
+        className="inline-flex h-8 w-full items-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-2 text-[12px] font-medium text-[#2dd4bf] transition hover:border-[#2dd4bf]/60 hover:bg-[#2dd4bf]/20"
+      >
+        <Mic className="h-3.5 w-3.5" />
+        <span className="min-w-0 flex-1 truncate text-left">
+          {formatVoice ? formatVoice(value) : String(value ?? "")}
+        </span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+    );
+  }
+
+  return (
+    <input
+      data-setting-option="text"
+      value={String(value ?? "")}
+      onChange={(e) => onChange(d.name, e.target.value)}
+      placeholder={d.hint || "—"}
+      className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 text-[12px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2dd4bf]/50"
+    />
+  );
+}
+
+/** Опция селектора режима семейства в панели «Параметры». */
+export type ModelSettingModeOption = { id: string; label: string; hint?: string };
 
 /**
- * Нижняя строка Seedance: четыре чипа (формат · разрешение · время · звук),
- * которые открывают ОДНУ панель «Параметры» с разделами, плюс переключатели
- * Omni/Первый+Последний и Fast/Quality.
+ * Одно окно настроек для ВСЕХ моделей Create (как у Seedance): чипы параметров
+ * открывают одну панель «Параметры» с секциями. Внутренности зависят только от
+ * списка дескрипторов (lib/model-settings.ts) — KIE и outsee строят его по-своему.
  *
- * Пресет Fast = 480p, Quality = 720p (бэкенд хранит это как resolution).
+ * Если у модели есть режимы семейства (modes), первой секцией панели идёт
+ * переключатель режима, а рядом с чипами — бейдж текущего режима.
+ *
+ * Особенности Seedance (Omni/Первый+Последний, Fast/Quality) передаются в
+ * `extras` и остаются рядом с чипами.
  */
-export function SeedanceDock({
-  fields,
+export function ModelSettingsDock({
+  settings,
   values,
   onChange,
   onReset,
-  mode,
-  onMode,
-  preset,
-  onPreset,
+  onOpenVoiceModal,
+  formatVoice,
+  onPanelOpen,
+  extras,
+  panelExtras,
+  renderVoice,
+  modes = [],
+  modeId,
+  onModeChange,
+  fieldsKnown,
+  priceLabel,
 }: {
-  fields: KieField[];
+  settings: ModelSettingDescriptor[];
   values: Record<string, unknown>;
   onChange: (name: string, v: unknown) => void;
-  /** Сброс параметров к дефолтам модели. */
-  onReset: () => void;
-  mode: "omni" | "frames";
-  onMode: (m: "omni" | "frames") => void;
-  preset: "fast" | "quality";
-  onPreset: (p: "fast" | "quality") => void;
+  /** Сброс параметров к дефолтам модели; без него кнопки «Сбросить» нет. */
+  onReset?: () => void;
+  /** Голосовое поле — не панель, а модалка библиотеки голосов. */
+  onOpenVoiceModal?: () => void;
+  /** Как показать выбранный голос; по умолчанию — сырое значение. */
+  formatVoice?: (value: unknown) => string;
+  /** Перед открытием панели: закрыть пикер модели и чужие выпадашки. */
+  onPanelOpen?: () => void;
+  extras?: ReactNode;
+  /**
+   * Дополнительные строки ВНУТРИ панели «Параметры» (голоса, аудио-теги и
+   * прочее, что хозяин модели захотел видеть в одном окне с настройками).
+   */
+  panelExtras?: ReactNode;
+  /**
+   * Своё рисование голосового поля внутри панели: выпадающий список справа
+   * вместо модалки. Не задано — поле остаётся кнопкой `onOpenVoiceModal`.
+   */
+  renderVoice?: (descriptor: ModelSettingDescriptor) => ReactNode;
+  /** Режимы семейства: первая секция панели + бейдж текущего режима. */
+  modes?: ModelSettingModeOption[];
+  modeId?: string | null;
+  onModeChange?: (id: string) => void;
+  /**
+   * Схема полей режима/модели известна (fields_known). false — реально
+   * неизвестная схема («настройки неизвестны»); true/undefined — полей просто
+   * нет («нет дополнительных настроек»).
+   */
+  fieldsKnown?: boolean;
+  /** Цена за текущие настройки — в шапке панели, пересчитывается на лету. */
+  priceLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -556,6 +879,10 @@ export function SeedanceDock({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
+      // Выпадашки-строки панели (голоса, аудио-теги) живут порталом вне boxRef:
+      // клик по ним не должен закрывать панель до того, как сработает выбор.
+      const target = e.target;
+      if (target instanceof Element && target.closest("[data-params-flyout]")) return;
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -569,195 +896,193 @@ export function SeedanceDock({
     };
   }, [open]);
 
-  const aspect = fields.find((f) => f.name === "aspect_ratio");
-  const res = fields.find((f) => f.name === "resolution");
-  const dur = fields.find((f) => f.name === "duration");
-  const audio = fields.find((f) => f.name === "generate_audio" && f.kind === "toggle");
+  const togglePanel = () => {
+    setOpen((v) => {
+      if (!v) onPanelOpen?.();
+      return !v;
+    });
+  };
 
-  const aspectValue = String(values.aspect_ratio ?? aspect?.default ?? "16:9");
-  const resValue = String(values.resolution ?? res?.default ?? "720p");
-  const durValue = Number(values.duration ?? dur?.default ?? 5);
-  const audioOn = values.generate_audio === true || String(values.generate_audio) === "true";
-
-  const ratioOptions = aspect?.options?.length
-    ? aspect.options
-    : ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"];
-
-  const durationOptions: number[] = [];
-  if (dur) {
-    const min = Math.max(1, Math.round(Number(dur.min ?? 4)));
-    const max = Math.min(60, Math.round(Number(dur.max ?? 15)));
-    for (let d = min; d <= max; d += 1) durationOptions.push(d);
+  const sections: { title: string; items: ModelSettingDescriptor[] }[] = [];
+  for (const d of settings) {
+    const last = sections[sections.length - 1];
+    if (last && last.title === d.section) last.items.push(d);
+    else sections.push({ title: d.section, items: [d] });
   }
 
-  const togglePanel = () => setOpen((v) => !v);
+  const showModeBadge = modes.length > 1 && Boolean(onModeChange);
+  const showModeSection = modes.length > 0 && Boolean(onModeChange);
+  const activeMode = modes.find((m) => m.id === modeId) ?? modes[0] ?? null;
+
+  /**
+   * Текст пустой панели. «Настройки неизвестны» — только когда схема реально
+   * неизвестна (fields_known === false). Если схема известна, а полей-настроек
+   * нет (все поля файловые/промпт) — честное «нет дополнительных настроек».
+   */
+  const emptyNote: { attr: "no-fields" | "no-settings"; text: string } = !showModeSection
+    ? {
+        attr: "no-settings",
+        text: "У этой модели нет отдельных настроек — доступны только промпт и файлы.",
+      }
+    : fieldsKnown === false
+      ? {
+          attr: "no-fields",
+          text: "Настройки этого режима неизвестны — доступны только промпт и файлы.",
+        }
+      : {
+          attr: "no-settings",
+          text: "У этого режима нет дополнительных настроек — только промпт и файлы.",
+        };
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
+      {showModeBadge && activeMode && (
+        <button
+          type="button"
+          data-mode-badge={activeMode.id}
+          title={`Режим: ${activeMode.label} — нажмите, чтобы переключить`}
+          onClick={togglePanel}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2dd4bf]/45 bg-[#2dd4bf]/12 px-2 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
+        >
+          <Layers className="h-3 w-3" />
+          <span className="max-w-[180px] truncate">{activeMode.label}</span>
+        </button>
+      )}
       <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
-        {aspect && (
-          <span data-chip="aspect">
-            <ParamChip
-              icon={<Maximize2 className="h-3 w-3" />}
-              value={aspectValue}
-              title="Соотношение сторон"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {res && (
-          <span data-chip="resolution">
-            <ParamChip
-              icon={<Layers className="h-3 w-3" />}
-              value={resValue}
-              title="Разрешение · Fast = 480p, Quality = 720p+"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {dur && durationOptions.length > 0 && (
-          <span data-chip="duration">
-            <ParamChip
-              icon={<Clock className="h-3 w-3" />}
-              value={`${durValue}s`}
-              title="Длительность"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
-        {audio && (
-          <span data-chip="sound">
-            <ParamChip
-              icon={audioOn ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-              value={audioOn ? "Звук вкл" : "Звук выкл"}
-              title="Звук"
-              active={open}
-              onClick={togglePanel}
-            />
-          </span>
-        )}
+        {/* Постоянная кнопка «Параметры»: панель доступна у любой модели,
+            даже если у неё нет ни одного чипа-настройки. */}
+        <button
+          type="button"
+          data-action="open-params"
+          data-params-button="true"
+          aria-label="Параметры"
+          aria-expanded={open}
+          title="Все настройки модели и цена"
+          onClick={togglePanel}
+          className={cn(
+            "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-medium transition",
+            open
+              ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
+              : "border-white/[0.08] bg-white/[0.03] text-white/60 hover:border-white/20 hover:text-white",
+          )}
+        >
+          <SlidersHorizontal className="h-3 w-3" />
+          <span>Параметры</span>
+        </button>
+
+        {settings.map((d) => {
+          const value = modelSettingValue(d, values);
+          const isVoice = d.kind === "voice";
+          const text = isVoice && formatVoice ? formatVoice(value) : formatSettingChip(d, values);
+          return (
+            <span key={d.name} data-chip={d.chip}>
+              <ParamChip
+                icon={settingIcon(d.icon, value)}
+                value={text}
+                title={d.hint || d.label}
+                active={open && !isVoice}
+                // Если владелец нарисовал голос внутри панели (renderVoice),
+                // чип ведёт в «Параметры»; иначе — в прежнюю модалку библиотеки.
+                onClick={isVoice ? (renderVoice ? togglePanel : () => onOpenVoiceModal?.()) : togglePanel}
+              />
+            </span>
+          );
+        })}
 
         {open && (
           <div
             data-params-panel="true"
-            className="absolute bottom-full left-0 z-[1000] mb-2 w-[322px] rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
+            className="absolute bottom-full left-0 z-[1000] mb-2 max-h-[70vh] w-[322px] overflow-y-auto rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
           >
-            <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
-              Параметры
-            </p>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
+                Параметры
+              </p>
+              {priceLabel && (
+                <span
+                  data-price-label="true"
+                  className="font-mono text-[11px] font-semibold text-[#5eead4]"
+                  title="Цена за выбранные настройки (с наценкой студии)"
+                >
+                  {priceLabel}
+                </span>
+              )}
+            </div>
 
-            {aspect && (
-              <PaneSection title="Соотношение сторон">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {ratioOptions.map((o) => {
-                    const active = o === aspectValue;
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        data-ratio={o}
-                        onClick={() => onChange("aspect_ratio", o)}
-                        className={cn(
-                          "flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        <RatioGlyph ratio={o} />
-                        {o}
-                      </button>
-                    );
-                  })}
-                </div>
-              </PaneSection>
-            )}
-
-            {res && (
-              <PaneSection title="Разрешение">
+            {showModeSection && (
+              <PaneSection title="Режим">
                 <div className="grid grid-cols-2 gap-1.5">
-                  {(res.options || []).map((o) => {
-                    const active = o === resValue;
-                    const hint = RESOLUTION_HINT[o];
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        data-resolution={o}
-                        onClick={() => onChange("resolution", o)}
-                        className={cn(
-                          "flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/75 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        <span className="text-[12px] font-medium">{o}</span>
-                        {hint && <span className="text-[9px] text-white/35">{hint}</span>}
-                      </button>
-                    );
-                  })}
+                  {modes.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      data-mode-option={m.id}
+                      data-setting-option={m.id}
+                      title={m.hint || m.label}
+                      onClick={() => onModeChange?.(m.id)}
+                      className={OPTION_CLASS(m.id === (activeMode?.id ?? ""))}
+                    >
+                      <span className="truncate">{m.label}</span>
+                    </button>
+                  ))}
                 </div>
               </PaneSection>
             )}
 
-            {dur && durationOptions.length > 0 && (
-              <PaneSection title="Длительность">
-                <div className="grid grid-cols-6 gap-1.5">
-                  {durationOptions.map((d) => {
-                    const active = d === durValue;
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        data-duration={d}
-                        onClick={() => onChange("duration", d)}
-                        className={cn(
-                          "h-8 rounded-lg border text-[11px] font-medium tabular-nums transition",
-                          active
-                            ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
-                            : "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
-                        )}
-                      >
-                        {d}s
-                      </button>
-                    );
-                  })}
+            {sections.map((section) => (
+              <PaneSection key={section.title} title={section.title}>
+                <div className="space-y-1.5">
+                  {section.items.map((d) => (
+                    <div key={d.name} data-setting-name={d.name} data-setting-kind={d.kind}>
+                      {d.kind === "voice" && renderVoice ? (
+                        renderVoice(d)
+                      ) : (
+                        <SettingControl
+                          descriptor={d}
+                          value={modelSettingValue(d, values)}
+                          onChange={onChange}
+                          onOpenVoiceModal={onOpenVoiceModal}
+                          formatVoice={formatVoice}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               </PaneSection>
+            ))}
+
+            {!sections.length && (
+              <p
+                data-params-note={emptyNote.attr}
+                className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 text-[11px] leading-snug text-white/45"
+              >
+                {emptyNote.text}
+              </p>
             )}
 
-            {audio && (
-              <PaneSection title="Звук">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
-                  <span className="text-[11px] leading-tight text-white/75">
-                    Сгенерировать аудио-дорожку
-                  </span>
-                  <ToggleSwitch
-                    on={audioOn}
-                    label="Сгенерировать аудио-дорожку"
-                    onToggle={() => onChange("generate_audio", !audioOn)}
-                  />
-                </div>
-              </PaneSection>
+            {panelExtras && (
+              <div className="mt-2 space-y-1.5 border-t border-white/[0.08] pt-2">
+                {panelExtras}
+              </div>
             )}
 
             <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2">
-              <button
-                type="button"
-                data-action="reset-params"
-                onClick={() => {
-                  onReset();
-                  setOpen(false);
-                }}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Сбросить
-              </button>
+              {onReset ? (
+                <button
+                  type="button"
+                  data-action="reset-params"
+                  onClick={() => {
+                    onReset();
+                    setOpen(false);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Сбросить
+                </button>
+              ) : (
+                <span />
+              )}
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -770,297 +1095,7 @@ export function SeedanceDock({
         )}
       </div>
 
-      <SegmentedPills<"omni" | "frames">
-        ariaLabel="Режим Seedance"
-        options={[
-          { id: "omni", label: "Omni", title: "Ссылки: фото, видео, аудио" },
-          { id: "frames", label: "Первый+Последний", title: "Только первый и последний кадр" },
-        ]}
-        value={mode}
-        onChange={onMode}
-      />
-
-      <SegmentedPills<"fast" | "quality">
-        ariaLabel="Пресет качества"
-        options={[
-          {
-            id: "fast",
-            label: "Fast",
-            icon: <Zap className="h-2.5 w-2.5" />,
-            title: "Fast: 480p — дешевле и быстрее",
-          },
-          {
-            id: "quality",
-            label: "Quality",
-            icon: <Zap className="h-2.5 w-2.5" />,
-            title: "Quality: 720p и выше — дороже",
-          },
-        ]}
-        value={preset}
-        onChange={onPreset}
-      />
-    </div>
-  );
-}
-
-/** Слайдер 0–1 для панели «Параметры» (стабильность/схожесть ElevenLabs). */
-function PaneSlider({
-  title,
-  value,
-  onChange,
-  highlight,
-}: {
-  title: string;
-  value: number;
-  onChange: (v: number) => void;
-  highlight?: boolean;
-}) {
-  return (
-    <PaneSection title={title}>
-      <div
-        className={`flex items-center gap-2 rounded-lg p-1 transition ${
-          highlight ? "bg-[#2dd4bf]/10 ring-1 ring-[#2dd4bf]/30" : ""
-        }`}
-      >
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#2dd4bf]"
-        />
-        <span className="w-10 text-right font-mono text-[11px] font-semibold tabular-nums text-[#2dd4bf]">
-          {value.toFixed(2)}
-        </span>
-      </div>
-    </PaneSection>
-  );
-}
-
-/**
- * Док «Озвучка ElevenLabs v4» во вкладке «Генерация» (новый дизайн).
- *
- * Чипы дока открывают ОДНУ панель «Параметры» (data-params-panel — по ней
- * выравниваются меню выбора голоса и визард клонирования), внутри панели:
- * выбор голоса (VoicePickerRow), слайдеры стабильность/схожесть, строка
- * аудио-тегов (AudioTagsRow) и кнопка «Клонировать голос».
- */
-export function ElevenLabsDock({
-  voiceName,
-  voiceId,
-  values,
-  onChange,
-  onVoice,
-  onClone,
-  onInsertTag,
-  onReset,
-  priceLabel,
-}: {
-  /** Человекочитаемое имя выбранного голоса для чипа дока («Marina (Ж)»). */
-  voiceName: string;
-  /** voice_id для строки выбора голоса (с дефолтом модели, если в состоянии пусто). */
-  voiceId: string;
-  values: Record<string, unknown>;
-  onChange: (name: string, v: unknown) => void;
-  /** Выбор голоса из меню: (voice_id, человекочитаемое имя). */
-  onVoice: (voiceId: string, name: string) => void;
-  /** Открыть визард клонирования голоса. */
-  onClone: () => void;
-  /** Вставить аудио-тег в позицию курсора промта. */
-  onInsertTag: (tag: string) => void;
-  /** Сброс голоса и слайдеров к дефолтам модели. */
-  onReset: () => void;
-  /** Цена одной генерации — бейдж в шапке панели. */
-  priceLabel?: string;
-}) {
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  const num = (raw: unknown, fallback: number): number => {
-    const n = typeof raw === "number" ? raw : Number(raw);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const stability = num(values.stability, 0.5);
-  const similarity = num(values.similarity, 0.75);
-
-  const [openChip, setOpenChip] = useState<
-    "params" | "voice" | "stability" | "similarity" | null
-  >(null);
-  const open = openChip !== null;
-  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      if (boxRef.current?.contains(target)) return;
-      // Не закрывать окно параметров при клике внутри выпадающего меню голосов,
-      // эмоциональных тегов или визарда клонирования (порталы в document.body).
-      if (target.closest("[data-params-flyout]")) return;
-      if (target.closest("[data-clone-dialog]")) return;
-      if (target.closest("[role='dialog']")) return;
-      setOpenChip(null);
-      setVoicePickerOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpenChip(null);
-        setVoicePickerOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const togglePanel = (chip: "params" | "voice" | "stability" | "similarity") => {
-    if (chip === "voice") {
-      if (openChip === "voice" && voicePickerOpen) {
-        setVoicePickerOpen(false);
-        setOpenChip(null);
-      } else {
-        setOpenChip("voice");
-        setVoicePickerOpen(true);
-      }
-      return;
-    }
-    setVoicePickerOpen(false);
-    setOpenChip((prev) => (prev === chip ? null : chip));
-  };
-
-  return (
-    <div className="inline-flex flex-wrap items-center gap-1.5">
-      <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
-        <span data-chip="params">
-          <ParamChip
-            icon={<Layers className="h-3 w-3" />}
-            value="Параметры"
-            title="Параметры озвучки"
-            active={openChip === "params"}
-            chevron={false}
-            onClick={() => togglePanel("params")}
-          />
-        </span>
-        <span data-chip="voice">
-          <ParamChip
-            icon={<Mic className="h-3 w-3" />}
-            value={voiceName}
-            title="Голос"
-            active={openChip === "voice"}
-            onClick={() => togglePanel("voice")}
-          />
-        </span>
-        <span data-chip="stability">
-          <ParamChip
-            icon={<SlidersHorizontal className="h-3 w-3" />}
-            value={stability.toFixed(2)}
-            title="Стабильность (0–1)"
-            active={openChip === "stability"}
-            onClick={() => togglePanel("stability")}
-          />
-        </span>
-        <span data-chip="similarity">
-          <ParamChip
-            icon={<SlidersHorizontal className="h-3 w-3" />}
-            value={similarity.toFixed(2)}
-            title="Схожесть (0–1)"
-            active={openChip === "similarity"}
-            onClick={() => togglePanel("similarity")}
-          />
-        </span>
-
-        {open && (
-          <div
-            data-params-panel="true"
-            className="absolute bottom-full left-0 z-[1000] mb-2 w-[300px] rounded-xl border border-white/15 bg-[#121216]/97 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/10 backdrop-blur-2xl"
-          >
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
-                Параметры
-              </p>
-              {priceLabel && (
-                <span className="font-mono text-[10px] font-semibold text-[#2dd4bf]">{priceLabel}</span>
-              )}
-            </div>
-
-            <PaneSection title="Голос (Voice ID)">
-              <VoicePickerRow
-                value={voiceId}
-                onChange={(vid, name) => {
-                  onVoice(vid, name);
-                  setVoicePickerOpen(false);
-                }}
-                onClone={() => {
-                  setVoicePickerOpen(false);
-                  onClone();
-                }}
-                isOpen={voicePickerOpen}
-                onOpenChange={setVoicePickerOpen}
-              />
-            </PaneSection>
-
-            <PaneSlider
-              title="Стабильность (0–1)"
-              value={stability}
-              highlight={openChip === "stability"}
-              onChange={(v) => onChange("stability", v)}
-            />
-            <PaneSlider
-              title="Схожесть (0–1)"
-              value={similarity}
-              highlight={openChip === "similarity"}
-              onChange={(v) => onChange("similarity", v)}
-            />
-
-            <PaneSection title="Аудио-теги">
-              <AudioTagsRow onInsertTag={onInsertTag} />
-            </PaneSection>
-
-            <button
-              type="button"
-              onClick={() => {
-                setVoicePickerOpen(false);
-                onClone();
-              }}
-              className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#2dd4bf]/40 bg-[#2dd4bf]/10 px-3 text-[12px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Клонировать голос
-            </button>
-
-            <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2">
-              <button
-                type="button"
-                data-action="reset-params"
-                onClick={() => {
-                  onReset();
-                  setVoicePickerOpen(false);
-                  setOpenChip(null);
-                }}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Сбросить
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setVoicePickerOpen(false);
-                  setOpenChip(null);
-                }}
-                className="rounded-lg bg-[#2dd4bf]/15 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25"
-              >
-                Готово
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      {extras}
     </div>
   );
 }

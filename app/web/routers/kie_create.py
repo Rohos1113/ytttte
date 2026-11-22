@@ -28,6 +28,18 @@ _EXT_BY_RESULT = {"video": ".mp4", "image": ".png", "audio": ".mp3", "text": ".t
 _MEDIA_BY_RESULT = {"video": "video", "image": "image", "audio": "audio", "text": "audio"}
 
 
+def _echo_catalog_family_id(quote: dict[str, Any], model_id: str) -> dict[str, Any]:
+    """family_id в ответе = id каталога, который прислал клиент.
+
+    У части семейств id карточки /catalog отличается от docs-id (старое имя
+    студии с суффиксом режима: hailuo-2-3-i2v, seedance-1-5-pro, ...). UI сверяет
+    ответ с kieModel.id, поэтому эхом отдаём то, что пришло в model_id.
+    """
+    if quote.get("family_id") is not None and model_id:
+        quote["family_id"] = model_id
+    return quote
+
+
 @router.get("/catalog")
 async def get_catalog() -> dict[str, Any]:
     """Каталог + формы + значения по умолчанию — всё для picker-модели."""
@@ -62,11 +74,34 @@ async def get_credits() -> dict[str, Any]:
 
 @router.post("/estimate")
 async def post_estimate(body: dict[str, Any]) -> dict[str, Any]:
-    spec = kie_catalog.get_model(str((body or {}).get("model_id") or ""))
-    if spec is None:
+    """Оценка цены без вызова kie: {model_id, mode?, values} → $ (kie / клиент +25%)."""
+    body = body or {}
+    model_id = str(body.get("model_id") or "").strip()
+    mode_id = str(body.get("mode") or "").strip()
+    values = body.get("values") or {}
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail="values must be object")
+    if mode_id:
+        # Семья/режим: цена в USD с наценкой студии.
+        family = kie_catalog.get_family(model_id)
+        mode = kie_catalog.get_mode(family, mode_id) if family is not None else None
+        if family is None or mode is None:
+            raise HTTPException(status_code=404, detail=f"unknown model_id/mode {model_id!r}/{mode_id!r}")
+        quote = kie_catalog.estimate_usd(family, mode, values)
+        quote["errors"] = kie_catalog.validate_mode_values(family, mode, values)
+        return _echo_catalog_family_id(quote, model_id)
+    spec = kie_catalog.get_model(model_id)
+    if spec is not None:
+        return kie_catalog.estimate_credits(spec, values)
+    family = kie_catalog.get_family(model_id)
+    if family is None:
         raise HTTPException(status_code=404, detail="unknown model_id")
-    values = (body or {}).get("values") or {}
-    return kie_catalog.estimate_credits(spec, values)
+    mode = kie_catalog.get_mode(family)
+    if mode is None:
+        raise HTTPException(status_code=404, detail=f"model {model_id!r} без режимов")
+    quote = kie_catalog.estimate_usd(family, mode, values)
+    quote["errors"] = kie_catalog.validate_mode_values(family, mode, values)
+    return _echo_catalog_family_id(quote, model_id)
 
 
 @router.post("/upload")
@@ -192,13 +227,37 @@ async def _ensure_kie_asset_url(val: Any, filename_prefix: str = "asset") -> Any
 
 @router.post("/generate")
 async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Генерация: {model_id (семья), mode (режим), values} либо старый {model_id, values}.
+
+    Без mode работает прежний каталог (legacy-записи); с mode — семья/режим,
+    цена в долларах с наценкой 25%, payload под api режима.
+    """
     model_id = str((body or {}).get("model_id") or "").strip()
-    spec = kie_catalog.get_model(model_id)
-    if spec is None:
-        raise HTTPException(status_code=404, detail=f"unknown model_id {model_id!r}")
+    mode_id = str((body or {}).get("mode") or "").strip()
     values = (body or {}).get("values") or {}
     if not isinstance(values, dict):
         raise HTTPException(status_code=400, detail="values must be object")
+
+    family: dict[str, Any] | None = None
+    mode: dict[str, Any] | None = None
+    if mode_id:
+        family = kie_catalog.get_family(model_id)
+        mode = kie_catalog.get_mode(family, mode_id) if family is not None else None
+        if family is None or mode is None:
+            raise HTTPException(
+                status_code=404, detail=f"unknown model_id/mode {model_id!r}/{mode_id!r}"
+            )
+        spec = kie_catalog.mode_spec(family, mode)
+    else:
+        legacy_spec = kie_catalog.get_model(model_id)
+        if legacy_spec is None:
+            family = kie_catalog.get_family(model_id)
+            mode = kie_catalog.get_mode(family) if family is not None else None
+            if family is None or mode is None:
+                raise HTTPException(status_code=404, detail=f"unknown model_id {model_id!r}")
+            spec = kie_catalog.mode_spec(family, mode)
+        else:
+            spec = legacy_spec
 
     # Автоматически загружаем data: URL и локальные файлы в KIE CDN до валидации каталога
     fields_spec = {f["name"]: f for f in (spec.get("fields") or [])}
@@ -214,12 +273,17 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         if is_file_field and v:
             values[k] = await _ensure_kie_asset_url(v, filename_prefix=k)
 
-    errors = kie_catalog.validate_values(spec, values)
+    if family is not None and mode is not None:
+        errors = kie_catalog.validate_mode_values(family, mode, values)
+    else:
+        errors = kie_catalog.validate_values(spec, values)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors[:6]))
     is_elevenlabs = spec.get("api") == "elevenlabs" or spec.get("id") == "elevenlabs-v4"
     is_pay52 = spec.get("api") == "pay52" or (
-        "seedance" in spec.get("id", "").lower() and pay52_video.pay52_video_configured(spec)
+        not spec.get("is_family_mode")
+        and "seedance" in str(spec.get("id", "")).lower()
+        and pay52_video.pay52_video_configured(spec)
     )
     if is_elevenlabs:
         from app.bots.elevenlabs_api import elevenlabs_api_configured
@@ -235,7 +299,10 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         raise HTTPException(status_code=503, detail="kie API не настроен (KIE_API_KEY)")
 
     payload = kie_catalog.build_payload(spec, values)
-    quote = kie_catalog.estimate_credits(spec, values)
+    if family is not None and mode is not None:
+        quote = kie_catalog.estimate_usd(family, mode, values)
+    else:
+        quote = kie_catalog.estimate_credits(spec, values)
     result_kind = str(spec.get("result") or "video")
     media = _MEDIA_BY_RESULT.get(result_kind, "video")
     ext = _EXT_BY_RESULT.get(result_kind, ".mp4")
@@ -249,8 +316,8 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
 
     tenant = current_tenant()
     is_admin = current_is_admin()
-    cost_usd = quote.get("usd", 0.0)
-    credits_num = quote.get("credits", 0.0)
+    cost_usd = float(quote.get("usd") or 0.0)
+    credits_num = float(quote.get("credits") or 0.0)
     hold_amount_micro = int(round(credits_num * 1_000_000))
     if hold_amount_micro <= 0:
         hold_amount_micro = price_micro(cost_usd)
@@ -401,21 +468,33 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         provider=job_provider,
         prompt=prompt,
         ext=ext,
-        params={"model_id": model_id, "values": values, "project_id": project_id or None},
-        quote={"credits": quote["credits"], "usd": quote["usd"], "note": quote["note"]},
+        params={
+            "model_id": model_id,
+            "mode": mode_id or None,
+            "kie_id": str(spec.get("id") or ""),
+            "values": values,
+            "project_id": project_id or None,
+        },
+        quote={
+            "credits": quote.get("credits") or 0.0,
+            "usd": quote.get("usd") or 0.0,
+            "usd_client": quote.get("usd_client"),
+            "note": quote.get("note") or "",
+        },
         run=run,
         hold_id=hold_id,
         client_id=client_id,
     )
     logger.info(
-        "kie-create: generate {} ({}) → job {} (~{} кр. / ${})",
+        "kie-create: generate {} / {} ({}) → job {} (~{} кр. / ${})",
         model_id,
+        mode_id or "legacy",
         spec["label"],
         job.id,
-        quote["credits"],
-        quote["usd"],
+        quote.get("credits"),
+        quote.get("usd"),
     )
-    return {"job": job.to_dict(), "estimate": quote}
+    return {"job": job.to_dict(), "estimate": _echo_catalog_family_id(quote, model_id)}
 
 
 @router.get("/jobs/{job_id}")
