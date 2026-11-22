@@ -25,6 +25,7 @@ export const KIE_MODE_SEP = "~";
  */
 const HIDDEN_FAMILY_IDS = new Set([
   "kie-image-upscale",
+  "kie-video-upscale",
   "topaz-image-upscale",
   "suno-cover",
   "recraft",
@@ -32,6 +33,7 @@ const HIDDEN_FAMILY_IDS = new Set([
   "ideogram-v3",
   "happyhorse",
   "happyhorse-1-1",
+  "nano-banana-pro",
 ]);
 
 /** Семейство скрыто из меню выбора модели. */

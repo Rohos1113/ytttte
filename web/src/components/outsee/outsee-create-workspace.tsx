@@ -6278,6 +6278,7 @@ function ModelPickerPopover({
             {brandGroups.map((brand) => {
               const isActive = activeBrand?.id === brand.id;
               const hasSelected = brand.items.some((i) => i.slug === selectedSlug);
+              const brandIcon = modelIconForId(brand.name);
               return (
                 <button
                   key={brand.id}
@@ -6300,13 +6301,18 @@ function ModelPickerPopover({
                 >
                   <span
                     className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold ring-1",
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold ring-1 overflow-hidden",
                       isActive
                         ? "bg-[#2dd4bf]/20 text-[#2dd4bf] ring-[#2dd4bf]/40"
                         : "bg-white/[0.05] text-white/60 ring-white/10",
                     )}
                   >
-                    {brand.name.slice(0, 1).toUpperCase()}
+                    {brandIcon ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={brandIcon} alt="" className="h-4 w-4 rounded object-contain" />
+                    ) : (
+                      brand.name.slice(0, 1).toUpperCase()
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span

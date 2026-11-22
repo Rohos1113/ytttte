@@ -101,8 +101,10 @@ function StyleThumb({
   className?: string;
   children?: React.ReactNode;
 }) {
-  const [broken, setBroken] = useState(false);
-  const cover = !broken ? (artUrl ?? style.cover) : undefined;
+  const [artBroken, setArtBroken] = useState(false);
+  const [coverBroken, setCoverBroken] = useState(false);
+  const effectiveArt = !artBroken && artUrl ? artUrl : undefined;
+  const cover = effectiveArt ?? (!coverBroken ? style.cover : undefined);
 
   return (
     <div className={cn("relative overflow-hidden bg-[#16161c]", className)}>
@@ -114,10 +116,17 @@ function StyleThumb({
       {cover ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          key={cover}
           src={cover}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
-          onError={() => setBroken(true)}
+          onError={() => {
+            if (effectiveArt) {
+              setArtBroken(true);
+            } else {
+              setCoverBroken(true);
+            }
+          }}
         />
       ) : null}
       {children}

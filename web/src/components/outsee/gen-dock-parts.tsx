@@ -945,7 +945,9 @@ export function ModelSettingsDock({
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2dd4bf]/45 bg-[#2dd4bf]/12 px-2 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
         >
           <Layers className="h-3 w-3" />
-          <span className="max-w-[180px] truncate">{activeMode.label}</span>
+          <span className="max-w-[200px] truncate">
+            {activeMode.label.includes(":") ? activeMode.label.replace(":", " ·") : activeMode.label}
+          </span>
         </button>
       )}
       <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
@@ -1012,19 +1014,40 @@ export function ModelSettingsDock({
             {showModeSection && (
               <PaneSection title="Режим">
                 <div className="grid grid-cols-2 gap-1.5">
-                  {modes.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      data-mode-option={m.id}
-                      data-setting-option={m.id}
-                      title={m.hint || m.label}
-                      onClick={() => onModeChange?.(m.id)}
-                      className={OPTION_CLASS(m.id === (activeMode?.id ?? ""))}
-                    >
-                      <span className="truncate">{m.label}</span>
-                    </button>
-                  ))}
+                  {modes.map((m) => {
+                    const at = m.label.indexOf(":");
+                    const title = at >= 0 ? m.label.slice(0, at).trim() : m.label;
+                    const subtitle = at >= 0 ? m.label.slice(at + 1).trim() : null;
+                    const isSelected = m.id === (activeMode?.id ?? "");
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        data-mode-option={m.id}
+                        data-setting-option={m.id}
+                        title={m.hint || m.label}
+                        onClick={() => onModeChange?.(m.id)}
+                        className={cn(
+                          "flex flex-col items-start justify-center rounded-lg border px-2.5 py-1.5 text-left transition min-h-[40px]",
+                          isSelected
+                            ? "border-[#2dd4bf] bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_12px_rgba(45,212,191,0.2)]"
+                            : "border-white/10 bg-white/[0.04] text-white/80 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
+                        )}
+                      >
+                        <span className="w-full truncate text-[11px] font-semibold leading-tight">{title}</span>
+                        {subtitle ? (
+                          <span
+                            className={cn(
+                              "w-full truncate text-[9px] leading-tight mt-0.5",
+                              isSelected ? "text-[#5eead4]/80" : "text-white/45",
+                            )}
+                          >
+                            {subtitle}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               </PaneSection>
             )}
