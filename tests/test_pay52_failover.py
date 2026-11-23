@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
 from app.bots import pay52_video
-from app.bots.pay52_video import Pay52VideoError, create_task, pay52_video_candidate_keys, poll_task
+from app.bots.pay52_video import Pay52VideoError, create_task, pay52_video_candidate_keys
 from app.services import gpt_api
 from app.services.gpt_api import GptApiError
 from app.services.llm_override import NodeLlmOverride, use_override
-from app.services.pay52_routes import candidate_keys_for_model, candidate_keys_for_video, resolve_text
+from app.services.pay52_routes import candidate_keys_for_model
 from app.settings import Settings, settings
 
 
@@ -181,10 +181,11 @@ async def test_kie_create_fallbacks_to_kie_when_pay52_fails(tmp_path: Path, monk
     """Если 52pay падает, генерация автоматически уходит на KIE."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from app.bots.outsee import GenerationResult
-    from app.web.routers import kie_create
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
+    from app.web.routers import kie_create
 
     monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
     monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: True)
@@ -231,11 +232,12 @@ async def test_kie_create_fallbacks_to_pay52_when_kie_fails(tmp_path: Path, monk
     """Если KIE выдает ошибку (например 402 нет кредитов), генерация уходит в 52pay."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from app.bots.kie_http import KieHttpError
     from app.bots.outsee import GenerationResult
-    from app.web.routers import kie_create
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
+    from app.web.routers import kie_create
 
     monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
     monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: True)

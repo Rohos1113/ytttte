@@ -192,8 +192,8 @@ async def test_ledger_invariant_holds_on_postgres(pg_engine) -> None:
     async with factory() as session:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
         # Пополнение обязано покрывать холд: `price_micro(5.0)` — это цена
-        # с маржой ×3, то есть 15 кредитов, а не 5.
-        await cl.topup(session, tenant, 20 * 10**6)
+        # с маржой ×3 (при $1 = 100 кр — 1500 кредитов).
+        await cl.topup(session, tenant, 2000 * 10**6)
         hold = await cl.open_hold(
             session, tenant, project_id=1, step_code="video", amount_micro=price_micro(5.0)
         )

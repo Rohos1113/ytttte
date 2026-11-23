@@ -98,7 +98,7 @@ async def serve_data_file(
         and not (is_video and candidate.is_file())
     )
 
-    if should_redirect_s3:
+    if should_redirect_s3 and storage_key:
         from app.services.storage import get_storage
 
         url = get_storage().url(storage_key, download_name=download_name if download else "")

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 # catalog id или id из /v1/models → (поле Settings, id в запросе)
 _TEXT: dict[str, tuple[str, str]] = {
