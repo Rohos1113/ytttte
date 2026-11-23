@@ -80,14 +80,31 @@ async def serve_data_file(
 
     download_name, mime = suggested_name_and_mime(candidate)
 
-    if getattr(settings, "s3_configured", False) and storage_key and not (thumb and candidate.is_file()):
+    is_video = (mime or "").startswith("video/") or candidate.suffix.lower() in (
+        ".mp4",
+        ".webm",
+        ".mov",
+    )
+
+    # Видео при наличии локального файла на диске отдаём напрямую с сервера (206 Partial Content),
+    # чтобы не ломать потоковое воспроизведение в Chrome (307 cross-origin редирект без CORS
+    # на стороне S3 блокирует range-запросы и замораживает плеер).
+    # Также локально отдаём thumbnails, если они есть на диске.
+    should_redirect_s3 = (
+        getattr(settings, "s3_configured", False)
+        and bool(storage_key)
+        and not (thumb and candidate.is_file())
+        and not (is_video and candidate.is_file())
+    )
+
+    if should_redirect_s3:
         from app.services.storage import get_storage
 
         url = get_storage().url(storage_key, download_name=download_name if download else "")
         return RedirectResponse(
             url,
             status_code=307,
-            headers={"Cache-Control": "public, max-age=86400"} if not download else None,
+            headers={"Cache-Control": "public, max-age=600"} if not download else None,
         )
 
     if thumb and not download and candidate.is_file():
