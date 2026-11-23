@@ -16,6 +16,7 @@ paths = [
     '''evals/''',
     '''tests/routing/evals/fixtures/''',
     '''docs/''',
+    '''node_groups/''',
 ]
 stopwords = [
     "claude-haiku-4-5-20251001",
@@ -40,4 +41,5 @@ commits = [
     "6a0a716cefa7f55a1eac9bc57d4c367e91a02bee",
     "af89a905c433c87158ab0ce023cf6657695aeb7c",
     "36caca509c5a3832af4770738238eba424dfbee0",
+    "c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907",
 ]

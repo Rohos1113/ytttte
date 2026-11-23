@@ -82,6 +82,8 @@
       "96f6716218c056f89b9ad078fc05c35b9efcc8c4:web/src/components/baza/baza-workspace.tsx:generic-api-key:113",
       "acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-key:27",
       "af89a905c433c87158ab0ce023cf6657695aeb7c:ai-pack/03_config/env.example:generic-api-key:65",
+      "c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:208",
+      "c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:264",
       "d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api-key:702",
       "d3fa261b732f559dbc29e2e3b1be6770416ec7d4:tests/agents/test_chat_task_summary.py:generic-api-key:277",
       "d8bb25080618be34c35f71a645a4396ad0cefe98:scripts/_qa_verify_fixes50.py:generic-api-key:63",

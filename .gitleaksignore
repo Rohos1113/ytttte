@@ -111,3 +111,6 @@ d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api
 af89a905c433c87158ab0ce023cf6657695aeb7c:ai-pack/03_config/env.example:generic-api-key:65
 # 2) 36caca509: поле "dump_key": "kling-2-5-turbo" в docs/kie-ui-verify.json (идентификатор модели в дампе UI).
 36caca509c5a3832af4770738238eba424dfbee0:docs/kie-ui-verify.json:generic-api-key:3803
+# 3) c7e88c94f: поле "local_key": "n_items_..." и "n_excel_gpt_..." в node_groups/full-pipeline.json (идентификаторы нод в канвасе).
+c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:208
+c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:264
