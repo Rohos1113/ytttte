@@ -874,7 +874,13 @@ export function ModelSettingsDock({
   priceLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeTarget, setActiveTarget] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  const closePanel = () => {
+    setOpen(false);
+    setActiveTarget(null);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -883,10 +889,10 @@ export function ModelSettingsDock({
       // клик по ним не должен закрывать панель до того, как сработает выбор.
       const target = e.target;
       if (target instanceof Element && target.closest("[data-params-flyout]")) return;
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) closePanel();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") closePanel();
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -896,11 +902,28 @@ export function ModelSettingsDock({
     };
   }, [open]);
 
-  const togglePanel = () => {
-    setOpen((v) => {
-      if (!v) onPanelOpen?.();
-      return !v;
-    });
+  const togglePanelFor = (target: string) => {
+    if (open && activeTarget === target) {
+      closePanel();
+    } else {
+      if (!open) onPanelOpen?.();
+      setActiveTarget(target);
+      setOpen(true);
+      if (typeof window !== "undefined") {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            const selector =
+              target === "mode"
+                ? '[data-pane-section="mode"]'
+                : `[data-setting-name="${target}"]`;
+            const el = boxRef.current?.querySelector(selector);
+            if (el && typeof el.scrollIntoView === "function") {
+              el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            }
+          }, 40);
+        });
+      }
+    }
   };
 
   const sections: { title: string; items: ModelSettingDescriptor[] }[] = [];
@@ -935,14 +958,19 @@ export function ModelSettingsDock({
         };
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-1.5">
+    <div ref={boxRef} className="inline-flex flex-wrap items-center gap-1.5">
       {showModeBadge && activeMode && (
         <button
           type="button"
           data-mode-badge={activeMode.id}
           title={`Режим: ${activeMode.label} — нажмите, чтобы переключить`}
-          onClick={togglePanel}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2dd4bf]/45 bg-[#2dd4bf]/12 px-2 text-[11px] font-semibold text-[#2dd4bf] transition hover:bg-[#2dd4bf]/20"
+          onClick={() => togglePanelFor("mode")}
+          className={cn(
+            "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition hover:bg-[#2dd4bf]/20",
+            open && activeTarget === "mode"
+              ? "border-[#2dd4bf]/80 bg-[#2dd4bf]/25 text-[#2dd4bf] ring-1 ring-[#2dd4bf]/40"
+              : "border-[#2dd4bf]/45 bg-[#2dd4bf]/12 text-[#2dd4bf]",
+          )}
         >
           <Layers className="h-3 w-3" />
           <span className="max-w-[200px] truncate">
@@ -950,7 +978,7 @@ export function ModelSettingsDock({
           </span>
         </button>
       )}
-      <div ref={boxRef} className="relative inline-flex flex-wrap items-center gap-1.5">
+      <div className="relative inline-flex flex-wrap items-center gap-1.5">
         {/* Постоянная кнопка «Параметры»: панель доступна у любой модели,
             даже если у неё нет ни одного чипа-настройки. */}
         <button
@@ -960,10 +988,10 @@ export function ModelSettingsDock({
           aria-label="Параметры"
           aria-expanded={open}
           title="Все настройки модели и цена"
-          onClick={togglePanel}
+          onClick={() => togglePanelFor("params")}
           className={cn(
             "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-medium transition",
-            open
+            open && activeTarget === "params"
               ? "border-[#2dd4bf]/55 bg-[#2dd4bf]/12 text-[#2dd4bf]"
               : "border-white/[0.08] bg-white/[0.03] text-white/60 hover:border-white/20 hover:text-white",
           )}
@@ -976,16 +1004,23 @@ export function ModelSettingsDock({
           const value = modelSettingValue(d, values);
           const isVoice = d.kind === "voice";
           const text = isVoice && formatVoice ? formatVoice(value) : formatSettingChip(d, values);
+          const isChipActive = open && activeTarget === d.name;
           return (
             <span key={d.name} data-chip={d.chip}>
               <ParamChip
                 icon={settingIcon(d.icon, value)}
                 value={text}
                 title={d.hint || d.label}
-                active={open && !isVoice}
+                active={isChipActive}
                 // Если владелец нарисовал голос внутри панели (renderVoice),
                 // чип ведёт в «Параметры»; иначе — в прежнюю модалку библиотеки.
-                onClick={isVoice ? (renderVoice ? togglePanel : () => onOpenVoiceModal?.()) : togglePanel}
+                onClick={
+                  isVoice
+                    ? renderVoice
+                      ? () => togglePanelFor(d.name)
+                      : () => onOpenVoiceModal?.()
+                    : () => togglePanelFor(d.name)
+                }
               />
             </span>
           );
@@ -1012,8 +1047,9 @@ export function ModelSettingsDock({
             </div>
 
             {showModeSection && (
-              <PaneSection title="Режим">
-                <div className="grid grid-cols-2 gap-1.5">
+              <div data-pane-section="mode">
+                <PaneSection title="Режим">
+                  <div className="grid grid-cols-2 gap-1.5">
                   {modes.map((m) => {
                     const at = m.label.indexOf(":");
                     const title = at >= 0 ? m.label.slice(0, at).trim() : m.label;
@@ -1050,7 +1086,8 @@ export function ModelSettingsDock({
                   })}
                 </div>
               </PaneSection>
-            )}
+            </div>
+          )}
 
             {sections.map((section) => (
               <PaneSection key={section.title} title={section.title}>
@@ -1096,7 +1133,7 @@ export function ModelSettingsDock({
                   data-action="reset-params"
                   onClick={() => {
                     onReset();
-                    setOpen(false);
+                    closePanel();
                   }}
                   className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/[0.06] hover:text-white"
                 >
@@ -1108,7 +1145,7 @@ export function ModelSettingsDock({
               )}
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={closePanel}
                 className="rounded-lg bg-[#2dd4bf]/15 px-2.5 py-1 text-[11px] font-medium text-[#2dd4bf] transition hover:bg-[#2dd4bf]/25"
               >
                 Готово
