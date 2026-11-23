@@ -171,7 +171,7 @@ export function PromptDetailModal({
                     trigger={
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[13px] font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[13px] font-semibold text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400/60 transition-all cursor-pointer"
                       >
                         <Wand2 className="h-3.5 w-3.5" /> Улучшить с ИИ
                       </button>
@@ -615,9 +615,9 @@ export function NodeCatalogPanel({
                 <button
                   type="button"
                   title="Создать или настроить промпт с помощью ИИ-Агента"
-                  className="flex h-9 items-center gap-1.5 bg-[#141417] px-3 text-[13px] font-semibold text-cyan-400 hover:bg-[#1b1b1f] hover:text-cyan-300 transition-colors select-none cursor-pointer"
+                  className="flex h-9 items-center gap-1.5 bg-[#141417] px-3 text-[13px] font-semibold text-emerald-400 hover:bg-[#1b1b1f] hover:text-emerald-300 transition-colors select-none cursor-pointer"
                 >
-                  <Wand2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <Wand2 className="h-3.5 w-3.5 text-emerald-400" />
                   <span>ИИ-агент</span>
                 </button>
               }

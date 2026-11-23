@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,28 +119,32 @@ export function MetaPromptDialog({
             type="button"
             size="sm"
             variant="outline"
-            className="gap-1.5 border-cyan-500/40 bg-cyan-500/10 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 shadow-sm transition-all"
+            className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400/60 shadow-sm transition-all"
           >
+            <Wand2 className="h-3.5 w-3.5 text-emerald-400" />
             Создать с ИИ-агентом
           </Button>
         )}
       </DialogTrigger>
 
       <DialogContent
-        overlayClassName="z-[200] bg-black/85"
-        className="z-[210] w-[94vw] max-w-5xl max-h-[88vh] overflow-y-auto overflow-x-hidden border border-zinc-800 bg-zinc-950 p-6 shadow-2xl [contain:paint]"
+        overlayClassName="z-[200] bg-black/85 backdrop-blur-sm"
+        className="z-[210] w-[94vw] max-w-4xl max-h-[88vh] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-[#0e0e12]/95 backdrop-blur-xl p-6 shadow-2xl [contain:paint]"
       >
         <DialogHeader className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary shadow-sm">
-              <Wand2 className="h-4.5 w-4.5" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-400 shadow-sm shadow-emerald-950/30">
+              <Wand2 className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base font-semibold leading-tight">
-                Конструктор мастер-промптов ИИ-Агентом
+              <DialogTitle className="text-base font-semibold leading-tight text-white flex items-center gap-2">
+                <span>Конструктор мастер-промптов ИИ-Агентом</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  ИИ-Агент
+                </span>
               </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground break-words mt-0.5">
-                Шаг: <span className="font-mono text-foreground font-semibold">{stepCode}</span> — напишите задачу своими словами или загрузите текст из файла, агент скомпилирует системный .md промпт под этот шаг.
+              <DialogDescription className="text-xs text-zinc-400 break-words mt-1">
+                Шаг: <span className="font-mono text-emerald-300 font-semibold px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/10">{stepCode}</span> — напишите задачу своими словами или загрузите текст из файла, агент скомпилирует системный .md промпт под этот шаг.
               </DialogDescription>
             </div>
           </div>
@@ -148,37 +153,37 @@ export function MetaPromptDialog({
         <div className="space-y-4 py-2">
           {/* Имя пресета и задача */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-1 flex flex-col justify-between space-y-1.5">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground">
+            <div className="sm:col-span-1 flex flex-col justify-between rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
                   Имя файла (.md):
                 </label>
                 <Input
                   placeholder="авто-генерация или имя"
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
-                  className="mt-1 h-9 text-xs font-mono"
+                  className="h-9 bg-black/40 border-white/10 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus-visible:border-emerald-500/50 focus-visible:ring-1 focus-visible:ring-emerald-500/30 focus-visible:shadow-none"
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground/60 leading-tight">
+              <span className="text-[11px] text-zinc-500 leading-tight">
                 Создаёт личный промпт, изолированный для вашего аккаунта
               </span>
             </div>
-            <div className="sm:col-span-2 space-y-1">
+            <div className="sm:col-span-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
                   Что должен делать этот промпт:
                 </label>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-5 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                  className="h-6 gap-1.5 px-2 text-[11px] font-medium text-zinc-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/20 rounded-lg transition-all"
                   onClick={() => fileInputRef.current?.click()}
                   title="Загрузить текст из файла (.txt, .md)"
                 >
                   <Upload className="h-3 w-3" />
-                  Из файла
+                  <span>Из файла</span>
                 </Button>
                 <input
                   ref={fileInputRef}
@@ -212,7 +217,7 @@ export function MetaPromptDialog({
                 placeholder="Опишите желаемую логику, стиль, правила или вставьте свой черновик промпта..."
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                className="mt-1 min-h-[90px] text-xs resize-none leading-relaxed"
+                className="min-h-[100px] bg-black/40 border-white/10 text-xs text-zinc-100 placeholder:text-zinc-500 focus-visible:border-emerald-500/50 focus-visible:ring-1 focus-visible:ring-emerald-500/30 focus-visible:shadow-none resize-none leading-relaxed rounded-xl"
               />
             </div>
           </div>
@@ -220,39 +225,44 @@ export function MetaPromptDialog({
           {/* Кнопка запуска компиляции */}
           <Button
             type="button"
-            className="w-full gap-2 text-xs font-semibold h-9 shadow-sm"
+            className={cn(
+              "w-full gap-2 text-xs font-semibold h-10 rounded-xl transition-all shadow-md",
+              compileMutation.isPending || !intent.trim()
+                ? "bg-zinc-800 text-zinc-500 border border-white/5 cursor-not-allowed"
+                : "bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white border border-emerald-400/40 shadow-emerald-950/40 hover:shadow-emerald-500/20"
+            )}
             disabled={compileMutation.isPending || !intent.trim()}
             onClick={() => compileMutation.mutate()}
           >
             {compileMutation.isPending ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Компилируем промпт через ИИ-Агента...
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
+                <span>Компилируем промпт через ИИ-Агента...</span>
               </>
             ) : (
               <>
-                <Zap className="h-3.5 w-3.5 fill-current" />
-                Скомпилировать системный .md промпт
+                <Zap className="h-4 w-4 fill-current text-emerald-200" />
+                <span>Скомпилировать системный .md промпт</span>
               </>
             )}
           </Button>
 
           {/* Результат компиляции */}
           {compiledPrompt && (
-            <div className="space-y-2 rounded-xl border border-border/80 bg-background/60 p-3.5">
+            <div className="space-y-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Готовый результат компиляции
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <span>Готовый результат компиляции</span>
                 </div>
                 {stats && (
-                  <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
-                    <span>{stats.lines_count} строк</span>
+                  <div className="flex items-center gap-2.5 text-[11px] text-zinc-400">
+                    <span className="font-mono text-zinc-300">{stats.lines_count} строк</span>
                     <span>·</span>
-                    <span>{stats.length_chars} символов</span>
+                    <span className="font-mono text-zinc-300">{stats.length_chars} символов</span>
                     {stats.has_guards && (
-                      <span className="flex items-center gap-0.5 text-emerald-400 font-medium">
-                        <ShieldCheck className="h-3 w-3" /> No-Chat Guard
+                      <span className="flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-emerald-300 font-medium text-[10px]">
+                        <ShieldCheck className="h-3 w-3 text-emerald-400" /> No-Chat Guard
                       </span>
                     )}
                   </div>
@@ -262,19 +272,19 @@ export function MetaPromptDialog({
               <Textarea
                 value={compiledPrompt}
                 onChange={(e) => setCompiledPrompt(e.target.value)}
-                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/60 border-zinc-800 whitespace-pre-wrap break-words resize-y"
+                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/60 border-white/10 rounded-xl text-zinc-100 whitespace-pre-wrap break-words resize-y focus-visible:border-emerald-500/50 focus-visible:ring-1 focus-visible:ring-emerald-500/30 focus-visible:shadow-none p-3"
               />
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between pt-1">
+        <DialogFooter className="gap-2 sm:justify-between pt-2 border-t border-white/[0.08] mt-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => setOpen(false)}
-            className="text-xs"
+            className="text-xs text-zinc-400 hover:text-white rounded-xl"
           >
             Отмена
           </Button>
@@ -283,7 +293,7 @@ export function MetaPromptDialog({
             <Button
               type="button"
               size="sm"
-              className="w-32 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm"
+              className="w-36 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md border border-emerald-400/40"
               disabled={saveMutation.isPending}
               onClick={() => saveMutation.mutate()}
             >
