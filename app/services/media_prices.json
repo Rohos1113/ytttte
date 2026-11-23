@@ -315,59 +315,303 @@
     },
     "pay52:seedance-2.0-mini": {
       "unit": "item",
-      "usd_per_call": 0.1901
+      "usd_per_call": 0.0243
+    },
+    "pay52:seedance-2.0-mini@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0243
+    },
+    "pay52:seedance-2.0-mini@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0527
+    },
+    "pay52:seedance-2-0-mini": {
+      "unit": "item",
+      "usd_per_call": 0.0243
+    },
+    "pay52:seedance-2-0-mini@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0243
+    },
+    "pay52:seedance-2-0-mini@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0527
     },
     "pay52:seedance-2.0-fast": {
       "unit": "item",
-      "usd_per_call": 0.3551
+      "usd_per_call": 0.0466
+    },
+    "pay52:seedance-2.0-fast@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0466
+    },
+    "pay52:seedance-2.0-fast@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0972
+    },
+    "pay52:seedance-2-0-fast": {
+      "unit": "item",
+      "usd_per_call": 0.0466
+    },
+    "pay52:seedance-2-0-fast@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0466
+    },
+    "pay52:seedance-2-0-fast@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0972
     },
     "pay52:seedance-2.5": {
       "unit": "item",
-      "usd_per_call": 1.0301
+      "usd_per_call": 0.1256
+    },
+    "pay52:seedance-2.5@480p": {
+      "unit": "item",
+      "usd_per_call": 0.1256
+    },
+    "pay52:seedance-2.5@720p": {
+      "unit": "item",
+      "usd_per_call": 0.2086
+    },
+    "pay52:seedance-2.5@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.4313
+    },
+    "pay52:seedance-2-5": {
+      "unit": "item",
+      "usd_per_call": 0.1256
+    },
+    "pay52:seedance-2-5@480p": {
+      "unit": "item",
+      "usd_per_call": 0.1256
+    },
+    "pay52:seedance-2-5@720p": {
+      "unit": "item",
+      "usd_per_call": 0.2086
+    },
+    "pay52:seedance-2-5@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.4313
     },
     "pay52:kling-4.0-k1": {
       "unit": "item",
-      "usd_per_call": 0.4899
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0-k1@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0-k1@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1499
+    },
+    "pay52:kling-4-0-k1": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4-0-k1@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4-0-k1@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1499
+    },
+    "pay52:veo-3.1-fast": {
+      "unit": "item",
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3.1-fast@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3.1-fast@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0405
     },
     "pay52:veo-3.1-fast-generate-preview": {
       "unit": "item",
-      "usd_per_call": 0.0899
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3.1-fast-generate-preview@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3.1-fast-generate-preview@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0405
     },
     "pay52:gpt-image-2": {
       "unit": "item",
-      "usd_per_unit": 0.1101
+      "usd_per_unit": 0.0195
     },
-    "pay52:gpt-image-2.5": {
+    "pay52:gpt-image-2@1K": {
       "unit": "item",
-      "usd_per_unit": 0.1299
+      "usd_per_unit": 0.0195
+    },
+    "pay52:gpt-image-2@2K": {
+      "unit": "item",
+      "usd_per_unit": 0.034
+    },
+    "pay52:gpt-image-2@4K": {
+      "unit": "item",
+      "usd_per_unit": 0.034
     },
     "pay52:gpt-image-2-4k": {
       "unit": "item",
-      "usd_per_unit": 0.2
+      "usd_per_unit": 0.034
+    },
+    "pay52:gpt-image-2.5": {
+      "unit": "item",
+      "usd_per_unit": 0.0221
+    },
+    "pay52:gpt-image-2.5@1K": {
+      "unit": "item",
+      "usd_per_unit": 0.0221
+    },
+    "pay52:gpt-image-2.5@4K": {
+      "unit": "item",
+      "usd_per_unit": 0.085
     },
     "pay52:gpt-image-2.5-flare": {
       "unit": "item",
-      "usd_per_unit": 0.5002
+      "usd_per_unit": 0.085
+    },
+    "pay52:gpt-image-2.6": {
+      "unit": "item",
+      "usd_per_unit": 0.0221
+    },
+    "pay52:gpt-image-2.6@1K": {
+      "unit": "item",
+      "usd_per_unit": 0.0221
+    },
+    "pay52:gpt-image-2.6@2K": {
+      "unit": "item",
+      "usd_per_unit": 0.0323
+    },
+    "pay52:gpt-image-2.6@4K": {
+      "unit": "item",
+      "usd_per_unit": 0.0425
     },
     "pay52:doubao-seedream-5.0-flash": {
       "unit": "item",
-      "usd_per_unit": 0.1002
+      "usd_per_unit": 0.017
     },
     "pay52:doubao-seedream-5.0-pro": {
       "unit": "item",
-      "usd_per_unit": 0.24
+      "usd_per_unit": 0.0408
+    },
+    "pay52:doubao-seedream-5.0-pro@1K": {
+      "unit": "item",
+      "usd_per_unit": 0.0408
+    },
+    "pay52:doubao-seedream-5.0-pro@1.5K": {
+      "unit": "item",
+      "usd_per_unit": 0.0408
+    },
+    "pay52:doubao-seedream-5.0-pro@2K": {
+      "unit": "item",
+      "usd_per_unit": 0.0816
+    },
+    "pay52:doubao-seedream-5.5": {
+      "unit": "item",
+      "usd_per_unit": 0.0187
+    },
+    "pay52:doubao-seedream-5.5@1K": {
+      "unit": "item",
+      "usd_per_unit": 0.0187
+    },
+    "pay52:doubao-seedream-5.5@1.5K": {
+      "unit": "item",
+      "usd_per_unit": 0.0187
+    },
+    "pay52:doubao-seedream-5.5@2K": {
+      "unit": "item",
+      "usd_per_unit": 0.0323
     },
     "pay52:nano-banana-2": {
       "unit": "item",
-      "usd_per_unit": 0.2602
+      "usd_per_unit": 0.0527
     },
     "pay52:nano-banana-pro": {
       "unit": "item",
-      "usd_per_unit": 0.4301
+      "usd_per_unit": 0.0608
     },
     "pay52:nano-banana-2.1": {
       "unit": "item",
-      "usd_per_unit": 0.32
+      "usd_per_unit": 0.0648
+    },
+    "pay52:wan3.0-video": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan3.0-video@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0306
+    },
+    "pay52:wan3.0-video@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan3.0-video@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1224
+    },
+    "pay52:wan-3-0": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan-3-0@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0306
+    },
+    "pay52:wan-3-0@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan-3-0@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1224
+    },
+    "pay52:MiniMax-H3": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:MiniMax-H3@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0170
+    },
+    "pay52:MiniMax-H3@768p": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:MiniMax-H3@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0357
+    },
+    "pay52:MiniMax-H3@2K": {
+      "unit": "item",
+      "usd_per_call": 0.0408
+    },
+    "pay52:minimax-h3": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0170
+    },
+    "pay52:minimax-h3@768p": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0357
+    },
+    "pay52:minimax-h3@2K": {
+      "unit": "item",
+      "usd_per_call": 0.0408
     }
   }
 }

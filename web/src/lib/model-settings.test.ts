@@ -464,16 +464,16 @@ test("usdFromCredits: кредиты kie × курс × наценка", () => {
   assert.equal(usdFromCredits(10, 0.005, 1), 0.05);
 });
 
-test("formatUsd: 0 — «бесплатно», мелкое — $0.01, пустое — тире", () => {
+test("formatUsd: 0 — «бесплатно», мелкое — 0.01 кр., пустое — тире", () => {
   assert.equal(formatUsd(0), "бесплатно");
-  assert.equal(formatUsd(0.0625), "$0.06");
-  assert.equal(formatUsd(1.25), "$1.25");
-  assert.equal(formatUsd(0.004), "$0.01");
-  assert.equal(formatUsd(12), "$12.00");
+  assert.equal(formatUsd(0.0625), "0.06 кр.");
+  assert.equal(formatUsd(1.25), "1.25 кр.");
+  assert.equal(formatUsd(0.004), "0.01 кр.");
+  assert.equal(formatUsd(12), "12.00 кр.");
   assert.equal(formatUsd(null), "—");
-  // Балансы и суммы остаются деньгами: там $0.00 — честный ноль.
-  assert.equal(formatMoneyUsd(0), "$0.00");
-  assert.equal(formatMoneyUsd(0.004), "$0.01");
+  // Балансы и суммы остаются деньгами: там 0.00 кр. — честный ноль.
+  assert.equal(formatMoneyUsd(0), "0.00 кр.");
+  assert.equal(formatMoneyUsd(0.004), "0.01 кр.");
   assert.equal(formatMoneyUsd(null), "—");
 });
 
@@ -605,7 +605,7 @@ test("estimateSettingsUsd: unit=image — фикс за картинку, count 
   assert.equal(estimateSettingsUsd({ model: flat }).usd_client, 0.16);
   assert.equal(
     formatEstimateUsd(estimateSettingsUsd({ model: flat, values: { num_images: 1 } })),
-    "$0.08",
+    "0.08 кр.",
   );
 });
 

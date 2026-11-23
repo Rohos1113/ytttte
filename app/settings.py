@@ -523,12 +523,11 @@ class Settings(BaseSettings):
     # За обратным прокси с TLS — включить.
     session_cookie_secure: bool = Field(False, alias="SESSION_COOKIE_SECURE")
 
-    # ── Кредиты (docs/SAAS-PIVOT.md §5.1) ────────────────────────────────
-    # Курс: сколько долларов СЕБЕСТОИМОСТИ в одном кредите. Маржа — наценка
-    # поверх. Решение владельца: 1 кредит = $1, маржа ×3. Вынесено в
-    # настройки, потому что менять придётся без правки кода.
-    credit_usd_rate: float = Field(1.0, alias="CREDIT_USD_RATE")
-    credit_margin: float = Field(3.0, alias="CREDIT_MARGIN")
+    # ── Кредиты (docs/SAAS-PIVOT.md §5.1, docs/CRYPTO-TOPUP-PLAN.md §12) ──
+    # Курс: $1 = 100 кредитов (1 кредит = $0.01 / 1 цент / 1 рубль).
+    # Маржа уже заложена в расчетные цены моделей (наценка x17 / x20.25).
+    credit_usd_rate: float = Field(0.01, alias="CREDIT_USD_RATE")
+    credit_margin: float = Field(1.0, alias="CREDIT_MARGIN")
 
     # ── Пополнение счёта криптой (Bitcart) ────────────────────────────────
     # Выключено по умолчанию: пока на сервере не настроен Bitcart

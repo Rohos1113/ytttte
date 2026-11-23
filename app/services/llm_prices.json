@@ -30,8 +30,8 @@
       "output_usd_per_m": 1.279387
     },
     "claude-fable-5": {
-      "input_usd_per_m": 4.71,
-      "output_usd_per_m": 23.53
+      "input_usd_per_m": 0.8384,
+      "output_usd_per_m": 4.1918
     },
     "claude-haiku-4-5": {
       "input_usd_per_m": 0.2,
@@ -42,8 +42,8 @@
       "output_usd_per_m": 1.476216
     },
     "claude-sonnet-5": {
-      "input_usd_per_m": 1.3802,
-      "output_usd_per_m": 6.9002
+      "input_usd_per_m": 0.2795,
+      "output_usd_per_m": 1.3973
     },
     "claude-opus-4-6": {
       "input_usd_per_m": 0.492072,
@@ -60,6 +60,10 @@
     "claude-opus-5": {
       "input_usd_per_m": 0.492072,
       "output_usd_per_m": 2.46036
+    },
+    "claude-opus-5-5": {
+      "input_usd_per_m": 0.5589,
+      "output_usd_per_m": 2.7945
     },
     "grok-4-5": {
       "input_usd_per_m": 0.06561,
@@ -86,12 +90,12 @@
       "output_usd_per_m": 0.738108
     },
     "gemini-3.8-flash": {
-      "input_usd_per_m": 0.9402,
-      "output_usd_per_m": 4.6602
+      "input_usd_per_m": 0.1904,
+      "output_usd_per_m": 0.9437
     },
     "gpt-6-astra": {
-      "input_usd_per_m": 5.52,
-      "output_usd_per_m": 27.6
+      "input_usd_per_m": 1.1178,
+      "output_usd_per_m": 5.589
     },
     "gemini-3.5-flash": {
       "input_usd_per_m": 0.295243,
@@ -118,28 +122,28 @@
       "output_usd_per_m": 13.8
     },
     "claude-fable-5-1": {
-      "input_usd_per_m": 6.9002,
-      "output_usd_per_m": 34.5002
+      "input_usd_per_m": 1.3973,
+      "output_usd_per_m": 6.9863
     },
     "gpt-6-sol": {
-      "input_usd_per_m": 0.17,
-      "output_usd_per_m": 0.85
+      "input_usd_per_m": 0.2248,
+      "output_usd_per_m": 1.1178
     },
     "gpt-6.1-sol": {
-      "input_usd_per_m": 1.1101,
-      "output_usd_per_m": 5.52
+      "input_usd_per_m": 0.2248,
+      "output_usd_per_m": 1.1178
     },
     "gpt-6-luna": {
-      "input_usd_per_m": 0.56,
-      "output_usd_per_m": 3.32
+      "input_usd_per_m": 0.1134,
+      "output_usd_per_m": 0.6723
     },
     "grok-4-7": {
       "input_usd_per_m": 0.098,
       "output_usd_per_m": 0.3
     },
     "glm-5.3-flash": {
-      "input_usd_per_m": 0.48,
-      "output_usd_per_m": 1.6602
+      "input_usd_per_m": 0.0972,
+      "output_usd_per_m": 0.3362
     },
     "glm-5.3-flashx": {
       "input_usd_per_m": 0.098,
@@ -150,8 +154,8 @@
       "output_usd_per_m": 0.15
     },
     "glm-5.3": {
-      "input_usd_per_m": 4.8,
-      "output_usd_per_m": 16.8
+      "input_usd_per_m": 0.972,
+      "output_usd_per_m": 3.402
     },
     "claude-haiku-4-5-20251001": {
       "input_usd_per_m": 0.2,
@@ -162,8 +166,8 @@
       "output_usd_per_m": 1.476216
     },
     "claude-haiku-5-5": {
-      "input_usd_per_m": 0.08,
-      "output_usd_per_m": 0.3501
+      "input_usd_per_m": 0.0162,
+      "output_usd_per_m": 0.0709
     },
     "deepseek-v4-flash": {
       "input_usd_per_m": 0.02,
@@ -174,24 +178,24 @@
       "output_usd_per_m": 0.28
     },
     "deepseek-v4.1-flash": {
-      "input_usd_per_m": 0.9,
-      "output_usd_per_m": 3.6
+      "input_usd_per_m": 0.1215,
+      "output_usd_per_m": 0.486
     },
     "gpt-6.1-terra": {
-      "input_usd_per_m": 0.56,
-      "output_usd_per_m": 2.76
+      "input_usd_per_m": 0.1134,
+      "output_usd_per_m": 0.5589
     },
     "kimi-k3.1-pro": {
-      "input_usd_per_m": 7.8,
-      "output_usd_per_m": 40.8
+      "input_usd_per_m": 1.5795,
+      "output_usd_per_m": 8.262
     },
     "gemini-4-argon": {
-      "input_usd_per_m": 2.4899,
-      "output_usd_per_m": 12.4202
+      "input_usd_per_m": 0.5042,
+      "output_usd_per_m": 2.5151
     },
     "gemini-flash-lite-latest": {
-      "input_usd_per_m": 0.32,
-      "output_usd_per_m": 1.8701
+      "input_usd_per_m": 0.0648,
+      "output_usd_per_m": 0.3787
     }
   }
 }

@@ -68,7 +68,7 @@ export type ModelCatalogPayload = {
   models: CatalogModel[];
 };
 
-export const PRICE_MARKUP = 3;
+export const PRICE_MARKUP = 1;
 export const PRICE_MARKUP_STABLE = PRICE_MARKUP;
 export const DEFAULT_TEXT_MODEL_ID = "gpt-6.1-sol";
 export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2";
@@ -191,7 +191,7 @@ export function formatUsd(value: number | null | undefined): string {
 
 export function formatUsdPrice(value: number | null | undefined): string {
   const n = formatUsd(value);
-  return n === "—" ? n : `$${n}`;
+  return n === "—" ? n : `${n} кр.`;
 }
 
 export function defaultModelIdForNodeType(nodeType: string | null | undefined): string {
@@ -232,7 +232,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     online: true,
     is_top: true,
     resolution: "1K/2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.05 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 7.0 },
     api_model: "flux-2-pro",
     provider: "kie",
     image_generator: "flux_2_pro",
@@ -246,7 +246,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     online: true,
     is_top: true,
     resolution: "1K/2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.045 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 4.08 },
     api_model: "seedream-5-pro",
     provider: "kie",
     image_generator: "seedream_5_pro",
@@ -259,7 +259,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     kind: "image",
     online: true,
     resolution: "2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.035 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 4.8 },
     api_model: "qwen3-image",
     provider: "kie",
     image_generator: "qwen3_image",
@@ -274,7 +274,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     vendor: "video",
     kind: "video",
     online: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.124 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 4.66 },
     api_model: "seedance-2-0-fast",
     provider: "kie",
     video_generator: "seedance_2_0_fast",
@@ -287,7 +287,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.18 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 12.56 },
     api_model: "seedance-2-5",
     provider: "kie",
     video_generator: "seedance_2_5",
@@ -300,7 +300,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.21 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 3.5 },
     api_model: "seedance-1-5-pro",
     provider: "kie",
     video_generator: "seedance_1_5_pro",
@@ -313,7 +313,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.36 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 9.92 },
     api_model: "kling-3-0",
     provider: "kie",
     video_generator: "kling_3_0",
@@ -326,7 +326,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.24 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 6.0 },
     api_model: "kling-v3-turbo-t2v",
     provider: "kie",
     video_generator: "kling_v3_turbo_t2v",
@@ -339,7 +339,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.24 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 6.0 },
     api_model: "kling-v3-turbo-i2v",
     provider: "kie",
     video_generator: "kling_v3_turbo_i2v",
@@ -352,7 +352,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.42 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 9.92 },
     api_model: "kling-3-0-omni-t2v",
     provider: "kie",
     video_generator: "kling_3_0_omni_t2v",
@@ -365,7 +365,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.27 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 2.55 },
     api_model: "hailuo-2-3-i2v",
     provider: "kie",
     video_generator: "hailuo_2_3_i2v",
@@ -378,7 +378,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.15 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 3.06 },
     api_model: "wan-2-7-t2v",
     provider: "kie",
     video_generator: "wan_2_7_t2v",
@@ -391,7 +391,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.15 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 4.0 },
     api_model: "topaz-video-upscale",
     provider: "kie",
     video_generator: "topaz_video_upscale",
@@ -404,7 +404,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     kind: "video",
     online: true,
     is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.45 },
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 1.82 },
     api_model: "veo-3-1-lite",
     provider: "outsee",
     video_generator: "veo_3_1_lite",

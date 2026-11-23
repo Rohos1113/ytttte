@@ -22,12 +22,12 @@ from app.services.credits import (
 
 
 def test_price_matches_owner_decision() -> None:
-    """Курс 1 кредит = $1, маржа ×3 — решение владельца (§5.1)."""
-    assert margin() == Decimal("3")
-    # Ролик целиком: $5.625 себестоимости → 16.88 кредита в прайсе §6.2.
-    assert format_credits(price_micro(5.625), rounding="up") == "16.88"
-    # 24 клипа 768P — самая крупная строка сметы, цена из §7.3.
-    assert format_credits(price_micro(0.19 * 24), rounding="up") == "13.68"
+    """Курс 100 кредитов = $1 (1 кр = $0.01), розничные цены уже содержат наценку (маржа ×1)."""
+    assert margin() == Decimal("1.0")
+    # GPT Image 2 (4K): $0.0340 себестоимости в базе → 3.40 кредита в прайсе.
+    assert format_credits(price_micro(0.034), rounding="up") == "3.40"
+    # Nano Banana 2: $0.0527 → 5.27 кредита.
+    assert format_credits(price_micro(0.0527), rounding="up") == "5.27"
 
 
 def test_price_never_below_cost_with_margin() -> None:
@@ -38,13 +38,8 @@ def test_price_never_below_cost_with_margin() -> None:
 
 
 def test_cheap_operation_looks_cheap() -> None:
-    """Картинка стоит 0.0105 кредита и должна так и выглядеть.
-
-    Округление до двух знаков вверх показало бы 0.02 — почти вдвое дороже.
-    На дешевизне картинки держится всё поведение продукта: итерация идёт по
-    кадрам, видео покупается один раз (§6.3).
-    """
-    assert format_credits(price_micro(0.0035), rounding="up") == "0.0105"
+    """Операция стоимостью $0.0035 стоит 0.35 кредита."""
+    assert format_credits(price_micro(0.0035), rounding="up") == "0.35"
 
 
 def test_balance_rounds_down_price_rounds_up() -> None:

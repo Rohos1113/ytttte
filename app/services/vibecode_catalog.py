@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-PRICE_MARKUP = 1.5
+PRICE_MARKUP = 1.0
 PRICE_MARKUP_STABLE = PRICE_MARKUP
 
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "vibecode_models_snapshot.json"

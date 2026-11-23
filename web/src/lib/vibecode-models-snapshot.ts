@@ -29,8 +29,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.111,
       "currency": "usd",
-      "input_usd_per_m": 1.1101,
-      "output_usd_per_m": 5.52
+      "input_usd_per_m": 22.48,
+      "output_usd_per_m": 111.78
     }
   },
   {
@@ -43,8 +43,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.552,
       "currency": "usd",
-      "input_usd_per_m": 5.52,
-      "output_usd_per_m": 27.6
+      "input_usd_per_m": 111.78,
+      "output_usd_per_m": 558.9
     }
   },
   {
@@ -57,8 +57,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.056,
       "currency": "usd",
-      "input_usd_per_m": 0.56,
-      "output_usd_per_m": 3.32
+      "input_usd_per_m": 11.34,
+      "output_usd_per_m": 67.23
     }
   },
   {
@@ -71,8 +71,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.056,
       "currency": "usd",
-      "input_usd_per_m": 0.56,
-      "output_usd_per_m": 2.76
+      "input_usd_per_m": 11.34,
+      "output_usd_per_m": 55.89
     }
   },
   {
@@ -85,8 +85,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.111,
       "currency": "usd",
-      "input_usd_per_m": 1.1101,
-      "output_usd_per_m": 5.52
+      "input_usd_per_m": 22.48,
+      "output_usd_per_m": 111.78
     }
   },
   {
@@ -99,8 +99,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.111,
       "currency": "usd",
-      "input_usd_per_m": 1.1101,
-      "output_usd_per_m": 5.52
+      "input_usd_per_m": 22.48,
+      "output_usd_per_m": 111.78
     }
   },
   {
@@ -113,8 +113,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.008,
       "currency": "usd",
-      "input_usd_per_m": 0.08,
-      "output_usd_per_m": 0.3501
+      "input_usd_per_m": 1.62,
+      "output_usd_per_m": 7.09
     }
   },
   {
@@ -127,8 +127,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.138,
       "currency": "usd",
-      "input_usd_per_m": 1.3802,
-      "output_usd_per_m": 6.9002
+      "input_usd_per_m": 27.95,
+      "output_usd_per_m": 139.73
     }
   },
   {
@@ -141,8 +141,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.276,
       "currency": "usd",
-      "input_usd_per_m": 2.76,
-      "output_usd_per_m": 13.8
+      "input_usd_per_m": 55.89,
+      "output_usd_per_m": 279.45
     }
   },
   {
@@ -155,8 +155,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.69,
       "currency": "usd",
-      "input_usd_per_m": 6.9002,
-      "output_usd_per_m": 34.5002
+      "input_usd_per_m": 139.73,
+      "output_usd_per_m": 698.63
     }
   },
   {
@@ -169,8 +169,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.414,
       "currency": "usd",
-      "input_usd_per_m": 4.14,
-      "output_usd_per_m": 20.7
+      "input_usd_per_m": 83.84,
+      "output_usd_per_m": 419.18
     }
   },
   {
@@ -183,8 +183,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.09,
       "currency": "usd",
-      "input_usd_per_m": 0.9,
-      "output_usd_per_m": 3.6
+      "input_usd_per_m": 12.15,
+      "output_usd_per_m": 48.6
     }
   },
   {
@@ -197,8 +197,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.78,
       "currency": "usd",
-      "input_usd_per_m": 7.8,
-      "output_usd_per_m": 40.8
+      "input_usd_per_m": 157.95,
+      "output_usd_per_m": 826.2
     }
   },
   {
@@ -211,8 +211,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.249,
       "currency": "usd",
-      "input_usd_per_m": 2.4899,
-      "output_usd_per_m": 12.4202
+      "input_usd_per_m": 50.42,
+      "output_usd_per_m": 251.51
     }
   },
   {
@@ -225,8 +225,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.094,
       "currency": "usd",
-      "input_usd_per_m": 0.9402,
-      "output_usd_per_m": 4.6602
+      "input_usd_per_m": 19.04,
+      "output_usd_per_m": 94.37
     }
   },
   {
@@ -239,8 +239,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.032,
       "currency": "usd",
-      "input_usd_per_m": 0.32,
-      "output_usd_per_m": 1.8701
+      "input_usd_per_m": 6.48,
+      "output_usd_per_m": 37.87
     }
   },
   {
@@ -253,8 +253,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.048,
       "currency": "usd",
-      "input_usd_per_m": 0.48,
-      "output_usd_per_m": 1.6602
+      "input_usd_per_m": 9.72,
+      "output_usd_per_m": 33.62
     }
   },
   {
@@ -267,8 +267,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.48,
       "currency": "usd",
-      "input_usd_per_m": 4.8,
-      "output_usd_per_m": 16.8
+      "input_usd_per_m": 97.2,
+      "output_usd_per_m": 340.2
     }
   },
   {
@@ -293,7 +293,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "owned_by": "outsee",
     "pricing": {
       "currency": "usd",
-      "usd_per_image": 0.042646
+      "usd_per_image": 1.95
     }
   },
   {
@@ -304,7 +304,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "owned_by": "vibecode",
     "pricing": {
       "currency": "usd",
-      "usd_per_image": 0.045927
+      "usd_per_image": 5.27
     }
   },
   {
@@ -315,7 +315,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "owned_by": "vibecode",
     "pricing": {
       "currency": "usd",
-      "usd_per_image": 0.039366
+      "usd_per_image": 5.27
     }
   },
   {
@@ -326,7 +326,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "owned_by": "vibecode",
     "pricing": {
       "currency": "usd",
-      "usd_per_image": 0.059049
+      "usd_per_image": 6.08
     }
   },
   {
@@ -337,7 +337,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "owned_by": "vibecode",
     "pricing": {
       "currency": "usd",
-      "usd_per_image": 0.016402
+      "usd_per_image": 3.5
     }
   },
   {
@@ -350,8 +350,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.138,
       "currency": "usd",
-      "input_usd_per_m": 1.3802,
-      "output_usd_per_m": 6.9002
+      "input_usd_per_m": 27.95,
+      "output_usd_per_m": 139.73
     }
   },
   {
@@ -364,8 +364,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.008,
       "currency": "usd",
-      "input_usd_per_m": 0.08,
-      "output_usd_per_m": 0.3501
+      "input_usd_per_m": 1.62,
+      "output_usd_per_m": 7.09
     }
   },
   {
@@ -378,8 +378,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.032,
       "currency": "usd",
-      "input_usd_per_m": 0.32,
-      "output_usd_per_m": 1.8701
+      "input_usd_per_m": 19.04,
+      "output_usd_per_m": 94.37
     }
   },
   {
@@ -392,8 +392,8 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.048,
       "currency": "usd",
-      "input_usd_per_m": 0.48,
-      "output_usd_per_m": 1.6602
+      "input_usd_per_m": 9.72,
+      "output_usd_per_m": 33.62
     }
   }
 ];

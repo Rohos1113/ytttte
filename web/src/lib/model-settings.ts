@@ -654,17 +654,17 @@ export function usdFromCredits(
 }
 
 /**
- * Денежная сумма без «бесплатно»: балансы, лимиты, суммы. Мельче цента — $0.01.
+ * Сумма в кредитах без «бесплатно»: балансы, лимиты, суммы. Мельче 0.01 — 0.01 кр.
  */
 export function formatMoneyUsd(usd: number | null | undefined): string {
   if (usd == null || !Number.isFinite(usd)) return "—";
-  if (usd > 0 && usd < 0.01) return "$0.01";
-  return `$${usd.toFixed(2)}`;
+  if (usd > 0 && usd < 0.01) return "0.01 кр.";
+  return `${usd.toFixed(2)} кр.`;
 }
 
 /**
- * Формат ЦЕНЫ модели в UI: два знака, без «кр.».
- * 0 — «бесплатно» (а не $0.00); мельче цента — $0.01 (реальная цена, не ноль).
+ * Формат ЦЕНЫ модели в UI: два знака, с «кр.».
+ * 0 — «бесплатно» (а не 0.00 кр.); мельче 0.01 — 0.01 кр. (реальная цена, не ноль).
  * Неизвестную цену сюда не передаём — для неё formatEstimateUsd.
  */
 export function formatUsd(usd: number | null | undefined): string {
