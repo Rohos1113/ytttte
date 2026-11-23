@@ -632,6 +632,8 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
                 "active": item["id"] == active_id,
             }
         )
+    # 52pay — приоритетный провайдер: в списке моделей ставим его первым
+    models.sort(key=lambda m: (0 if m["provider"] == "pay52" else (1 if m["provider"] == "vibecode" else 2)))
     if active == "vibecode":
         active_raw = catalog_item(active_id)
         active_item: dict[str, Any] = active_raw if isinstance(active_raw, dict) else {}

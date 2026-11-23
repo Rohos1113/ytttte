@@ -2918,8 +2918,9 @@ async def chat(**kwargs: Any) -> GptChatResult:
                 from app.services.llm_override import use_override
 
                 logger.warning(
-                    "gpt_api.chat: kie недоступен ({}), повтор того же запроса через 52pay ({})",
+                    "gpt_api.chat: основной провайдер недоступен ({}), повтор через {} ({})",
                     str(e)[:160],
+                    fallback.provider,
                     fallback.model_id,
                 )
                 with use_override(fallback):
@@ -2927,18 +2928,11 @@ async def chat(**kwargs: Any) -> GptChatResult:
 
 
 def provider_fallback(error: BaseException, kwargs: dict[str, Any]) -> Any:
-    """Запасной маршрут 52pay для общего провайдера kie, когда тот лежит. None — не переключаемся.
-
-    Только инфраструктурный сбой (сеть, 5xx, 429 после всех повторов, открытый
-    предохранитель): ошибки содержания и бюджета не переключают. Не трогаем шаги со
-    своим провайдером (override), вызовы с файлами и нативными инструментами.
-    """
+    """Запасной маршрут: 52pay <-> Vibecode / KIE при падении основного провайдера."""
     if not getattr(settings, "text_llm_fallback_52pay", False):
         return None
-    if settings.text_llm_is_vibecode or settings.text_llm_is_pay52:
-        return None
     if isinstance(error, GptApiError):
-        if not error.retryable or str(error.context.get("error_kind") or "") in {"no_key", "budget"}:
+        if not error.retryable or str(error.context.get("error_kind") or "") in {"budget"}:
             return None
     elif not isinstance(error, ProviderCircuitOpen):
         return None
@@ -2952,9 +2946,24 @@ def provider_fallback(error: BaseException, kwargs: dict[str, Any]) -> Any:
     if current_override() is not None:
         return None
     model = str(kwargs.get("model") or settings.gpt_model or "").strip()
-    if resolve_text(model) is None:
+
+    if settings.text_llm_is_pay52:
+        # Основной 52pay лежит -> пробуем Vibecode или KIE
+        if bool(getattr(settings, "vibecode_api_key", "")):
+            return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="vibecode", label="Vibecode (запасной)")
+        if bool(getattr(settings, "kie_api_key", "")):
+            return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="kie", label="KIE (запасной)")
         return None
-    return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="52pay", label="52pay (запасной)")
+    elif settings.text_llm_is_vibecode:
+        # Основной Vibecode лежит -> пробуем 52pay
+        if resolve_text(model) is not None:
+            return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="52pay", label="52pay (запасной)")
+        return None
+    else:
+        # Основной KIE лежит -> пробуем 52pay
+        if resolve_text(model) is None:
+            return None
+        return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="52pay", label="52pay (запасной)")
 
 
 async def _check_budget_before_call(kwargs: dict | None = None) -> tuple[int | None, int | None]:

@@ -588,22 +588,46 @@ async def run_generation(
     logger.info("pay52_video: видео готово, скачиваем с {}", video_url[:100])
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    dl_headers: dict[str, str] = {}
-    if key and (pay52_base_url() in video_url or "aihubkit.com" in video_url or "52pay" in video_url):
-        dl_headers["Authorization"] = f"Bearer {key}"
+    browser_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    # Подписанные URL хранилищ (OSS / S3 / CDN) не принимают Authorization заголовок (возвращают 400)
+    has_query_signature = any(
+        param in video_url.lower()
+        for param in ("signature=", "x-amz-", "ossaccesskeyid=", "token=", "expires=")
+    )
 
     last_dl_err: Exception | None = None
     for attempt in range(4):
+        # 1-я попытка для подписанных ссылок — чистый GET без Authorization.
+        # Для внутренних URL api.52pay.com без подписи — с Authorization.
+        use_auth = bool(
+            key
+            and not has_query_signature
+            and (pay52_base_url() in video_url or "aihubkit.com" in video_url or "52pay" in video_url)
+        )
+        if attempt == 1 and not use_auth and key:
+            use_auth = True
+        elif attempt == 2 and use_auth:
+            use_auth = False
+
+        headers: dict[str, str] = {"User-Agent": browser_ua}
+        if use_auth and key:
+            headers["Authorization"] = f"Bearer {key}"
+
         try:
             async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
-                r = await client.get(video_url, headers=dl_headers if dl_headers else None)
+                r = await client.get(video_url, headers=headers)
                 if r.status_code == 200 and r.content and len(r.content) >= 32:
                     out_path.write_bytes(r.content)
                     last_dl_err = None
                     break
-                if r.status_code in (401, 403) and not dl_headers and key:
-                    dl_headers["Authorization"] = f"Bearer {key}"
-                    continue
+                logger.warning(
+                    "pay52_video: скачивание попытка {}/4 status={} auth={} ответ={}",
+                    attempt + 1,
+                    r.status_code,
+                    use_auth,
+                    (r.text or "")[:150],
+                )
                 last_dl_err = Pay52VideoError(
                     f"52pay: не удалось скачать готовое видео ({r.status_code})",
                     context={"provider_code": r.status_code, "video_url": video_url[:150]},

@@ -282,3 +282,60 @@ async def test_kie_create_fallbacks_to_pay52_when_kie_fails(tmp_path: Path, monk
     assert r.status_code == 200
     assert called_pay52 is True
 
+
+@pytest.mark.asyncio
+async def test_pay52_video_presigned_download_no_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Для подписанных ссылок OSS / S3 не должен отправляться Authorization заголовок."""
+    spec = {"id": "bytedance/seedance-2-mini", "mode": "mini"}
+    payload = {"prompt": "test"}
+    out_file = tmp_path / "video.mp4"
+
+    monkeypatch.setattr(pay52_video, "create_task", AsyncMock(return_value="task-dl-1"))
+    monkeypatch.setattr(pay52_video, "poll_task", AsyncMock(return_value="https://cdn.aihubkit.com/videos/v1.mp4?OSSAccessKeyId=test&Signature=abc"))
+
+    captured_headers = []
+
+    async def fake_get(url, headers=None, **kw):
+        captured_headers.append(dict(headers or {}))
+        return httpx.Response(200, content=b"\x00" * 64)
+
+    with patch("httpx.AsyncClient.get", side_effect=fake_get):
+        res = await pay52_video.run_generation(spec, payload, out_file)
+        assert res.file_path.exists()
+        assert len(captured_headers) == 1
+        assert "Authorization" not in captured_headers[0]
+        assert "Mozilla" in captured_headers[0].get("User-Agent", "")
+
+
+@pytest.mark.asyncio
+async def test_pay52_text_fallback_to_vibecode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если 52pay по тексту падает со сбоем, происходит автоматический фоллбек на Vibecode."""
+    monkeypatch.setattr(settings, "text_llm_provider", "pay52")
+    monkeypatch.setattr(settings, "text_llm_fallback_52pay", True)
+    monkeypatch.setattr(settings, "vibecode_api_key", "test-vibecode-key")
+
+    attempts = 0
+
+    async def fake_chat_unscoped(**kw):
+        nonlocal attempts
+        attempts += 1
+        from app.services.llm_override import current_override
+        ov = current_override()
+        if attempts == 1:
+            assert ov is None or ov.provider == "52pay"
+            raise GptApiError("52pay 500 error", context={"status_code": 500, "retryable": True})
+        assert ov is not None
+        assert ov.provider == "vibecode"
+        return gpt_api.GptChatResult(text="response-from-vibecode-fallback", model="gpt-6.1-sol")
+
+    async def no_budget(kwargs=None):
+        return None, None
+
+    monkeypatch.setattr(gpt_api, "_chat_unscoped", fake_chat_unscoped)
+    monkeypatch.setattr(gpt_api, "_check_budget_before_call", no_budget)
+
+    res = await gpt_api.chat(prompt="hello", model="gpt-6.1-sol")
+    assert res.text == "response-from-vibecode-fallback"
+    assert attempts == 2
+
+
