@@ -114,3 +114,6 @@ af89a905c433c87158ab0ce023cf6657695aeb7c:ai-pack/03_config/env.example:generic-a
 # 3) c7e88c94f: поле "local_key": "n_items_..." и "n_excel_gpt_..." в node_groups/full-pipeline.json (идентификаторы нод в канвасе).
 c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:208
 c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907:node_groups/full-pipeline.json:generic-api-key:264
+# 4) f0d388945: имя настройки "pay52_claude_low_key" в app/services/pay52_routes.py (не секрет).
+f0d388945a8447563d7226b5be3041afe1bd8185:app/services/pay52_routes.py:generic-api-key:144
+f0d388945a8447563d7226b5be3041afe1bd8185:app/services/pay52_routes.py:generic-api-key:155

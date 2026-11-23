@@ -31,6 +31,7 @@ stopwords = [
     "sk_test_key_1234567890",
     "kling-2-5-turbo",
     "PAY52_GLM_KEY",
+    "pay52_claude_low_key",
 ]
 commits = [
     "8397a62de237683c39ecfa4fb66927b83dd6b7ed",
@@ -42,4 +43,5 @@ commits = [
     "af89a905c433c87158ab0ce023cf6657695aeb7c",
     "36caca509c5a3832af4770738238eba424dfbee0",
     "c7e88c94fb7a613b9e9d6e2c34e65e5621f4c907",
+    "f0d388945a8447563d7226b5be3041afe1bd8185",
 ]
