@@ -109,7 +109,7 @@ jobs:
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           curl -sSfL "$url" | tar -xz -C /tmp gitleaks
           /tmp/gitleaks version
-          /tmp/gitleaks detect --no-banner --redact --exit-code 1
+          /tmp/gitleaks detect --verbose --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --redact --exit-code 1
 
   tests:
     name: "Бэкенд: тесты и база данных"

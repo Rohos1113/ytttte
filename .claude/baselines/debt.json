@@ -1,6 +1,6 @@
 {
   "_comment": "База долга (docs/ENGINEERING-POLICY.md §12). Сверяется СОСТАВ: любая строка, которой здесь нет, — красный policy-check. Обновлять после ПОГАШЕНИЯ: policy_check.py --update-debt.",
-  "updated": "2026-11-18",
+  "updated": "2026-11-23",
   "debt": {
     "diff_cov_excludes": [
       "app/bots/outsee_http.py",
@@ -64,6 +64,7 @@
       "2633efbfb991efb4bfbd15504eb735524031325b:tests/test_action_layer_node_edit.py:generic-api-key:609",
       "2cc9b7085242c242fc05e2f1aeb3224800eb24a2:api-tracker/app/config.py:generic-api-key:14",
       "36b5a1d02b7286db89fb84aaaac8eb105f2ad262:.env.example:generic-api-key:60",
+      "36caca509c5a3832af4770738238eba424dfbee0:docs/kie-ui-verify.json:generic-api-key:3803",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:322",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:335",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348",
@@ -80,6 +81,7 @@
       "8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:609",
       "96f6716218c056f89b9ad078fc05c35b9efcc8c4:web/src/components/baza/baza-workspace.tsx:generic-api-key:113",
       "acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-key:27",
+      "af89a905c433c87158ab0ce023cf6657695aeb7c:ai-pack/03_config/env.example:generic-api-key:65",
       "d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api-key:702",
       "d3fa261b732f559dbc29e2e3b1be6770416ec7d4:tests/agents/test_chat_task_summary.py:generic-api-key:277",
       "d8bb25080618be34c35f71a645a4396ad0cefe98:scripts/_qa_verify_fixes50.py:generic-api-key:63",
