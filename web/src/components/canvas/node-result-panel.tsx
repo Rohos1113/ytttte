@@ -62,9 +62,9 @@ export function NodeResultPanel({
           "flex flex-col overflow-hidden",
           wide
             ? snapshot.viewMode === "html_report"
-              ? "h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] gap-0 bg-black p-0"
-              : "h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] gap-2 p-4 sm:p-5"
-            : "max-h-[85vh] max-w-2xl",
+              ? "h-[92vh] max-h-[92vh] w-[calc(100vw-110px)] max-w-[calc(100vw-110px)] left-[calc(50%+36px)] gap-0 bg-black p-0"
+              : "h-[92vh] max-h-[92vh] w-[calc(100vw-110px)] max-w-[calc(100vw-110px)] left-[calc(50%+36px)] gap-2 p-4 sm:p-5"
+            : "max-h-[85vh] max-w-2xl sm:left-[calc(50%+36px)]",
         )}
       >
         <DialogHeader

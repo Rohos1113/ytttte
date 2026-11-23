@@ -104,7 +104,7 @@ export function ShotsReportPanel({
       ) : null}
 
       <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
-        <DialogContent className="flex h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden bg-black p-0">
+        <DialogContent className="flex h-[92vh] max-h-[92vh] w-[calc(100vw-110px)] max-w-[calc(100vw-110px)] left-[calc(50%+36px)] flex-col gap-0 overflow-hidden bg-black p-0">
           <DialogHeader className="shrink-0 px-4 pb-2 pt-4">
             <DialogTitle>shots-report.html</DialogTitle>
             <DialogDescription>Отчёт кадров · тот же HTML, чёрный фон</DialogDescription>
