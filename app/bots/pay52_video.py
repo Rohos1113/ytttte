@@ -75,6 +75,37 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
     return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
 
 
+def pay52_video_candidate_keys(model_name: str, cfg: Any | None = None) -> list[str]:
+    """Список рабочих и резервных ключей для видео 52pay в порядке приоритета."""
+    s = cfg or settings
+    primary = pay52_video_key_for_model(model_name, cfg=s)
+    keys = [primary]
+
+    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
+    if fallback_enabled:
+        name_low = (model_name or "").lower()
+        if "fast" in name_low:
+            keys.extend([s.seedance_mini_key, s.seedance_overseas_key])
+        elif "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
+            keys.extend([s.seedance_fast_key, s.seedance_mini_key])
+        elif "mini" in name_low or "ref" in name_low:
+            keys.extend([s.seedance_fast_key, s.seedance_overseas_key])
+        else:
+            keys.extend([s.seedance_fast_key, s.seedance_mini_key, s.seedance_overseas_key])
+
+        # Мастер-ключ GPT как последний резерв
+        keys.append(getattr(s, "pay52_gpt_key", ""))
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for k in keys:
+        clean = (k or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            result.append(clean)
+    return result
+
+
 def pay52_configured() -> bool:
     s = settings
     return bool(
@@ -246,58 +277,130 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
     }
 
 
-async def create_task(body: dict[str, Any], *, key: str | None = None) -> str:
-    """Создаёт задачу видеогенерации через POST /v1/videos."""
+async def create_task(
+    body: dict[str, Any],
+    *,
+    key: str | None = None,
+    max_retries: int | None = None,
+) -> str:
+    """Создаёт задачу видеогенерации через POST /v1/videos.
+
+    Отказоустойчивость:
+    - Вариант 1 (Smart Retry): повторы с экспоненциальной задержкой при 500, 502, 503, 504 и таймаутах.
+    - Вариант 2 (Key Fallback): ротация на резервные ключи пула при 401, 402, 403, 429.
+    """
     model_name = normalize_pay52_video_model(str(body.get("model") or ""))
     body["model"] = model_name
-    api_key = key or pay52_video_key_for_model(model_name)
-    if not api_key:
+
+    candidate_keys = pay52_video_candidate_keys(model_name)
+    if key and key.strip():
+        explicit = key.strip()
+        candidate_keys = [explicit] + [k for k in candidate_keys if k != explicit]
+
+    if not candidate_keys:
         raise Pay52VideoError(
             f"52pay: нет API-ключа для модели {model_name!r}",
             context={"provider_code": 401, "error_kind": "no_key"},
         )
 
+    retries_per_key = int(max_retries if max_retries is not None else getattr(settings, "pay52_max_retries", 3))
+    base_backoff_s = float(getattr(settings, "pay52_retry_backoff_base_s", 1.0))
     url = f"{pay52_base_url()}/videos"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(url, headers=headers, json=body)
-        try:
-            resp_data = r.json()
-        except Exception:
-            resp_data = {"message": (r.text or "")[:300], "code": r.status_code}
-    except Exception as e:
-        raise Pay52VideoError(
-            f"52pay create POST failed: {type(e).__name__} ({e})",
-            context={"provider_code": 504},
-        ) from e
 
-    if r.status_code >= 400 or not isinstance(resp_data, dict):
-        err_msg = ""
-        if isinstance(resp_data, dict):
-            raw_err = resp_data.get("error")
-            err_dict: dict[str, Any] = raw_err if isinstance(raw_err, dict) else resp_data
-            err_msg = str(err_dict.get("message") or err_dict.get("msg") or resp_data)
-        raise Pay52VideoError(
-            f"52pay create failed ({r.status_code}): {err_msg[:300]}",
-            context={"provider_code": r.status_code, "raw": str(resp_data)[:200]},
-        )
+    last_err: Pay52VideoError | None = None
 
-    task_id = str(resp_data.get("task_id") or resp_data.get("id") or "").strip()
-    if not task_id:
-        data_block = resp_data.get("data")
-        if isinstance(data_block, dict):
-            task_id = str(data_block.get("task_id") or data_block.get("id") or "").strip()
+    for key_idx, current_key in enumerate(candidate_keys):
+        headers = {
+            "Authorization": f"Bearer {current_key}",
+            "Content-Type": "application/json",
+        }
+        for attempt in range(retries_per_key):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    r = await client.post(url, headers=headers, json=body)
+                try:
+                    resp_data = r.json()
+                except Exception:
+                    resp_data = {"message": (r.text or "")[:300], "code": r.status_code}
+            except Exception as e:
+                backoff = min(base_backoff_s * (2 ** attempt), 10.0)
+                logger.warning(
+                    "pay52_video: сбой сети при создании задачи ({}: {}), попытка {}/{}, повтор через {:.1f}s",
+                    type(e).__name__,
+                    e,
+                    attempt + 1,
+                    retries_per_key,
+                    backoff,
+                )
+                last_err = Pay52VideoError(
+                    f"52pay create POST failed: {type(e).__name__} ({e})",
+                    context={"provider_code": 504},
+                )
+                if attempt + 1 < retries_per_key:
+                    await asyncio.sleep(backoff)
+                continue
 
-    if not task_id:
-        raise Pay52VideoError(
-            "52pay create: в ответе нет task_id",
-            context={"provider_code": 500, "raw": str(resp_data)[:200]},
-        )
-    return task_id
+            if 200 <= r.status_code < 300 and isinstance(resp_data, dict):
+                task_id = str(resp_data.get("task_id") or resp_data.get("id") or "").strip()
+                if not task_id:
+                    data_block = resp_data.get("data")
+                    if isinstance(data_block, dict):
+                        task_id = str(data_block.get("task_id") or data_block.get("id") or "").strip()
+                if task_id:
+                    return task_id
+                last_err = Pay52VideoError(
+                    "52pay create: в ответе нет task_id",
+                    context={"provider_code": 500, "raw": str(resp_data)[:200]},
+                )
+                backoff = min(base_backoff_s * (2 ** attempt), 10.0)
+                if attempt + 1 < retries_per_key:
+                    await asyncio.sleep(backoff)
+                continue
+
+            err_msg = ""
+            if isinstance(resp_data, dict):
+                raw_err = resp_data.get("error")
+                err_dict: dict[str, Any] = raw_err if isinstance(raw_err, dict) else resp_data
+                err_msg = str(err_dict.get("message") or err_dict.get("msg") or resp_data)
+
+            last_err = Pay52VideoError(
+                f"52pay create failed ({r.status_code}): {err_msg[:300]}",
+                context={"provider_code": r.status_code, "raw": str(resp_data)[:200]},
+            )
+
+            # Вариант 2: ротация ключей при ошибках авторизации/лимитах/балансе
+            if r.status_code in (401, 402, 403, 429):
+                if key_idx + 1 < len(candidate_keys):
+                    logger.warning(
+                        "pay52_video: ключ {}/{} вернул HTTP {} ({}), переключаемся на резервный ключ...",
+                        key_idx + 1,
+                        len(candidate_keys),
+                        r.status_code,
+                        err_msg[:100],
+                    )
+                    break
+                raise last_err
+
+            # Вариант 1: повтор с экспоненциальной задержкой при 5xx
+            if r.status_code in (500, 502, 503, 504) or r.status_code >= 500:
+                backoff = min(base_backoff_s * (2 ** attempt), 10.0)
+                logger.warning(
+                    "pay52_video: create ошибка HTTP {} ({}), попытка {}/{}, повтор через {:.1f}s",
+                    r.status_code,
+                    err_msg[:100],
+                    attempt + 1,
+                    retries_per_key,
+                    backoff,
+                )
+                if attempt + 1 < retries_per_key:
+                    await asyncio.sleep(backoff)
+                continue
+
+            raise last_err
+
+    if last_err:
+        raise last_err
+    raise Pay52VideoError("52pay: не удалось создать задачу (исчерпаны попытки и ключи)")
 
 
 async def poll_task(
@@ -308,9 +411,15 @@ async def poll_task(
     timeout_s: float = _POLL_MAX_S,
 ) -> str:
     """Опрашивает статус задачи до завершения, возвращает URL готового видео."""
-    api_key = key or pay52_video_key_for_model(model_name)
+    candidate_keys = pay52_video_candidate_keys(model_name)
+    if key and key.strip():
+        explicit = key.strip()
+        candidate_keys = [explicit] + [k for k in candidate_keys if k != explicit]
+    active_key = candidate_keys[0] if candidate_keys else (key or pay52_video_key_for_model(model_name))
+    key_idx = 0
+
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {active_key}",
         "Content-Type": "application/json",
     }
     url = f"{pay52_base_url()}/videos/{task_id}"
@@ -331,6 +440,30 @@ async def poll_task(
                         f"52pay poll {task_id}: таймаут/сбой сети ({type(e).__name__})",
                         context={"provider_code": 504, "task_id": task_id},
                     ) from e
+                await asyncio.sleep(_POLL_INTERVAL_S)
+                continue
+
+            # Ротация ключа если во время поллинга отвалилась авторизация/квота
+            if r.status_code in (401, 403, 429) and key_idx + 1 < len(candidate_keys):
+                key_idx += 1
+                active_key = candidate_keys[key_idx]
+                headers["Authorization"] = f"Bearer {active_key}"
+                logger.warning(
+                    "pay52_video poll: ключ вернул HTTP {}, ротация на запасной ключ ({}/{})",
+                    r.status_code,
+                    key_idx + 1,
+                    len(candidate_keys),
+                )
+                await asyncio.sleep(1.0)
+                continue
+
+            if r.status_code >= 500:
+                net_fails += 1
+                if net_fails >= 8 or asyncio.get_running_loop().time() >= deadline:
+                    raise Pay52VideoError(
+                        f"52pay poll {task_id}: сервер вернул HTTP {r.status_code}",
+                        context={"provider_code": r.status_code, "task_id": task_id},
+                    )
                 await asyncio.sleep(_POLL_INTERVAL_S)
                 continue
 

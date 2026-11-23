@@ -107,12 +107,64 @@ class Pay52TextRoute:
     api_model: str
     api_key: str
     url: str
+    candidate_keys: tuple[str, ...] = ()
 
-    def headers(self) -> dict[str, str]:
+    def headers(self, key: str | None = None) -> dict[str, str]:
+        active = key or self.api_key
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {active}",
             "Content-Type": "application/json",
         }
+
+
+def candidate_keys_for_model(model: str | None, cfg: Any | None = None) -> list[str]:
+    """Список рабочих и резервных ключей для текстовой модели в порядке приоритета."""
+    raw = (model or "").strip()
+    spec = _TEXT.get(raw) or _TEXT.get(raw.lower())
+    if not spec:
+        return []
+    if cfg is None:
+        from app.settings import settings as s
+    else:
+        s = cfg
+
+    field, _ = spec
+    keys: list[str] = []
+
+    # 1. Основной ключ для этой модели
+    primary = _key(s, field)
+    if primary:
+        keys.append(primary)
+
+    # Если ротация ключей включена (дефолт True):
+    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
+    if fallback_enabled:
+        # 2. Родственные ключи того же семейства
+        if "claude" in field:
+            for alt_name in ("pay52_claude_high_key", "pay52_claude_low_key"):
+                val = str(getattr(s, alt_name, "") or "").strip()
+                if val:
+                    keys.append(val)
+
+        # 3. Мастер-ключ GPT
+        gpt_master = str(getattr(s, "pay52_gpt_key", "") or "").strip()
+        if gpt_master:
+            keys.append(gpt_master)
+
+        # 4. Другие текстовые ключи пула
+        for alt_field in ("pay52_glm_key", "pay52_claude_low_key", "pay52_deepseek_key", "pay52_kimi_key", "pay52_gemini_key"):
+            val = str(getattr(s, alt_field, "") or "").strip()
+            if val:
+                keys.append(val)
+
+    # Дедупликация с сохранением порядка
+    seen: set[str] = set()
+    result: list[str] = []
+    for k in keys:
+        if k and k not in seen:
+            seen.add(k)
+            result.append(k)
+    return result
 
 
 def resolve_text(model: str | None) -> Pay52TextRoute | None:
@@ -122,12 +174,17 @@ def resolve_text(model: str | None) -> Pay52TextRoute | None:
         return None
     from app.settings import settings
 
-    field, api_model = spec
-    key = _key(settings, field)
-    if not key:
+    _, api_model = spec
+    keys = candidate_keys_for_model(model, cfg=settings)
+    if not keys:
         return None
     base = (settings.pay52_base_url or "https://api.52pay.com/v1").strip().rstrip("/")
-    return Pay52TextRoute(api_model=api_model, api_key=key, url=f"{base}/chat/completions")
+    return Pay52TextRoute(
+        api_model=api_model,
+        api_key=keys[0],
+        url=f"{base}/chat/completions",
+        candidate_keys=tuple(keys),
+    )
 
 
 def video_api_key(model: str | None) -> str:
@@ -138,3 +195,40 @@ def video_api_key(model: str | None) -> str:
     if not field:
         return ""
     return _key(settings, field)
+
+
+def candidate_keys_for_video(model: str | None, cfg: Any | None = None) -> list[str]:
+    """Список рабочих и резервных ключей для видео 52pay в порядке приоритета."""
+    if cfg is None:
+        from app.settings import settings as s
+    else:
+        s = cfg
+
+    raw = (model or "").strip()
+    field = _VIDEO.get(raw) or _VIDEO.get(raw.lower())
+    primary = _key(s, field) if field else ""
+
+    keys: list[str] = []
+    if primary:
+        keys.append(primary)
+
+    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
+    if fallback_enabled:
+        # Все доступные видео-ключи
+        for vkey in (
+            getattr(s, "seedance_fast_key", ""),
+            getattr(s, "seedance_mini_key", ""),
+            getattr(s, "seedance_overseas_key", ""),
+            getattr(s, "pay52_gpt_key", ""),
+        ):
+            val = str(vkey or "").strip()
+            if val:
+                keys.append(val)
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for k in keys:
+        if k and k not in seen:
+            seen.add(k)
+            result.append(k)
+    return result

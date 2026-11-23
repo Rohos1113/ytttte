@@ -3057,10 +3057,14 @@ async def _chat_unscoped(
             else settings.gpt_api_effective_base_url
         )
     pay52 = _pay52_override(use_model)
+    pay52_candidate_keys: list[str] = []
+    pay52_key_idx = 0
     if pay52 is not None:
+        pay52_candidate_keys = list(getattr(pay52, "candidate_keys", ()) or ([pay52.api_key] if pay52.api_key else []))
         headers, use_model, url, anthropic_route = pay52.headers(), pay52.api_model, pay52.url, False
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
-    retries = int(max_retries if max_retries is not None else settings.gpt_max_retries)
+    default_retries = settings.pay52_max_retries if pay52 is not None else settings.gpt_max_retries
+    retries = int(max_retries if max_retries is not None else default_retries)
     ov_model = current_text_model_id()
     provider_label = f"vibecode ({ov_model})" if _node_vibecode_override() else settings.text_llm_label
     if pay52 is not None:
@@ -3549,6 +3553,27 @@ async def _chat_unscoped(
                 error_kind=str(e.context.get("error_kind") or ""),
                 retry_after=e.context.get("retry_after_s"),
             )
+            st_code = _safe_int(e.context.get("status_code") or e.context.get("provider_code"))
+            # 52pay Вариант 2 (Key Fallback): ротация на резервный ключ при 401, 402, 403, 429 или apikey error
+            if (
+                pay52 is not None
+                and (st_code in (401, 402, 403, 429) or "apikey error" in str(e).lower())
+                and pay52_key_idx + 1 < len(pay52_candidate_keys)
+            ):
+                pay52_key_idx += 1
+                next_key = pay52_candidate_keys[pay52_key_idx]
+                headers = pay52.headers(next_key)
+                logger.warning(
+                    "52pay.chat: ключ вернул HTTP {}, ротация на запасной ключ ({}/{}) для {}",
+                    st_code,
+                    pay52_key_idx + 1,
+                    len(pay52_candidate_keys),
+                    use_model,
+                )
+                last_exc = e
+                await asyncio.sleep(0.5)
+                continue
+
             if not e.retryable:
                 raise
             # kie иногда падает на PDF input_file → code=500; оставляем только текст.
@@ -3570,11 +3595,32 @@ async def _chat_unscoped(
             logger.warning("gpt_api.chat retryable: {}", e)
 
         if attempt <= retries:
+            # 52pay: если 5xx или таймаут повторяются, пробуем ротацию ключа
+            if (
+                pay52 is not None
+                and attempt >= 2
+                and pay52_key_idx + 1 < len(pay52_candidate_keys)
+            ):
+                pay52_key_idx += 1
+                next_key = pay52_candidate_keys[pay52_key_idx]
+                headers = pay52.headers(next_key)
+                logger.warning(
+                    "52pay.chat: повторный сбой ({}), ротация на запасной ключ ({}/{})",
+                    last_exc,
+                    pay52_key_idx + 1,
+                    len(pay52_candidate_keys),
+                )
+
             # Retry-After провайдера важнее нашей экспоненты: на 429 он
             # говорит точное время, а слепой бэкофф либо ждёт лишнее, либо
             # долбится раньше срока.
+            default_delay = (
+                min(float(getattr(settings, "pay52_retry_backoff_base_s", 1.0)) * (2 ** (attempt - 1)), 15.0)
+                if pay52 is not None
+                else min(2.0 * (2 ** (attempt - 1)), 30.0)
+            )
             backoff = provider_breaker.suggest_delay(
-                breaker_key, attempt, default=min(2.0 * (2 ** (attempt - 1)), 30.0)
+                breaker_key, attempt, default=default_delay
             )
             await asyncio.sleep(backoff)
 

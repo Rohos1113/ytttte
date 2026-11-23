@@ -155,6 +155,11 @@ class Settings(BaseSettings):
     seedance_fast_key: str = Field("", alias="SEEDANCE_FAST_KEY")
     seedance_overseas_key: str = Field("", alias="SEEDANCE_OVERSEAS_KEY")
 
+    # 52pay отказоустойчивость: ретраи, задержки и ротация ключей
+    pay52_max_retries: int = Field(3, alias="PAY52_MAX_RETRIES")
+    pay52_retry_backoff_base_s: float = Field(1.0, alias="PAY52_RETRY_BACKOFF_BASE_S")
+    pay52_key_fallback_enabled: bool = Field(True, alias="PAY52_KEY_FALLBACK_ENABLED")
+
     # Только dev/tests: без API-ключа check-роли получают stub-вердикт
     # (fail-open). В проде False → отсутствие ключа роняет проверку ошибкой.
     allow_stub_checks: bool = Field(False, alias="VP_ALLOW_STUB_CHECKS")
