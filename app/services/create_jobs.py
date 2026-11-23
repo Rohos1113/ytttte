@@ -595,7 +595,7 @@ async def _run_job(
 
             job.history_id = f"gen-{final_path.name}"
             job.raw_url = getattr(result, "raw_url", None)
-            job.preview_url = f"/api/files?path={job.path.resolve()}"
+            job.preview_url = f"/api/files?path={job.path.resolve()}&v=2"
             job.status = "done"
             job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
             job.elapsed_sec = max(0, int(round(asyncio.get_running_loop().time() - t0)))

@@ -39,6 +39,7 @@ async def serve_data_file(
     path: str = Query(..., description="Абсолютный путь под data_dir"),
     download: int = Query(0, description="1 = Content-Disposition: attachment"),
     thumb: int = Query(0, description="1 = уменьшенная WebP-копия для сетки истории"),
+    v: str | None = Query(None, description="Версия / cache-buster"),
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse | RedirectResponse:
     """Отдаёт файл из data_dir (или его подкаталогов). Безопасный whitelist
@@ -133,6 +134,7 @@ async def serve_data_file(
             # Для data/generations файлы неизменяемы (UUID в имени) — кэшируем на год;
             # для артефактов монтажа оставляем 60с must-revalidate
             "Cache-Control": cache_header,
+            "Accept-Ranges": "bytes",
         },
     }
     if download:

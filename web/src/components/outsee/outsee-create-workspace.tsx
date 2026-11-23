@@ -222,6 +222,14 @@ function thumbUrl(previewUrl: string | null): string | undefined {
   return toThumbnailUrl(previewUrl);
 }
 
+function safeMediaUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("/api/files") && !url.includes("&v=") && !url.includes("?v=")) {
+    return `${url}&v=2`;
+  }
+  return url;
+}
+
 function makeRefFromFile(file: File): RefImage {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -3417,7 +3425,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       {item.preview_url && !pending ? (
                         isVideo ? (
                           <video
-                            src={item.preview_url}
+                            src={safeMediaUrl(item.preview_url)}
                             muted
                             playsInline
                             preload="metadata"
@@ -3606,8 +3614,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center w-full">
                   {selected.kind === "video" ? (
                     <video
-                      key={selected.preview_url || selected.id}
-                      src={selected.preview_url}
+                      key={selected.id || selected.preview_url}
+                      src={safeMediaUrl(selected.preview_url)}
                       controls
                       playsInline
                       preload="metadata"
@@ -4975,9 +4983,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               <div className="flex flex-1 items-center justify-center max-h-[84vh] max-w-full min-w-0">
                 {selected.kind === "video" ? (
                   <video
-                    src={selected.preview_url}
+                    key={selected.id || selected.preview_url}
+                    src={safeMediaUrl(selected.preview_url)}
                     controls
                     autoPlay
+                    playsInline
                     className="max-h-[84vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
                   />
                 ) : selected.kind === "audio" ? (
