@@ -168,7 +168,18 @@ async def _wipe_plan(session: AsyncSession, project: Project) -> dict[str, Any]:
     if project.general_plan is not None:
         project.general_plan = None
         changed = True
-    return {"general_plan_cleared": changed}
+    # Копия плана живёт и в meta (apply-ops по target="project"):
+    # её читают plan_cinema-ноды и export_project_xlsx (db_apply пишет оттуда
+    # ячейку B2 листа «Общий план»). Без этого после сброса xlsx/SQL получили
+    # бы старый план обратно.
+    meta = dict(project.meta or {})
+    meta_cleared: list[str] = []
+    if "general_plan" in meta:
+        meta.pop("general_plan", None)
+        meta_cleared.append("general_plan")
+    if meta_cleared:
+        project.meta = meta
+    return {"general_plan_cleared": changed, "meta_cleared": meta_cleared}
 
 
 async def _wipe_script(session: AsyncSession, project: Project) -> dict[str, Any]:
@@ -664,6 +675,116 @@ def _backup_scenes_before_wipe(project: Project, scenes_dir: Path) -> int:
     return copied
 
 
+def _backup_backgrounds_before_wipe(project: Project, backgrounds_dir: Path) -> int:
+    """Копия ``backgrounds/*`` в ``data/.../old/backgrounds/<timestamp>/``.
+
+    PNG + JSON-сайдкары не удаляем молча: перед полной перерисовкой они
+    складываются в архив (та же схема, что у ``old/scenes`` и ``old/music``).
+    """
+    if not backgrounds_dir.is_dir():
+        return 0
+    files = [
+        p
+        for p in backgrounds_dir.iterdir()
+        if p.is_file() and (p.suffix.lower() in _IMG_EXTENSIONS or p.name.endswith(".json"))
+    ]
+    if not files:
+        return 0
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    dest_dir = project.data_dir / "old" / "backgrounds" / ts
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in files:
+        try:
+            shutil.copy2(src, dest_dir / src.name)
+            copied += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[#{}] reset_step: backup background {} failed: {}",
+                project.id,
+                src.name,
+                e,
+            )
+    if copied:
+        logger.info(
+            "[#{}] reset_step: backup {} background files → {}",
+            project.id,
+            copied,
+            dest_dir,
+        )
+    return copied
+
+
+async def wipe_background_outputs(
+    session: AsyncSession,
+    project: Project,
+    *,
+    set_force_redraw: bool = True,
+) -> dict[str, Any]:
+    """Сброс выходов шага «Фоны» (``bg``): PNG, артефакты, meta-кэш.
+
+    ``pk_backgrounds`` группы «Кино по плану» рисует те же файлы и зовёт это
+    с ``set_force_redraw=False``: карточки ``Entity(type="background")`` и
+    ``attrs["фон"]`` он снимает сам, а флаг полной перерисовки ему не нужен —
+    PNG уже удалены. Иначе флаг остался бы в meta и следующий обычный ▶
+    («догнать недостающие») сжёг бы деньги на полной перерисовке.
+    """
+    backgrounds_dir = project.data_dir / "backgrounds"
+    backed_up = _backup_backgrounds_before_wipe(project, backgrounds_dir)
+    art_stats = await _wipe_artifacts_by_kind(
+        session, project, ArtifactKind.background_reference
+    )
+    extra_files = 0
+    if backgrounds_dir.exists():
+        for p in backgrounds_dir.iterdir():
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in _IMG_EXTENSIONS and not p.name.endswith(".json"):
+                # *.bak*, заметки и прочие входные файлы не трогаем.
+                continue
+            try:
+                p.unlink()
+                extra_files += 1
+            except OSError as e:
+                logger.warning(
+                    "[#{}] reset_step.bg: не смог удалить {}: {}",
+                    project.id,
+                    p,
+                    e,
+                )
+    meta = dict(project.meta or {})
+    meta_cleared: list[str] = []
+    for key in ("background_style", "background_render_failures", "backgrounds_force_redraw"):
+        if key in meta:
+            meta.pop(key, None)
+            meta_cleared.append(key)
+    if set_force_redraw:
+        # render_missing без force пропустит уцелевшие файлы; кнопка
+        # «Перезапустить ноду» обязана нарисовать фоны заново.
+        meta["backgrounds_force_redraw"] = True
+    project.meta = meta
+    # Карточки локаций прошлого прогона тоже снимаем с учёта: PNG и артефакты
+    # уже стёрты, а реестр без этого жил дальше и показывал промты старых фонов
+    # (после перезапуска в «Фонах» висели f10…f16).
+    from app.services.plan_cinema.backgrounds_render import prune_backgrounds
+
+    pruned = await prune_backgrounds(session, project, [])
+    return {
+        **art_stats,
+        "backgrounds_backed_up": backed_up,
+        "extra_files": extra_files,
+        "meta_cleared": meta_cleared,
+        "force_redraw": set_force_redraw,
+        "cards_archived": pruned["archived"],
+        "artifacts_removed": pruned["artifacts_removed"],
+    }
+
+
+async def _wipe_backgrounds(session: AsyncSession, project: Project) -> dict[str, Any]:
+    """Сброс шага «Фоны» для каскада/перезапуска: полная перерисовка."""
+    return await wipe_background_outputs(session, project, set_force_redraw=True)
+
+
 async def _wipe_images(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Сброс шага 7 «Картинки»:
     - удалить scene_image артефакты + файлы
@@ -717,6 +838,19 @@ async def _resume_anim_pr_from_xlsx(session: AsyncSession, project: Project) -> 
     """Повторный запуск anim_pr: без Excel sync (DB SoT)."""
     del session, project
     return {"synced_from_xlsx": 0}
+
+
+async def _preserve_backgrounds_on_rerun(
+    session: AsyncSession, project: Project
+) -> dict[str, Any]:
+    """Обычный ▶ шага «Фоны»: файлы не стираем.
+
+    ``render_missing`` сам перерисует карточки со сменившимся промтом/стилем
+    и дорисует недостающие. Жёсткий wipe — только force_wipe («Перезапустить
+    ноду» / «Прогнать с нуля»).
+    """
+    del session, project
+    return {"files_preserved": True, "mode": "render_missing"}
 
 
 async def _wipe_anim_pr(session: AsyncSession, project: Project) -> dict[str, Any]:
@@ -922,6 +1056,7 @@ _PIPELINE_RESET_LEVELS: list[tuple[str, Any]] = [
     ("sd_act", _sd_agent_wiper("sd_act")),
     ("hero", _wipe_hero),
     ("items", _wipe_items),
+    ("bg", _wipe_backgrounds),
     ("enrich_1", _enrich_slot_wiper(1)),
     ("enrich_2", _enrich_slot_wiper(2)),
     ("enrich_3", _enrich_slot_wiper(3)),
@@ -1032,6 +1167,7 @@ RESET_SUPPORTED_STEP_CODES: frozenset[str] = frozenset(
         "objects",
         "hero",
         "items",
+        "bg",
         "enrich",
         "enrich_1",
         "enrich_2",
@@ -1063,6 +1199,7 @@ _STEP_RERUN_BY_CODE: dict[str, Any] = {
     "script": _preserve_script_source_on_rerun,
     "split": _preserve_split_on_rerun,
     "hero": _resume_hero,
+    "bg": _preserve_backgrounds_on_rerun,
     "img_pr": _resume_img_pr,
     "img": _resume_images,
     "anim_pr": _resume_anim_pr_from_xlsx,

@@ -17,7 +17,10 @@ export function readCanvasGraph(
   if (!raw || typeof raw !== "object") return null;
   const cg = raw as Record<string, unknown>;
   const nodes = cg.nodes;
-  if (!Array.isArray(nodes) || nodes.length === 0) return null;
+  if (!Array.isArray(nodes)) return null;
+  const savedAt = typeof cg.saved_at === "string" ? cg.saved_at : "";
+  // Сохранённый пустой граф — это «человек удалил все ноды», а не «графа нет».
+  if (nodes.length === 0 && !savedAt) return null;
   const wfId = Number(cg.workflow_id);
   if (Number.isFinite(wfId) && wfId !== workflowId) return null;
   const edges = Array.isArray(cg.edges) ? (cg.edges as WorkflowEdge[]) : [];
@@ -25,7 +28,7 @@ export function readCanvasGraph(
     workflow_id: workflowId,
     nodes: nodes as WorkflowNode[],
     edges,
-    saved_at: typeof cg.saved_at === "string" ? cg.saved_at : "",
+    saved_at: savedAt,
   };
 }
 

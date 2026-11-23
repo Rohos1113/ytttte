@@ -43,6 +43,17 @@ def test_canvas_graph_from_meta_empty_nodes():
     assert canvas_graph_from_meta({"canvas_graph": {"nodes": []}}) is None
 
 
+def test_canvas_graph_from_meta_empty_but_saved_is_empty_graph():
+    """Человек удалил все ноды: сохранённый пустой граф — это пустой канвас, не «графа нет»."""
+    cg = canvas_graph_from_meta(
+        {"canvas_graph": {"workflow_id": 1, "nodes": [], "edges": [], "saved_at": "2026-01-01T00:00:00Z"}}
+    )
+    assert cg is not None
+    assert cg["nodes"] == []
+    assert cg["edges"] == []
+    assert cg["workflow_id"] == 1
+
+
 def test_build_canvas_graph_payload_has_saved_at():
     payload = build_canvas_graph_payload(
         workflow_id=2,

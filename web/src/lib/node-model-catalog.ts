@@ -73,12 +73,19 @@ export const PRICE_MARKUP_STABLE = PRICE_MARKUP;
 export const DEFAULT_TEXT_MODEL_ID = "gpt-6.1-sol";
 export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2";
 export const DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite";
-export const IMAGE_NODE_TYPES = new Set(["images", "hero", "items", "hitl_images"]);
+export const IMAGE_NODE_TYPES = new Set([
+  "images",
+  "hero",
+  "items",
+  "backgrounds",
+  "hitl_images",
+]);
 export const VIDEO_NODE_TYPES = new Set(["videos", "hitl_videos"]);
 export const MEDIA_NODE_TYPES = new Set([
   "images",
   "hero",
   "items",
+  "backgrounds",
   "hitl_images",
   "videos",
   "hitl_videos",

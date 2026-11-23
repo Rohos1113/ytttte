@@ -3,7 +3,7 @@
 Проверяем то, что отвечает за подключение группы без правок исходной механики:
 
 * ``node_groups/plan_cinema.json`` проходит штатный валидатор и загружается
-  как пользовательская группа (9 нод, цепочка рёбер, ``project_meta``);
+  как пользовательская группа (12 нод, цепочка рёбер, ``project_meta``);
 * id, подписи и промт-варианты не пересекаются со ``script_frames_qc``;
 * диспетчер ``app/services/plan_cinema/nodes.py`` узнаёт свои ноды, а чужие —
   нет; активация требует ``meta.source_mode == "plan"`` и запрещает смесь
@@ -30,9 +30,12 @@ EXPECTED_KEYS = [
     "pk_dialogues",
     "pk_backgrounds",
     "pk_shots",
+    "pk_check",
     "pk_qc",
     "pk_style",
     "pk_report",
+    "pk_fix",
+    "pk_prompts",
 ]
 
 EXPECTED_IDS = [f"n_excel_gpt_{key}" for key in EXPECTED_KEYS]
@@ -43,10 +46,13 @@ EXPECTED_LABELS = {
     "pk_skeleton": "Каркас",
     "pk_dialogues": "Диалоги",
     "pk_shots": "Шоты",
+    "pk_check": "Проверка",
     "pk_backgrounds": "Фоны",
     "pk_qc": "QC",
+    "pk_fix": "Правки кадров",
     "pk_style": "Стиль",
     "pk_report": "Отчёт",
+    "pk_prompts": "Промты картинок",
 }
 
 CODE_NODES = {"pk_scenes", "pk_backgrounds", "pk_style", "pk_report"}
@@ -82,11 +88,11 @@ def test_group_identity():
     assert group.exit_edge_kind == "after"
 
 
-def test_nine_nodes_in_chain_order():
+def test_twelve_nodes_in_chain_order():
     group = _group()
     assert [node.local_key for node in group.nodes] == EXPECTED_KEYS
     assert [node.preferred_id for node in group.nodes] == EXPECTED_IDS
-    assert len(group.nodes) == 9
+    assert len(group.nodes) == 12
 
 
 def test_labels_match_contract():
@@ -117,10 +123,13 @@ def test_prompt_variants():
         "pk_skeleton": "scene_skeleton_plan",
         "pk_dialogues": "plan_dialogues",
         "pk_shots": "scenes_to_frames_plan_ru",
+        "pk_check": "shots_check_plan_ru",
         "pk_backgrounds": "plan_backgrounds",
         "pk_qc": "shots_qc_plan_ru",
+        "pk_fix": "shots_fix_plan_ru",
         "pk_style": "style_noir_watercolour_16_09",
         "pk_report": None,
+        "pk_prompts": "image_prompts_plan_ru",
     }
 
 
@@ -135,7 +144,7 @@ def test_internal_edges_are_chain():
 def test_entry_and_exit():
     group = _group()
     assert group.entry_keys == ("pk_scenes",)
-    assert group.exit_key == "pk_report"
+    assert group.exit_key == "pk_prompts"
 
 
 def test_group_is_loaded_as_custom():
@@ -199,6 +208,9 @@ def test_dispatcher_kinds_in_order():
         "qc",
         "style",
         "report",
+        "fix",
+        "check",
+        "prompts",
     ]
 
 
@@ -291,7 +303,7 @@ def test_style_from_slot_rejects_master_prompt(tmp_path, monkeypatch):
 
 
 def test_apply_style_to_kadry_styles_master_and_children(monkeypatch):
-    """Стиль ложится на K1 и детей через штатный keys-frame_style."""
+    """Стиль ложится на K1 и остальные кадры сцены через штатный keys-frame_style."""
     import sqlalchemy.orm.attributes as sa_attrs
 
     monkeypatch.setattr(sa_attrs, "flag_modified", lambda *a, **k: None)
@@ -309,8 +321,8 @@ def test_apply_style_to_kadry_styles_master_and_children(monkeypatch):
                 },
                 {
                     "id": "1.2",
-                    "parent_id": "1.1",
-                    "промт_старт": "Сцена: ночной город, человек идёт.",
+                    "parent_id": None,
+                    "промт_картинки": "Сцена: ночной город, человек стоит.",
                 },
             ]
         },
@@ -322,9 +334,9 @@ def test_apply_style_to_kadry_styles_master_and_children(monkeypatch):
     assert counts["children"] == 1
     kadry = scene.attrs["кадры"]
     assert "нуар" in (kadry[0].get("промт_картинки") or "")
-    assert "нуар" in (kadry[1].get("промт_старт") or "")
+    assert "нуар" in (kadry[1].get("промт_картинки") or "")
     assert kadry[1].get("стиль") == "style_test"
-    assert kadry[1].get("промт_старт_без_стиля")
+    assert kadry[1].get("промт_без_стиля")
 
 # ── Архив прежнего разбиения не попадает в генерацию картинок ──────────────
 
@@ -407,6 +419,66 @@ def test_archived_scene_cells_leave_generation_queue(monkeypatch):
     assert len(new_cells) == 2
 
 
+# ── Имена персонажей в сценах → коды реестра ───────────────────────────────
+
+
+class _NameFrame:
+    def __init__(self, frame_id: int, number: int, attrs: dict) -> None:
+        self.id = frame_id
+        self.number = number
+        self.sort_key = float(number)
+        self.uuid = f"uuid-{frame_id}"
+        self.attrs = attrs
+
+
+class _MapApply:
+    """Фейк apply: реестр персонажей + сцены, запоминает записанные attrs."""
+
+    def __init__(self, registry: dict[str, dict], frames: list[_NameFrame]) -> None:
+        self.registry = registry
+        self.frames = frames
+        self.written: dict[str, dict] = {}
+
+    async def load_characters(self, _session, _project):
+        return self.registry
+
+    async def load_scenes(self, _session, _project):
+        return self.frames
+
+    async def write_scene_attrs(self, _session, _project, scene_uuid, attrs):
+        self.written[scene_uuid] = dict(attrs)
+        for frame in self.frames:
+            if frame.uuid == scene_uuid:
+                frame.attrs = dict(attrs)
+
+
+def test_mapping_scene_names_to_codes(monkeypatch):
+    """Повторный прогон «Сцен» пишет имена — «Диалоги» сами пересобирают коды."""
+    registry = {
+        "c01": {"имя": "Аделфус, новобранец Имперской Гвардии"},
+        "c05": {"имя": "Геннэдиус, новобранец четвёртой роты"},
+    }
+    frames = [
+        _NameFrame(1, 1, {"источник": "pk", "персонажи": ["Аделфус", "Геннэдиус", "новобранцы"]}),
+        _NameFrame(2, 2, {"источник": "pk", "персонажи": ["c01"]}),
+    ]
+    apply = _MapApply(registry, frames)
+    monkeypatch.setattr(nodes, "_apply", lambda: apply)
+
+    import asyncio
+
+    class _FakeProject:
+        id = 82
+
+    mapped = asyncio.run(nodes._map_scene_characters_to_codes(object(), _FakeProject()))
+    # Незнакомое имя кодом не становится: «новобранцы» выпадает.
+    assert frames[0].attrs["персонажи"] == ["c01", "c05"]
+    # Уже кодовые списки не переписываются, второй прогон идемпотентен.
+    assert frames[1].attrs["персонажи"] == ["c01"]
+    assert mapped == 2
+    assert "uuid-2" not in apply.written
+
+
 # ── Старая механика не тронута нашими файлами ──────────────────────────────
 
 
@@ -415,3 +487,5 @@ def test_package_does_not_shadow_old_modules():
 
     assert plan_apply.__name__ == "app.services.plan_cinema.apply"
     assert nodes.GROUP_ID == "plan_cinema"
+
+

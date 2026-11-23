@@ -173,6 +173,33 @@ def _shot_still_path(data_dir: Path, shot_id: str) -> Path | None:
     return None
 
 
+def _plan_shot_stills(
+    data_dir: Path, frame: Any
+) -> tuple[Path | None, Path | None, Path | None]:
+    """Стиллы кадра из план-шотов (`shots/S1-K1.png`), когда нет `scenes/frame_NNN_*`.
+
+    Старая схема называла картинки по номеру кадра и лежала в `scenes/`.
+    План-кадры (plan_cinema) кладут PNG в `shots/<id>.png`, по 1..6 на кадр,
+    и доска монтажа оставалась с пустыми ячейками: файлы на диске есть,
+    а `find_shot1_image` их не видит — он ищет `scenes/frame_NNN_*.png`.
+    """
+    try:
+        from app.services.vo_shot_expand import planned_shots_from_attrs
+
+        cards = [c for c in planned_shots_from_attrs(frame) if str(c.get("id") or "").strip()]
+    except Exception as e:  # noqa: BLE001 — доска не должна падать из-за плана
+        logger.warning(
+            "montage_board: план-шоты кадра {}: {}", getattr(frame, "number", "?"), e
+        )
+        return None, None, None
+    if not cards:
+        return None, None, None
+    cards.sort(key=lambda c: (c.get("порядок") or 0))
+    img1 = _shot_still_path(data_dir, str(cards[0]["id"]))
+    img2 = _shot_still_path(data_dir, str(cards[1]["id"])) if len(cards) > 1 else None
+    return img1, img2, None
+
+
 def _planned_shots_payload(
     frame: Any,
     *,
@@ -226,6 +253,9 @@ def _planned_shots_payload(
                 "конец": item.get("конец"),
                 "длительность": item.get("длительность"),
                 "закадр": str(item.get("закадр") or ""),
+                # Промт картинки шота: доска показывает его под кадром и даёт
+                # прочитать/скопировать без похода в ноду «Правки кадров».
+                "промт_картинки": str(item.get("промт_картинки") or ""),
                 "image_url": _preview_url(_shot_still_path(data_dir, shot_id)),
                 "character_refs": _character_refs_for_ids(
                     char_ids, chars_dir=chars_dir, names=char_names
@@ -1111,6 +1141,11 @@ async def build_montage_board(
         img1 = find_shot1_image(scenes_dir, fr.number)
         img2 = find_shot2_image(scenes_dir, fr.number)
         img_parent = find_parent_still_image(scenes_dir, fr.number)
+        if img1 is None or img2 is None or img_parent is None:
+            plan_img1, plan_img2, plan_img_parent = _plan_shot_stills(data_dir, fr)
+            img1 = img1 or plan_img1
+            img2 = img2 or plan_img2
+            img_parent = img_parent or plan_img_parent
         scene_seconds = (
             fr.duration_seconds if fr.duration_seconds is not None and fr.duration_seconds > 0 else None
         )

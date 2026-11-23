@@ -225,6 +225,31 @@ async def render_one(
     return path
 
 
+async def _commit_progress(session: Any) -> None:
+    """Сразу записать в базу готовый кадр, а не ждать конца сотни картинок.
+
+    Шаг «Картинки» держит одну сессию на весь прогон: без промежуточного
+    коммита артефакт лежит в памяти, пока рисуется последний шот, и нода
+    «Картинки»/доска показывают пусто при готовых PNG на диске.
+    «database is locked» — не повод потерять уже нарисованное: ждём и повторяем.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    for attempt in range(1, 6):
+        try:
+            await session.commit()
+            return
+        except OperationalError as exc:  # noqa: PERF203 — короткий цикл повторов
+            if "locked" not in str(exc).lower() or attempt == 5:
+                logger.warning("shots_render: commit кадра не прошёл — {}", exc)
+                return
+            try:
+                await session.rollback()
+            except Exception:  # noqa: BLE001 — сессия уже могла отвалиться
+                return
+            await asyncio.sleep(0.3 * attempt)
+
+
 async def render_missing(
     session: Any,
     project: Any,
@@ -261,6 +286,7 @@ async def render_missing(
                     prompt=prompt,
                     refs=refs,
                 )
+                await _commit_progress(session)
                 skipped += 1
             return
         async with sem:
@@ -285,6 +311,7 @@ async def render_missing(
                         prompt=prompt,
                         refs=refs,
                     )
+                    await _commit_progress(session)
                     drawn += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning(

@@ -14,6 +14,9 @@ import type {
   MontageBoardFrame,
   MontageBoardMeta,
   MontageBoardParentRef,
+  MontageCheckDTO,
+  MontageCheckJob,
+  MontageCheckSettings,
   MontageImproveReport,
   MontageRefAsset,
   MontageVariablesDTO,
@@ -2076,6 +2079,58 @@ export const api = {
       `/api/projects/${projectId}/montage-board/montage-status`,
     ),
 
+  // ---- Проверка картинок монтажа (docs/MONTAGE-IMAGE-CHECK.md §9) ----
+
+  getMontageCheck: (projectId: number) =>
+    http<MontageCheckDTO>(
+      `/api/projects/${projectId}/montage-board/check`,
+      undefined,
+      120_000,
+    ),
+
+  getMontageCheckStatus: (projectId: number) =>
+    http<{ job: MontageCheckJob }>(
+      `/api/projects/${projectId}/montage-board/check/status`,
+    ),
+
+  runMontageCheck: (
+    projectId: number,
+    body: { frame_numbers?: number[]; scene?: number; kind?: "images" } = {},
+  ) =>
+    http<{
+      started: boolean;
+      already_running?: boolean;
+      job?: MontageCheckJob;
+    }>(`/api/projects/${projectId}/montage-board/check/run`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  saveMontageCheckSettings: (
+    projectId: number,
+    patch: Partial<MontageCheckSettings>,
+  ) =>
+    http<{ settings: MontageCheckSettings }>(
+      `/api/projects/${projectId}/montage-board/check/settings`,
+      { method: "POST", body: JSON.stringify(patch) },
+    ),
+
+  applyMontageCheckImage: (
+    projectId: number,
+    body: { frame_number: number; file: string },
+  ) =>
+    http<{ ok: boolean; frame_number: number; image_url?: string | null }>(
+      `/api/projects/${projectId}/montage-board/check/apply-image`,
+      { method: "POST", body: JSON.stringify(body) },
+      120_000,
+    ),
+
+  cancelMontageCheck: (projectId: number) =>
+    http<{ cancelled: boolean }>(
+      `/api/projects/${projectId}/montage-board/check/cancel`,
+      { method: "POST" },
+    ),
+
   listAudioAlignMethods: () =>
     http<{ methods: Array<{ id: string; title: string; summary: string }> }>(
       `/api/projects/audio-align/methods`,
@@ -2215,6 +2270,56 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; preview_url: string }>;
   },
+
+  /** Промт картинки отдельного шота плана (S1-K1) — правка с доски монтажа. */
+  saveMontageShotPrompt: (
+    projectId: number,
+    frameNumber: number,
+    shotId: string,
+    prompt: string,
+  ) =>
+    http<{ ok: boolean; chars: number }>(
+      `/api/projects/${projectId}/montage-board/shot-prompt?frame_number=${frameNumber}` +
+        `&shot_id=${encodeURIComponent(shotId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      },
+    ),
+
+  /** Перерисовать картинку одного шота по его промту (платно, как стадия «Картинки»). */
+  regenMontageShotImage: (projectId: number, frameNumber: number, shotId: string) =>
+    http<{ ok: boolean; preview_url: string }>(
+      `/api/projects/${projectId}/montage-board/shot-image-regen?frame_number=${frameNumber}` +
+        `&shot_id=${encodeURIComponent(shotId)}`,
+      { method: "POST" },
+      600_000,
+    ),
+
+  uploadMontageShotImage: async (
+    projectId: number,
+    frameNumber: number,
+    shotId: string,
+    file: File,
+  ) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(
+      `/api/projects/${projectId}/montage-board/shot-image-upload?frame_number=${frameNumber}` +
+        `&shot_id=${encodeURIComponent(shotId)}`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; preview_url: string }>;
+  },
+
+  deleteMontageShotImage: (projectId: number, frameNumber: number, shotId: string) =>
+    http<{ ok: boolean }>(
+      `/api/projects/${projectId}/montage-board/shot-image-delete?frame_number=${frameNumber}` +
+        `&shot_id=${encodeURIComponent(shotId)}`,
+      { method: "POST" },
+    ),
 
   montageRefAssets: (projectId: number) =>
     http<{ assets: MontageRefAsset[] }>(

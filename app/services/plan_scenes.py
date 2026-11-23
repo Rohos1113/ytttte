@@ -7,12 +7,45 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Sequence
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 # Контракт: число сцен 1..40 (CONTRACT.md, раздел 4).
 MAX_SCENES = 40
+
+# Сцена-врезка (``plan_to_scenes.md``, правило 13): резкое или важное место
+# внутри сцены показывается отдельной сценой на 1–2 кадра, после неё идёт
+# продолжение прерванной сцены с прежним местом и прежним фоном.
+SCENE_INSERT = "сцена_вставка"
+SCENE_RETURN_TO = "возврат_к_сцене"
+SCENE_KEEP_BACKGROUND = "продолжение_фона"
+SCENE_MAX_SHOTS = "кадров_макс"
+INSERT_SCENE_KEYS: tuple[str, ...] = (
+    SCENE_INSERT,
+    SCENE_RETURN_TO,
+    SCENE_KEEP_BACKGROUND,
+    SCENE_MAX_SHOTS,
+)
+MAX_INSERT_SHOTS = 2
+
+# Время суток — часть локации: то же место днём и ночью дают разные фоны.
+# Список повторяет ``plan_cinema/nodes.py:_TIME_WORDS``; здесь он нужен только
+# мягкой проверке пары «врезка → возврат».
+_TIME_WORDS: tuple[str, ...] = (
+    "рассвет",
+    "утро",
+    "день",
+    "полдень",
+    "вечер",
+    "сумерки",
+    "закат",
+    "ночь",
+    "полночь",
+)
 
 _NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s*(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-–—•*]\s+(.*)$")
@@ -325,7 +358,10 @@ def parse_scenes_reply(raw: str) -> list[dict]:
 
     Терпимо к markdown-обёртке (```json … ```) и тексту вокруг JSON.
     Возвращает нормализованные сцены с ключами
-    ``номер, id_плана, место, событие, примечание``.
+    ``номер, id_плана, место, событие, примечание``. Если модель прислала поля
+    врезки (:data:`INSERT_SCENE_KEYS` — ``сцена_вставка``, ``возврат_к_сцене``,
+    ``продолжение_фона``, ``кадров_макс``), они сохраняются как есть; у сцены
+    без них набор ключей прежний.
     Нарушение контракта — :class:`PlanScenesError`.
     """
 
@@ -343,6 +379,15 @@ def parse_scenes_reply(raw: str) -> list[dict]:
     return [_normalize_scene(item, pos) for pos, item in enumerate(scenes_raw, 1)]
 
 
+def _scene_count(value: Any) -> int:
+    """Сколько сцен в JSON-документе ответа (для выбора полного документа)."""
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, dict) and isinstance(value.get("сцены"), list):
+        return len(value["сцены"])
+    return 0
+
+
 def _loads_first_json(raw: str) -> Any:
     text = (raw or "").strip()
     if not text:
@@ -351,24 +396,110 @@ def _loads_first_json(raw: str) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+    docs: list[Any] = []
     for block in re.findall(r"```[a-zA-Z]*\s*(.*?)```", text, re.S):
         block = block.strip()
         if not block:
             continue
         try:
-            return json.loads(block)
+            docs.append(json.loads(block))
         except json.JSONDecodeError:
             continue
-    decoder = json.JSONDecoder()
-    for pos, char in enumerate(text):
-        if char not in "{[":
-            continue
-        try:
-            value, _ = decoder.raw_decode(text[pos:])
-            return value
-        except json.JSONDecodeError:
-            continue
-    raise PlanScenesError("в ответе модели не нашёл JSON")
+    if not docs:
+        # Ответ мог прийти двумя JSON-документами подряд (дубль или продолжение):
+        # берём не первый попавшийся, а самый полный, иначе половина сцен молча
+        # терялась бы в хвосте ответа.
+        decoder = json.JSONDecoder()
+        pos = 0
+        while pos < len(text):
+            start = next((i for i in range(pos, len(text)) if text[i] in "{["), None)
+            if start is None:
+                break
+            try:
+                value, end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                pos = start + 1
+                continue
+            docs.append(value)
+            pos = end
+    if not docs:
+        raise PlanScenesError("в ответе модели не нашёл JSON")
+    if len(docs) > 1:
+        best = max(docs, key=_scene_count)
+        logger.warning(
+            "ответ модели содержит %d JSON-документов; беру документ с %d сценами (первый — с %d)",
+            len(docs),
+            _scene_count(best),
+            _scene_count(docs[0]),
+        )
+        return best
+    return docs[0]
+
+
+#: Латинские буквы, которыми модель иногда подменяет кириллицу в слове
+#: («лачугa» с латинской a). Такая подмена ломает группировку мест и имён.
+_HOMOGLYPH_LAT = str.maketrans(
+    {
+        "a": "а",
+        "e": "е",
+        "o": "о",
+        "p": "р",
+        "c": "с",
+        "x": "х",
+        "y": "у",
+        "k": "к",
+        "m": "м",
+        "t": "т",
+        "b": "в",
+        "h": "н",
+        "i": "и",
+        "j": "й",
+        "l": "л",
+        "n": "п",
+        "r": "г",
+        "s": "с",
+        "u": "и",
+        "v": "в",
+        "w": "ш",
+        "z": "з",
+        "g": "г",
+        "d": "д",
+        "f": "ф",
+        "q": "й",
+    }
+)
+_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]+")
+_CYR_RE = re.compile(r"[А-Яа-яЁё]")
+_LAT_RE = re.compile(r"[A-Za-z]")
+
+
+def fix_homoglyphs(text: str) -> str:
+    """Убрать латинские буквы внутри русских слов: «лачугa» → «лачуга».
+
+    Чисто латинские слова (бренды, латиница в названиях) не трогаем: правило
+    срабатывает, только если в токене есть и кириллица, и латиница.
+    """
+
+    def replace_word(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if _CYR_RE.search(token) and _LAT_RE.search(token):
+            return token.translate(_HOMOGLYPH_LAT)
+        return token
+
+    return _WORD_RE.sub(replace_word, str(text or ""))
+
+
+def fix_scene_homoglyphs(scene: dict) -> dict:
+    """Применить :func:`fix_homoglyphs` ко всем текстовым полям сцены."""
+
+    fixed = dict(scene)
+    for key in ("место", "событие", "примечание", "сцена"):
+        if isinstance(fixed.get(key), str):
+            fixed[key] = fix_homoglyphs(fixed[key])
+    for key in ("персонажи", "предметы"):
+        if isinstance(fixed.get(key), list):
+            fixed[key] = [fix_homoglyphs(str(item)) for item in fixed[key]]
+    return fixed
 
 
 def _normalize_scene(item: Any, pos: int) -> dict:
@@ -376,13 +507,34 @@ def _normalize_scene(item: Any, pos: int) -> dict:
         raise PlanScenesError(f"сцена {pos}: элемент списка — не объект")
     number = _normalize_number(item.get("номер"), pos)
     refs = _normalize_refs(item.get("id_плана"), pos)
-    return {
+    scene = {
         "номер": number,
         "id_плана": refs,
         "место": _as_text(item, "место", pos),
         "событие": _as_text(item, "событие", pos),
         "примечание": _as_text(item, "примечание", pos),
     }
+    # Поля врезки добавляем, только если модель их прислала: у обычной сцены
+    # ответ остаётся ровно прежним (старые голдены и контракт не меняются).
+    # Работу удалённой ноды «Каркас» («Сцены по плану» пишут действие сцены,
+    # персонажей и предметы) тоже пропускаем только когда модель их прислала:
+    # старый ответ без них остаётся валидным.
+    if "сцена" in item:
+        scene["сцена"] = _as_text(item, "сцена", pos)
+    for key in ("персонажи", "предметы"):
+        if key in item:
+            scene[key] = _as_str_list(item, key, pos)
+    if any(key in item for key in INSERT_SCENE_KEYS):
+        insert = _as_flag(item, SCENE_INSERT, pos)
+        max_shots = _as_count(item, SCENE_MAX_SHOTS, pos)
+        if insert and max_shots <= 0:
+            # Врезка всегда короткая: модель вправе не указывать число кадров.
+            max_shots = MAX_INSERT_SHOTS
+        scene[SCENE_INSERT] = insert
+        scene[SCENE_RETURN_TO] = _as_count(item, SCENE_RETURN_TO, pos)
+        scene[SCENE_KEEP_BACKGROUND] = _as_flag(item, SCENE_KEEP_BACKGROUND, pos)
+        scene[SCENE_MAX_SHOTS] = max_shots
+    return scene
 
 
 def _normalize_number(value: Any, pos: int) -> int:
@@ -423,6 +575,143 @@ def _as_text(item: dict, key: str, pos: int) -> str:
     return _collapse(value)
 
 
+def _as_str_list(item: dict, key: str, pos: int) -> list[str]:
+    """Список непустых строк (персонажи/предметы именами до реестра)."""
+    value = item.get(key, [])
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise PlanScenesError(f"сцена {pos}: поле «{key}» должно быть списком строк")
+    result: list[str] = []
+    for element in value:
+        if element is None:
+            continue
+        if not isinstance(element, str):
+            raise PlanScenesError(f"сцена {pos}: «{key}» — только строки")
+        text = _collapse(element)
+        if text:
+            result.append(text)
+    return result
+
+
+_TRUE_WORDS = frozenset({"true", "да", "1", "yes"})
+_FALSE_WORDS = frozenset({"false", "нет", "0", "no", ""})
+
+
+def _as_flag(item: dict, key: str, pos: int) -> bool:
+    """Флаг сцены: ``true``/``false``; отсутствие поля — ``False``."""
+    value = item.get(key, False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _TRUE_WORDS:
+            return True
+        if word in _FALSE_WORDS:
+            return False
+    raise PlanScenesError(f"сцена {pos}: поле «{key}» должно быть true или false")
+
+
+def _as_count(item: dict, key: str, pos: int) -> int:
+    """Целое ≥ 0 (номер сцены или число кадров); отсутствие поля — ``0``."""
+    value = item.get(key, 0)
+    if value is None or value == "":
+        return 0
+    if isinstance(value, bool):
+        raise PlanScenesError(f"сцена {pos}: поле «{key}» должно быть целым числом")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        number = int(value.strip())
+    else:
+        raise PlanScenesError(f"сцена {pos}: поле «{key}» должно быть целым числом")
+    if number < 0:
+        raise PlanScenesError(f"сцена {pos}: поле «{key}» не может быть отрицательным")
+    return number
+
+
+# ---------------------------------------------------------------------------
+# Мягкая проверка сцен-врезок (правило 13 «Сцен по плану»)
+# ---------------------------------------------------------------------------
+
+
+def _place_head(place: Any) -> str:
+    """Первый отрезок места до запятой — ключ группировки фонов.
+
+    Совпадает с правилом 8 ``plan_to_scenes.md`` и с
+    ``plan_cinema/nodes.py:_place_group_key``: возврат к прерванной сцене обязан
+    писать то же начало места, иначе «Фоны» заведут вторую карточку.
+    """
+    head = " ".join(str(place or "").split()).lower()
+    return head.split(",")[0].strip(" «»\"'")
+
+
+def _time_word(place: Any) -> str:
+    text = str(place or "").lower()
+    for word in _TIME_WORDS:
+        if word in text:
+            return word
+    return ""
+
+
+def insert_scene_problems(scenes: Sequence[dict] | None) -> list[str]:
+    """Замечания к врезкам: пара «врезка → возврат к прерванной сцене».
+
+    Проверка мягкая: это не отказ шага, а список того, что стоит показать
+    человеку и что ловят тесты. Жёсткие требования гейта R-PLAN-COVER не
+    меняются — врезка повторяет ``P`` прерванной сцены и покрытие не ломает.
+
+    Ловится: врезка без возврата, возврат не к той сцене, возврат без
+    ``продолжение_фона``, разошедшееся место (другой первый отрезок или другое
+    время суток), ``кадров_макс`` вне 1–2, врезка в самом начале и две врезки
+    подряд.
+    """
+    scene_list = [scene for scene in (scenes or []) if isinstance(scene, dict)]
+    problems: list[str] = []
+    for pos, scene in enumerate(scene_list):
+        if not scene.get(SCENE_INSERT):
+            continue
+        number = int(scene.get("номер") or pos + 1)
+        if pos == 0:
+            problems.append(f"врезка {number}: она первая — прерывать нечего")
+        max_shots = int(scene.get(SCENE_MAX_SHOTS) or 0)
+        if not 1 <= max_shots <= MAX_INSERT_SHOTS:
+            problems.append(f"врезка {number}: кадров_макс {max_shots}, нужно 1–2")
+        if pos + 1 >= len(scene_list):
+            problems.append(f"врезка {number}: после неё нет возврата к прерванной сцене")
+            continue
+        back = scene_list[pos + 1]
+        back_number = int(back.get("номер") or number + 1)
+        if back.get(SCENE_INSERT):
+            problems.append(f"сцена {back_number}: врезка сразу за врезкой")
+        interrupted = int(scene_list[pos - 1].get("номер") or number - 1) if pos else 0
+        back_to = int(back.get(SCENE_RETURN_TO) or 0)
+        if interrupted and back_to != interrupted:
+            problems.append(
+                f"сцена {back_number}: возврат_к_сцене {back_to}, "
+                f"а прервана была сцена {interrupted}"
+            )
+        if not back.get(SCENE_KEEP_BACKGROUND):
+            problems.append(f"сцена {back_number}: не отмечено продолжение_фона")
+        if pos:
+            before = scene_list[pos - 1]
+            if _place_head(back.get("место")) != _place_head(before.get("место")):
+                problems.append(
+                    f"сцена {back_number}: место не как у прерванной сцены {interrupted} — "
+                    "«Фоны» заведут второй фон"
+                )
+            elif _time_word(back.get("место")) != _time_word(before.get("место")):
+                problems.append(
+                    f"сцена {back_number}: время суток не как у прерванной сцены {interrupted} — "
+                    "«Фоны» заведут второй фон"
+                )
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # Гейт R-PLAN-COVER
 # ---------------------------------------------------------------------------
@@ -437,6 +726,10 @@ def check_plan_coverage(
     Проверяется: покрытие всех ``P``, неубывающий порядок ссылок, отсутствие
     ссылок на несуществующие пункты, число сцен 1..40. Сцена без ссылки на
     пункт — ошибка, автопокрытия нет.
+
+    Пара «врезка → возврат» (правило 13 ``plan_to_scenes.md``) сюда не входит:
+    врезка повторяет ``P`` прерванной сцены, поэтому порядок ссылок и покрытие
+    остаются в силе, а замечания по паре даёт :func:`insert_scene_problems`.
 
     Возвращает ``{"passed", "uncovered", "unknown", "errors", "scenes"}``.
     """
@@ -507,3 +800,88 @@ def _point_codes(points: Sequence[tuple[str, str] | str]) -> list[str]:
         if code and code not in codes:
             codes.append(code)
     return codes
+
+
+# ---------------------------------------------------------------------------
+# Пункты плана выделяет сама нода «Сцены по плану»
+# ---------------------------------------------------------------------------
+
+_POINT_CODE_RE = re.compile(r"^P[1-9]\d*$")
+
+
+def parse_plan_reply(raw: str) -> tuple[list[tuple[str, str]], list[dict]]:
+    """Разобрать ответ ноды «Сцены по плану»: пункты (её разбивка) и сцены.
+
+    Контракт ответа: ``{"пункты": [{"код": "P1", "текст": "…"}, …],
+    "сцены": [...]}``. Пункты — это разбивка сценария, которую делает сама
+    нода: коды P1…Pn подряд, текст пункта — дословный кусок входного текста.
+    Терпимо к markdown-обёртке и тексту вокруг JSON.
+    """
+
+    payload = _loads_first_json(raw)
+    if not isinstance(payload, dict):
+        raise PlanScenesError(
+            "ответ модели — не JSON-объект с ключами «пункты» и «сцены»"
+        )
+    points_raw = payload.get("пункты")
+    if points_raw is None:
+        raise PlanScenesError("в ответе модели нет ключа «пункты»")
+    if not isinstance(points_raw, list) or not points_raw:
+        raise PlanScenesError("«пункты» должен быть непустым списком")
+    points: list[tuple[str, str]] = []
+    for pos, item in enumerate(points_raw, 1):
+        if not isinstance(item, dict):
+            raise PlanScenesError(f"пункт {pos}: элемент списка — не объект")
+        code = str(item.get("код") or item.get("code") or "").strip().upper()
+        text = str(item.get("текст") or item.get("text") or "").strip()
+        if not _POINT_CODE_RE.match(code):
+            raise PlanScenesError(f"пункт {pos}: код «{code}» — не вида P1…Pn")
+        if not text:
+            raise PlanScenesError(f"пункт {code}: пустой текст")
+        points.append((code, text))
+    codes = [code for code, _ in points]
+    expected = [f"P{pos}" for pos in range(1, len(points) + 1)]
+    if codes != expected:
+        raise PlanScenesError(
+            "коды пунктов должны идти P1…Pn подряд без пропусков и повторов"
+        )
+    scenes_raw = payload.get("сцены")
+    if scenes_raw is None:
+        raise PlanScenesError("в ответе модели нет ключа «сцены»")
+    if not isinstance(scenes_raw, list):
+        raise PlanScenesError("«сцены» должен быть списком")
+    scenes = [_normalize_scene(item, pos) for pos, item in enumerate(scenes_raw, 1)]
+    return points, scenes
+
+
+def _flat_text(text: Any) -> str:
+    """Сверка дословности: одна строка, сжатые пробелы, без крайних."""
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def check_points_cover_plan(
+    plan_text: str,
+    points: Sequence[tuple[str, str]],
+) -> list[str]:
+    """Проверить опорные точки ответа ноды.
+
+    Нода не делит входной текст: она читает сценарий целиком и пишет
+    последовательные сцены, а ``пункты`` — её собственные опорные точки
+    (короткие формулировки шагов), нужные гейту покрытия. Поэтому дословность
+    текста пунктов не требуется: проверяем только, что точки есть, идут
+    P1…Pn подряд и не пустые. Покрытие входа сценами держит R-PLAN-COVER.
+    """
+
+    problems: list[str] = []
+    if not points:
+        return ["пунктов нет"]
+    if not _flat_text(plan_text):
+        return ["план пуст — писать сцены не из чего"]
+    codes = [str(code).strip().upper() for code, _ in points]
+    expected = [f"P{pos}" for pos in range(1, len(points) + 1)]
+    if codes != expected:
+        problems.append("коды пунктов должны идти P1…Pn подряд")
+    for code, text in points:
+        if not _flat_text(text):
+            problems.append(f"{code}: пустой текст пункта")
+    return problems

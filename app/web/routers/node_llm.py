@@ -617,6 +617,43 @@ def _doc_stem(name: str) -> str:
     return stem or str(name)
 
 
+#: JSON-артефакты нод: разобранный ответ. Рядом с ними ``gpt_reply.txt`` — то же
+#: самое сырьём, и в «Результатах» он давал лишнюю таблицу-дубль.
+_ARTIFACT_NAMES = frozenset(
+    {
+        "plan_scenes.json",
+        "dialogues.json",
+        "shots.json",
+        "shots_fail.json",
+        "plan_backgrounds.json",
+        "qc_report.json",
+        "shots_fix_report.json",
+        "shots_check_report.json",
+        "style_report.json",
+        "report.json",
+        "parsed_sheets.json",
+        "parsed.json",
+        "result.json",
+    }
+)
+
+
+def _hide_reply_when_artifact(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Спрятать сырой ``gpt_reply.txt``, когда у ноды есть JSON-артефакт.
+
+    Артефакт — разобранный ответ модели, его таблица и есть результат. Сырой
+    gpt_reply.txt рядом — дубль («Сцены по плану»: 3 таблицы вместо 2; «Шоты»:
+    лишняя таблица). Явный запрос ``?doc=file:gpt_reply.txt`` по-прежнему
+    открывает файл: фильтр работает только в режиме «все источники».
+    """
+    if not any(str(doc.get("name") or "") in _ARTIFACT_NAMES for doc in docs):
+        return docs
+    return [doc for doc in docs if str(doc.get("name") or "") not in _REPLY_RAW_NAMES]
+
+
+_REPLY_RAW_NAMES = frozenset({"gpt_reply.txt", "gpt_reply_raw.txt"})
+
+
 def _document_text_for_table(project: Project, node_key: str, item: dict[str, Any]) -> str:
     """Текст документа для нормализации; нечитаемый — 400 (а не 500)."""
     try:
@@ -650,7 +687,9 @@ def _collect_node_tables(
         documents = [item for item in documents if item["id"] == doc]
         if not documents:
             raise HTTPException(status_code=404, detail="document not found")
-    elif not documents:
+    else:
+        documents = _hide_reply_when_artifact(documents)
+    if not documents:
         # Нода без документов — это 200 с предупреждением, а не 404 (спека 5.6):
         # вкладка «Результат» не должна уходить в ошибку.
         if not _node_in_graph(project, node_key):

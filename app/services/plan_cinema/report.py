@@ -120,9 +120,7 @@ def _shots_table(kadry: list[Any]) -> str:
     for index, shot in enumerate(kadry, 1):
         if not isinstance(shot, dict):
             continue
-        prompt = _text(
-            shot.get("промт_картинки") or shot.get("промт_старт") or shot.get("промт")
-        )
+        prompt = _text(shot.get("промт_картинки") or shot.get("промт"))
         voice = ""
         if _text(shot.get("реплика")):
             voice = (
@@ -301,9 +299,10 @@ def build_report(
     out.append("</tbody></table>")
 
     out.append(
-        "<footer>Цепочка: Сцены по плану → Персонажи → Каркас → Диалоги → Фоны → Шоты → "
+        "<footer>Цепочка: Сцены по плану → Персонажи → Каркас → Диалоги → Шоты → Фоны → "
         "QC → Стиль → Отчёт. Гейты: R-PLAN-COVER, R-CAST-DUP, R-DLG-FORM, R-DLG-SPEAKER, "
-        "R-BG-REF, R-DLG-SHOT, механические правила кадров, QC-семантика. "
+        "R-BG-REF (пустой фон легален для одиночного места), R-DLG-SHOT, механические "
+        "правила кадров, QC-семантика. "
         f"Сцен с речью: {speech_total}.</footer>"
     )
     out.append("</body></html>")

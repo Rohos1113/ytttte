@@ -63,6 +63,7 @@ import type {
   MontageBoardCharacterRef,
   MontageBoardDTO,
   MontageBoardFrame,
+  MontageCheckFrameResult,
   MontageBoardShot,
   MontageImproveReport,
   ProjectDetail,
@@ -80,6 +81,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NodeStepParamsPanel } from "@/components/studio/node-step-params-panel";
 import { AudioAlignPopover } from "@/components/studio/audio-align-dialog";
+import { MontageImageCheckMenu } from "@/components/studio/montage-image-check-menu";
+import { MontageImageCheckBadge } from "@/components/canvas/montage-image-check-badge";
 import {
   ActionCell,
   AnchorCell,
@@ -2592,6 +2595,16 @@ export function AssembleMontageBoard({
     staleTime: 30_000,
   });
 
+  // Проверка картинок (вердикты/история) — ОДИН опрос на доску, бейджи кадров
+  // читают отсюда же (тот же queryKey держит и поповер «Механика проверки»).
+  const checkQ = useQuery({
+    queryKey: ["montage-check", projectId],
+    queryFn: () => api.getMontageCheck(projectId!),
+    enabled: open && projectId != null,
+    refetchInterval: 5000,
+    staleTime: 0,
+  });
+
   // Сброс локальной очереди при смене проекта — СНАЧАЛА flush старой очереди.
   const prevProjectIdRef = useRef<number | null>(null);
   useEffect(() => {
@@ -3109,6 +3122,31 @@ export function AssembleMontageBoard({
 
   const meta = board.data?.meta;
   const pendingOpsKey = JSON.stringify(meta?.pending_ops ?? []);
+
+  /** Вердикты проверки по номеру кадра — для бейджа в overlay картинки shot1. */
+  const checkFrameByNumber = useMemo(() => {
+    const map = new Map<number, MontageCheckFrameResult>();
+    for (const res of checkQ.data?.frames ?? []) map.set(res.frame_number, res);
+    return map;
+  }, [checkQ.data?.frames]);
+
+  /**
+   * Готовые overlay-элементы: один и тот же ReactNode между рендерами доски,
+   * иначе memo у сотен ClickableMedia ломается на каждом рендере.
+   */
+  const checkOverlays = useMemo(() => {
+    const map = new Map<number, ReactNode>();
+    for (const [frameNumber, res] of checkFrameByNumber) {
+      map.set(
+        frameNumber,
+        <div className="flex justify-end">
+          <MontageImageCheckBadge verdict={res.verdict} problems={res.problems} />
+        </div>,
+      );
+    }
+    return map;
+  }, [checkFrameByNumber]);
+
 
   useEffect(() => {
     const live = new Set(pendingOps.map(opSelectKey));
@@ -5291,7 +5329,7 @@ export function AssembleMontageBoard({
         className="pointer-events-auto fixed inset-0 z-[10050] flex flex-col bg-card"
         onContextMenu={handleBoardContextMenu}
       >
-        <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-3">
             <Clapperboard className="h-7 w-7 text-amber-400" />
             <div>
@@ -5335,8 +5373,8 @@ export function AssembleMontageBoard({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 type="button"
                 size="sm"
@@ -5442,27 +5480,18 @@ export function AssembleMontageBoard({
               Отменить выбранные
               {selectedOpKeys.size > 0 ? ` (${selectedOpKeys.size})` : ""}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-9 gap-1.5 text-xs"
-              disabled={
-                !projectId ||
-                recoverOutseeMutation.isPending ||
-                recoverRunning ||
-                applyRunning
-              }
-              title="Опционально: CDP-подбор готовых карточек из галереи генератора (перегенерация через API этого не требует)"
-              onClick={() => recoverOutseeMutation.mutate()}
-            >
-              {recoverOutseeMutation.isPending || recoverRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              {recoverRunning ? "Забираем из галереи…" : "Галерея генератора (CDP)"}
-            </Button>
+            <MontageImageCheckMenu
+              projectId={projectId}
+              onChanged={() => {
+                // после run/apply-image: картинки кадров и вердикты на доске
+                void queryClient.invalidateQueries({
+                  queryKey: ["montage-board", projectId],
+                });
+                void queryClient.invalidateQueries({
+                  queryKey: ["montage-check", projectId],
+                });
+              }}
+            />
             <AudioAlignPopover
               projectId={projectId}
               onFinished={() => {
@@ -6201,7 +6230,7 @@ export function AssembleMontageBoard({
                                         kind="image"
                                         tall={coverageOn}
                                         tallAspect={frameAspect}
-                                        overlay={null}
+                                        overlay={checkOverlays.get(fr.number) ?? null}
                                         label={`Начальный кадр · #${fr.number}`}
                                         onPreview={showPreview}
                                         scrollRootRef={tableScrollRef}

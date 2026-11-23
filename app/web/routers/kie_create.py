@@ -226,9 +226,23 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     is_pay52 = spec.get("api") == "pay52" or (
         "seedance" in spec.get("id", "").lower() and pay52_video.pay52_video_configured(spec)
     )
+    # Картинки, которые маршрут отдаёт 52pay (Seedream по ключу
+    # PAY52_SEEDREAM_KEY): транспорт другой — app/bots/pay52_images.py,
+    # kie в минусе и отвечает 402.
+    from app.services.media_route import image_provider_for
+
+    is_pay52_image = str(spec.get("result") or "") == "image" and image_provider_for(model_id) == "pay52"
     if is_wavespeed:
         if not wavespeed_http.wavespeed_configured():
             raise HTTPException(status_code=503, detail="WaveSpeed API не настроен (WAVESPEED_API_KEY)")
+    elif is_pay52_image:
+        from app.bots.pay52_images import seedream_configured
+
+        if not seedream_configured():
+            raise HTTPException(
+                status_code=503,
+                detail="Seedream через 52pay не настроен (PAY52_SEEDREAM_KEY)",
+            )
     elif is_pay52:
         if not pay52_video.pay52_video_configured(spec):
             raise HTTPException(status_code=503, detail="52pay API не настроен (проверьте SEEDANCE_*_KEY)")
@@ -280,7 +294,9 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                     detail=f"Недостаточно кредитов: {exc}",
                 ) from exc
 
-    provider_name = "wavespeed" if is_wavespeed else ("pay52" if is_pay52 else "kie")
+    provider_name = (
+        "wavespeed" if is_wavespeed else ("pay52" if (is_pay52 or is_pay52_image) else "kie")
+    )
     provider_label = {"wavespeed": "WaveSpeed", "pay52": "52pay", "kie": "KIE"}[provider_name]
     # Какая запись журнала соответствует результату и в каких единицах платим.
     pricing_unit = str(quote.get("unit") or "gen")
@@ -321,6 +337,17 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                 ) as call:
                     if is_wavespeed:
                         res = await wavespeed_http.run_generation(payload, out_path)
+                    elif is_pay52_image:
+                        # Seedream через 52pay: OpenAI-совместимый /images/generations.
+                        from app.bots.pay52_images import generate_image as _pay52_image
+
+                        res = await _pay52_image(
+                            prompt,
+                            out_path,
+                            model_slug=model_id,
+                            aspect_ratio=str(values.get("aspect_ratio") or "1:1"),
+                            project_id=project_id or None,
+                        )
                     elif is_pay52:
                         res = await pay52_video.run_generation(spec, payload, out_path)
                     elif result_kind == "text":

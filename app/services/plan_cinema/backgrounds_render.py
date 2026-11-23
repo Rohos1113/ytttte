@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -56,9 +57,125 @@ PLAN_CINEMA_STYLE_NODE_KEY = "n_excel_gpt_pk_style"
 #: id ноды «Фоны» по умолчанию (если графа под рукой нет).
 DEFAULT_BACKGROUNDS_NODE_KEY = "n_backgrounds"
 
+#: Канон ракурсов кадров (``scenes_to_frames_plan_ru.md``, поле ``ракурс``) →
+#: английский вид квадранта. Ключи в нижнем регистре: ракурс приходит из БД как есть.
+SHEET_ANGLE_EN: dict[str, str] = {
+    "фронт": "front view",
+    "3/4": "three-quarter view",
+    "с плеча": "over-the-shoulder view",
+    "сверху": "high-angle view",
+    "снизу": "low-angle view",
+    "макро": "macro detail view",
+}
+
+#: Пустой или незнакомый ракурс — общий вид локации (первый кадр обычно он и есть).
+SHEET_ANGLE_DEFAULT = "wide establishing view of the location"
+
+#: Панели листа в порядке чтения → их место на картинке.
+SHEET_QUADRANTS: tuple[tuple[int, str], ...] = (
+    (1, "top-left"),
+    (2, "top-right"),
+    (3, "bottom-left"),
+    (4, "bottom-right"),
+)
+
+#: Сколько ракурсов в листе: лист 2×2, всегда четыре.
+SHEET_ANGLES_COUNT = len(SHEET_QUADRANTS)
+
 
 def backgrounds_dir(project: Any) -> Path:
     return Path(project.data_dir) / "backgrounds"
+
+
+#: Имя PNG фона: строго код ``f0N`` (плюс сайдкар ``f0N.png.json`` с промтом).
+_BACKGROUND_PNG_RE = re.compile(r"^f\d+$", re.IGNORECASE)
+
+
+def _background_file_code(name: str) -> str:
+    """Код фона из имени файла: ``f01.png`` и ``f01.png.json`` → ``f01``."""
+    low = str(name or "").strip().lower()
+    for suffix in (".png.json", ".png"):
+        if low.endswith(suffix):
+            code = low[: -len(suffix)]
+            return code if _BACKGROUND_PNG_RE.match(code) else ""
+    return ""
+
+
+async def prune_backgrounds(
+    session: Any,
+    project: Any,
+    keep_codes: Sequence[str],
+) -> dict[str, int]:
+    """Снять с учёта фоны прошлого прогона: карточки, артефакты и PNG.
+
+    UPSERT по коду перезаписывает совпавшие ``f0N`` и добавляет новые, а коды
+    прежней группировки оставляет живыми. После перезапуска «Фонов» в реестре
+    висели локации прошлого ролика (f10…f16) — их промты и картинки попадали в
+    «Результаты» и в следующие ноды. Здесь всё, чего нет в ``keep_codes``,
+    помечается архивом, артефакт удаляется, PNG стирается с диска.
+    """
+    from sqlalchemy import select
+
+    from app.models import Artifact, ArtifactKind, Entity
+    from app.services.db_v2 import entity_is_archived
+
+    keep = {str(code or "").strip().lower() for code in keep_codes if str(code or "").strip()}
+    stats = {"archived": 0, "artifacts_removed": 0, "files_removed": 0}
+
+    cards = (
+        (
+            await session.execute(
+                select(Entity).where(
+                    Entity.project_id == project.id, Entity.type == "background"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for entity in cards:
+        code = str(entity.code or "").strip()
+        if not code or code.lower() in keep or entity_is_archived(entity):
+            continue
+        attrs = dict(entity.attrs or {})
+        attrs["archived"] = True
+        attrs["inactive"] = True
+        entity.attrs = attrs
+        stats["archived"] += 1
+
+    artifacts = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.background_reference,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for artifact in artifacts:
+        code = str((artifact.meta or {}).get("background") or "").strip().lower()
+        if code and code in keep:
+            continue
+        await session.delete(artifact)
+        stats["artifacts_removed"] += 1
+
+    folder = backgrounds_dir(project)
+    if folder.is_dir():
+        for path in folder.iterdir():
+            if not path.is_file():
+                continue
+            code = _background_file_code(path.name)
+            if not code or code in keep:
+                continue
+            try:
+                path.unlink()
+                stats["files_removed"] += 1
+            except OSError as exc:
+                logger.warning("#{} фоны: не удалил {}: {}", getattr(project, "id", "?"), path, exc)
+    return stats
 
 
 def background_path(project: Any, code: str) -> Path:
@@ -71,6 +188,74 @@ def _card_prompt(attrs: dict[str, Any]) -> str:
         if text:
             return text
     return ""
+
+
+# ── Лист 2×2: четыре ракурса одной локации ───────────────────────────────
+
+
+def angle_en(raw: Any) -> str:
+    """Ракурс кадра (``фронт``/``3/4``/``с плеча``…) → английский вид квадранта."""
+    text = " ".join(str(raw or "").split()).lower()
+    text = text.replace("\\", "/")
+    return SHEET_ANGLE_EN.get(text, SHEET_ANGLE_DEFAULT)
+
+
+def sheet_angles(angles: Sequence[Any]) -> list[str]:
+    """Ровно 4 английских вида: первые четыре ракурса кадров, остальное — общий.
+
+    Кадров меньше четырёх — недостающие панели заполняет общий вид локации;
+    ракурсы кадров 5+ в лист не попадают (лист всегда 2×2).
+    """
+    views = [angle_en(raw) for raw in list(angles)[:SHEET_ANGLES_COUNT]]
+    while len(views) < SHEET_ANGLES_COUNT:
+        views.append(SHEET_ANGLE_DEFAULT)
+    return views
+
+
+def sheet_prompt_block(views: Sequence[Any]) -> str:
+    """Блок «квадранты листа»: четыре вида по очереди, каждый — съёмочная задача.
+
+    Пишется в промт фона после текста карточки: карточка описывает локацию,
+    блок задаёт раскладку листа. Вид панели — не название ракурса, а текст про
+    то, что перед камерой и на чём акцент (его пишет модель в ``кадры_листа``);
+    если вида нет, панель получает общий вид локации. Порядок жёсткий (верхний
+    левый → нижний правый), потому что кадр ссылается на панель по её номеру.
+    """
+    texts: list[str] = []
+    for raw in list(views)[:SHEET_ANGLES_COUNT]:
+        text = " ".join(str(raw or "").split())
+        if text and text[-1] not in ".!?":
+            text = f"{text}."
+        texts.append(text)
+    while len(texts) < SHEET_ANGLES_COUNT:
+        texts.append(f"{SHEET_ANGLE_DEFAULT}.")
+    panels = " ".join(
+        f"Quadrant {number} ({name}): {text or SHEET_ANGLE_DEFAULT + '.'}"
+        for (number, name), text in zip(SHEET_QUADRANTS, texts, strict=True)
+    )
+    return (
+        "Turnaround sheet: one image, a 2x2 grid of four panels of THE SAME "
+        "location — identical layout, the same objects and materials, the same light "
+        "and time of day in all four panels; only the camera position and framing change. "
+        f"{panels} Four equal panels of the same empty location — the same standing "
+        "figures and objects in every panel, no moving people, no text, no labels, no borders."
+    )
+
+
+def compose_sheet_prompt(base: str, views: Sequence[Any]) -> str:
+    """Промт фона = текст карточки + блок листа 2×2 из четырёх ракурсов кадров.
+
+    Виды панелей берёт код из карточки фона (``кадры_листа``, пишет модель) в
+    жёстком порядке кадров фона: модель не выбирает раскладку и не может
+    переставить панели — иначе лист разъедется с кадрами, которые ссылаются на
+    панели по порядку. Пустой список видов — промт не трогаем.
+    """
+    text = " ".join(str(base or "").split())
+    views = list(views)[:SHEET_ANGLES_COUNT]
+    if not views:
+        return text
+    block = sheet_prompt_block(views)
+    return f"{text}\n\n{block}" if text else block
 
 
 # ── Стиль проекта ────────────────────────────────────────────────────────
@@ -363,11 +548,11 @@ def style_state(project: Any) -> dict[str, Any]:
     }
 
 
-def _model_settings(project: Any) -> dict[str, Any]:
+def _model_settings(project: Any, *, node_type: str = "images") -> dict[str, Any]:
     from app.generation_options import IMAGE_GENERATORS_BY_ID
     from app.services.vibecode_catalog import resolve_node_media_settings
 
-    media = resolve_node_media_settings(project, node_type="images")
+    media = resolve_node_media_settings(project, node_type=node_type)
     gen = IMAGE_GENERATORS_BY_ID.get(str(media.get("image_generator_id") or ""))
     return {
         "model_slug": getattr(gen, "outsee_slug", None),
@@ -375,6 +560,16 @@ def _model_settings(project: Any) -> dict[str, Any]:
         "resolution_slug": media.get("resolution_slug") or "2K",
         "quality_slug": media.get("quality_slug"),
     }
+
+
+def _background_media_settings(project: Any) -> dict[str, Any]:
+    """Медиа-настройки листа фона — ровно те, что человек выбрал.
+
+    Аспект, разрешение, качество и модель берутся из настроек ноды «Фоны»
+    (а если на ноде не заданы — из проекта). Никаких зашитых значений: лист
+    рисуется в том соотношении, которое выбрано при генерации.
+    """
+    return _model_settings(project, node_type="backgrounds")
 
 
 async def record_artifact(
@@ -454,7 +649,7 @@ async def render_one(
     if not text:
         logger.warning("[#{}] фон {}: пустой промт — рисовать нечем", getattr(project, "id", "?"), code)
         return None
-    cfg = _model_settings(project)
+    cfg = _background_media_settings(project)
     path.parent.mkdir(parents=True, exist_ok=True)
     # Рисуем в соседний .part и подменяем готовую PNG только после успеха:
     # иначе на время генерации (45–130 с) карточка пустая, а если провайдер

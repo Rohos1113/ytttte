@@ -1,4 +1,4 @@
-﻿"""Универсальные таблицы ответов ЛЛМ-нод: нормализатор, ручка /table и CLI.
+"""Универсальные таблицы ответов ЛЛМ-нод: нормализатор, ручка /table и CLI.
 
 Ручка ``GET /api/projects/{id}/node-llm/{key}/table`` отдаёт таблицы для любой
 ЛЛМ-ноды: JSON раскладывается на строки (с разворотом вложенных объектов и
@@ -395,7 +395,7 @@ def test_api_shots_merges_frame_table(studio: Any) -> None:
     assert data["warnings"] == []
 
 
-def test_api_multisource_prefixes_table_ids(studio: Any) -> None:
+def test_api_multisource_hides_raw_reply_next_to_artifact(studio: Any) -> None:
     upload = studio.upload("n_excel_gpt_pk_shots")
     _write(
         upload,
@@ -414,13 +414,33 @@ def test_api_multisource_prefixes_table_ids(studio: Any) -> None:
     )
     assert response.status_code == 200
     data = response.json()
-    assert len(data["sources"]) == 2
-    # основной — самый крупный JSON-документ
-    assert data["sources"][0]["id"] == "file:shots.json"
-    assert [table["id"] for table in data["tables"]] == ["shots.ops", "gpt_reply.ops"]
+    # Сырой gpt_reply.txt — тот же ответ модели, что в shots.json. Как отдельный
+    # источник он давал лишнюю таблицу-дубль в «Результатах», поэтому скрыт.
+    assert [source["id"] for source in data["sources"]] == ["file:shots.json"]
+    assert [table["id"] for table in data["tables"]] == ["ops"]
     assert len(data["tables"][0]["rows"]) == 3
-    # одинаковые таблицы не путаются: у каждой свой префикс источника
-    assert {table["id"].split(".", 1)[0] for table in data["tables"]} == {"shots", "gpt_reply"}
+
+
+def test_api_multisource_prefixes_table_ids_without_artifact(studio: Any) -> None:
+    upload = studio.upload("n_excel_gpt_pk_shots")
+    _write(upload, "custom.json", {"rows": [{"id": index} for index in range(2)]})
+    _write(upload, "gpt_reply.txt", {"rows": [{"id": "raw"}]})
+
+    response = studio.client.get(
+        f"/api/projects/{studio.project_id}/node-llm/n_excel_gpt_pk_shots/table"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # custom.json — не артефакт «Шотов»: сырьё остаётся отдельным источником,
+    # у таблиц разных источников свой префикс в id.
+    assert [source["id"] for source in data["sources"]] == [
+        "file:custom.json",
+        "file:gpt_reply.txt",
+    ]
+    assert {table["id"].split(".", 1)[0] for table in data["tables"]} == {
+        "custom",
+        "gpt_reply",
+    }
 
 
 def test_api_doc_param_limits_to_one_source(studio: Any) -> None:
@@ -714,3 +734,74 @@ def test_cli_falls_back_to_documents_when_table_route_missing(
     table = data["tables"][0]
     assert table["id"] == "ops"
     assert len(table["rows"]) == 1
+
+
+def _plan_scenes_payload() -> dict[str, Any]:
+    return {
+        "пункты": [
+            {"код": "P1", "текст": "Иван выносит груз со склада"},
+            {"код": "P2", "текст": "Сосед замечает дыру в коробке"},
+        ],
+        "план_с_номерами": "P1. Иван выносит груз\nP2. Сосед замечает дыру",
+        "сцены": [
+            {
+                "номер": 1,
+                "id_плана": ["P1", "P2"],
+                "место": "узкий двор между складами, поздний вечер",
+                "персонажи": ["Иван", "сосед"],
+                "предметы": ["коробки"],
+                "событие": "Иван рвёт коробку и прячет дыру от соседа",
+                "примечание": "рваная коробка у стены",
+                "сцена": "Дождь стучит по навесу, Иван плечом открывает дверь.",
+                "сцена_вставка": False,
+                "возврат_к_сцене": 0,
+                "продолжение_фона": False,
+                "кадров_макс": 7,
+            }
+        ],
+    }
+
+
+def test_plan_scenes_merge_into_one_table() -> None:
+    """«пункты» + «сцены» → ОДНА таблица, где есть каждая переменная ноды."""
+    result = node_tables.normalize_json(_plan_scenes_payload(), full=True, with_refs=True)
+
+    assert len(result["tables"]) == 1
+    table = result["tables"][0]
+    keys = [column["key"] for column in table["columns"]]
+    assert keys[:3] == ["номер", "id_плана", "пункты"]
+    assert set(keys) == {
+        "номер",
+        "id_плана",
+        "пункты",
+        "место",
+        "персонажи",
+        "предметы",
+        "событие",
+        "примечание",
+        "сцена",
+        "сцена_вставка",
+        "возврат_к_сцене",
+        "продолжение_фона",
+        "кадров_макс",
+    }
+    row = table["rows"][0]
+    assert row["пункты"] == (
+        "P1 — Иван выносит груз со склада\nP2 — Сосед замечает дыру в коробке"
+    )
+    # Синтетическая колонка — только для чтения, остальные ячейки правятся как раньше.
+    assert len(result["refs"]) == 1
+    assert "пункты" not in result["refs"][0]["columns"]
+    assert "сцена" in result["refs"][0]["columns"]
+    assert "кадров_макс" in result["refs"][0]["columns"]
+
+
+def test_two_unrelated_arrays_keep_two_tables() -> None:
+    payload = {
+        "персонажи": [{"имя": "Иван"}],
+        "реквизит": [{"название": "коробка"}],
+    }
+
+    result = node_tables.normalize_json(payload, full=True)
+
+    assert len(result["tables"]) == 2

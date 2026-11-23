@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * Универсальная таблица «Результата» ЛЛМ-ноды.
@@ -57,11 +57,15 @@ export function NodeResultTable({
   active,
   fallback,
   onState,
+  busy,
 }: {
   projectId: number;
   nodeKey: string | null | undefined;
   nodeType?: string | null;
   active: boolean;
+  /** Нода сейчас выполняется: таблицы перечитываем сами, иначе в панели висят
+   *  строки прошлого прогона (перезапуск стирает файлы, а кэш запроса — нет). */
+  busy?: boolean;
   /** Прежний вид «Результата» — на случай пустого ответа или ошибки API. */
   fallback?: ReactNode;
   /**
@@ -79,7 +83,11 @@ export function NodeResultTable({
     staleTime: 15_000,
     retry: false,
     placeholderData: keepPreviousData,
+    // Пока нода работает — опрашиваем: файл результата появляется в конце прогона,
+    // без опроса панель так и осталась бы на данных до перезапуска.
+    refetchInterval: active && busy ? 2_500 : false,
   });
+  const wasBusy = useRef(false);
 
   const data: NodeTableResponse | null = query.data ?? null;
   const qc = useQueryClient();
@@ -120,6 +128,16 @@ export function NodeResultTable({
   const tables = useMemo(() => (data?.tables ?? []).filter((t) => t.columns.length > 0), [data]);
   const shownTables = useMemo(() => tables.filter((t) => t.rows.length > 0), [tables]);
   const isEmpty = !hasNodeTableContent(data);
+
+  // Нода закончила: забираем результат сразу, а не ждём истечения staleTime —
+  // иначе в панели остаются строки прогона, который перезапустили.
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      void qc.invalidateQueries({ queryKey: ["node-tables", projectId, nodeKey] });
+      void qc.invalidateQueries({ queryKey: ["node-llm-docs", projectId, nodeKey] });
+    }
+    wasBusy.current = Boolean(busy);
+  }, [busy, qc, projectId, nodeKey]);
 
   // Сообщаем панели, можно ли показать таблицу вместо прежнего вида результата.
   useEffect(() => {

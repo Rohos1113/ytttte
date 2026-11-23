@@ -27,6 +27,16 @@ _EDIT_PATH = "/images/edits"
 # gpt-image-2 принимает только эти три размера.
 _SIZES = ("1024x1024", "1536x1024", "1024x1536")
 
+#: Seedream на 52pay: свой ключ (``PAY52_SEEDREAM_KEY``), тот же
+#: OpenAI-совместимый ``/images/generations``, но id модели другой — шлюз
+#: отдаёт семейство ``doubao-seedream-*``. Живая проверка 2026-11-20:
+#: ``doubao-seedream-5.0-flash``, размеры 1024x1024 и 1024x1536 → 200.
+_SEEDREAM_API_MODELS: dict[str, str] = {
+    "seedream-5-pro": "doubao-seedream-5.0-pro",
+    "seedream-5-lite": "doubao-seedream-5.0-flash",
+    "seedream-4-0": "doubao-seedream-4.0",
+}
+
 # Шлюз 52pay режет промты китайской модерацией («提示词包含违规内容»). Один
 # повтор со смягчёнными формулировками дешевле, чем падение всей волны героев:
 # персонаж и так рисуется по описанию внешности, а не по сцене боя.
@@ -69,18 +79,64 @@ def soften_prompt_for_moderation(text: str) -> str:
 
 
 
+def _slug(model_slug: str | None) -> str:
+    return (model_slug or "").strip().lower().replace("_", "-")
+
+
+#: Каталожный slug → id модели шлюза для семейства GPT Image 2.
+#: Владелец 2026-11-21: картинки должны генерироваться моделью ``gpt-image-2-4k``
+#: на том же ключе и том же API. Проверено ``GET /v1/models`` (21.11.2026):
+#: шлюз отдаёт ``gpt-image-2``, ``gpt-image-2-4k``, ``gpt-image-2.5``,
+#: ``gpt-image-2.5-flare``, ``gpt-image-2-5``.
+_GPT_IMAGE_API_MODELS: dict[str, str] = {
+    "gpt-image-2": "gpt-image-2-4k",
+    "gpt-image-2-vip": "gpt-image-2-4k",
+}
+
+
+def api_model_for(model_slug: str | None) -> str:
+    """Slug каталога → id модели шлюза.
+
+    Seedream у 52pay зовётся ``doubao-*``, а GPT Image 2 уходит как
+    ``gpt-image-2-4k`` (картинки в 4K). Остальные slug идут как есть.
+    """
+    slug = _slug(model_slug)
+    return (
+        _SEEDREAM_API_MODELS.get(slug)
+        or _GPT_IMAGE_API_MODELS.get(slug)
+        or (model_slug or "gpt-image-2-4k").strip()
+    )
+
+
+def seedream_configured() -> bool:
+    """Есть ли ключ 52pay под Seedream (отдельный от GPT Image 2)."""
+    return bool((getattr(settings, "pay52_seedream_key", "") or "").strip())
+
+
 def pay52_images_configured() -> bool:
-    return bool((settings.pay52_gpt_image_key or "").strip())
+    return bool((settings.pay52_gpt_image_key or "").strip()) or seedream_configured()
+
+
+def _key_for(model_slug: str | None) -> str:
+    """Ключ под конкретную модель: Seedream — свой, остальное — GPT Image 2."""
+    if _slug(model_slug) in _SEEDREAM_API_MODELS:
+        key = (getattr(settings, "pay52_seedream_key", "") or "").strip()
+        if key:
+            return key
+    return (settings.pay52_gpt_image_key or "").strip()
 
 
 def _base_url() -> str:
     return (settings.pay52_base_url or "https://api.52pay.com/v1").strip().rstrip("/")
 
 
-def _headers(*, multipart: bool = False) -> dict[str, str]:
-    key = (settings.pay52_gpt_image_key or "").strip()
+def _headers(*, model_slug: str | None = None, multipart: bool = False) -> dict[str, str]:
+    key = _key_for(model_slug)
     if not key:
-        raise ValueError("PAY52_GPT_IMAGE_KEY пуст — задай ключ 52pay для GPT Image 2 в .env")
+        raise ValueError(
+            "нет ключа 52pay для картинки: задай PAY52_SEEDREAM_KEY (Seedream) "
+            "или PAY52_GPT_IMAGE_KEY (GPT Image 2) в .env"
+        )
     if multipart:
         return {"Authorization": f"Bearer {key}"}
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -241,7 +297,7 @@ async def _post_once(
     timeout: float,
 ) -> tuple[bytes, str]:
     """Один запрос в шлюз. Пустые байты — отказ по модерации (повторят выше)."""
-    model = (model_slug or "gpt-image-2").strip()
+    model = api_model_for(model_slug)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         if refs:
             files = [
@@ -256,7 +312,10 @@ async def _post_once(
             if quality:
                 data["quality"] = quality
             r = await client.post(
-                f"{_base_url()}{_EDIT_PATH}", headers=_headers(multipart=True), files=files, data=data
+                f"{_base_url()}{_EDIT_PATH}",
+                headers=_headers(model_slug=model_slug, multipart=True),
+                files=files,
+                data=data,
             )
         else:
             body: dict[str, Any] = {
@@ -268,7 +327,9 @@ async def _post_once(
             if quality:
                 body["quality"] = quality
             r = await client.post(
-                f"{_base_url()}{_GENERATE_PATH}", headers=_headers(), json=body
+                f"{_base_url()}{_GENERATE_PATH}",
+                headers=_headers(model_slug=model_slug),
+                json=body,
             )
     if r.status_code >= 400:
         text = r.text or ""

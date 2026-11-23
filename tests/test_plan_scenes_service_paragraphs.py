@@ -292,30 +292,29 @@ def test_gate_accepts_one_scene_for_whole_dialogue():
 # --- правила промта: сторож против возврата старой поломки ------------------
 
 
-def test_prompt_keeps_synonym_and_no_invention_rules():
+def test_prompt_takes_raw_plan_and_keeps_no_invention_rules():
     text = PROMPT.read_text(encoding="utf-8")
-    assert text.count("{{ПЛАН_С_НОМЕРАМИ}}") == 1
-    assert "Сцена — один значимый бит сценария, синонимичный пункту" in text
-    assert "Не дописывай сценарий" in text
-    assert "в ОДНА сцена" in text or "это ОДНА сцена" in text
+    assert text.count("{{ПЛАН}}") == 1
+    assert "{{ПЛАН_С_НОМЕРАМИ}}" not in text, "вход — сырой сценарий, без разметки кодом"
+    assert "читаешь его целиком и записываешь сцены подряд" in text
+    assert "Новых людей, мест, поворотов и развязок не добавляй" in text
+    assert "90–140 слов" in text
 
 
 def test_prompt_keeps_dialogue_rule_and_place_rule():
     text = PROMPT.read_text(encoding="utf-8")
-    # разговор одного места и времени — одна сцена, все его пункты в id_плана
-    assert "Подряд идущие пункты-реплики одного разговора" in text
-    assert "ОДНА сцена на весь разговор" in text
-    assert "все пункты разговора" in text
-    # пункт без события не выдумывает место: берёт из соседнего пункта
-    assert "Место и время суток для такого пункта бери из ближайшего пункта" in text
-    # в чек-листе есть проверка разговора
-    assert "Разговор одного места и времени дан одной сценой" in text
+    # Диалог — исключение из динамики: только разговор, реплики разложит «Диалоги».
+    assert "Пока идёт разговор, посторонние действия в кадре прекращаются" in text
+    assert "Реплики пишет следующий шаг «Диалоги»" in text
+    # 22.11 владелец сузил границу сцены до смены локации.
+    assert "Новая сцена начинается при смене локации." in text
+    assert "Действия динамичные" in text
 
 
-def test_prompt_has_no_metadata_scene_rule():
-    """Старой правила «покрой служебный пункт вводной сценой» быть не должно."""
+def test_prompt_forbids_points_for_service_paragraphs():
+    """Пункты — опорные точки ноды, служебные абзацы сцен не дают."""
 
     text = PROMPT.read_text(encoding="utf-8")
     assert "Пункт-метаданные" not in text
     assert "вводной сценой" not in text
-    assert "Служебный текст на входе не покрывается" in text
+    assert "Заголовки глав, «Пролог», название произведения, подпись и авторские ремарки не дают сцен" in text

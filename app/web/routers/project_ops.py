@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1652,6 +1654,154 @@ async def _board_frame_or_404(
     if frame is None:
         raise HTTPException(status_code=404, detail=f"кадр {frame_number} не найден")
     return frame
+
+
+# --- Операции по отдельному шоту плана (S1-K1) с доски монтажа -------------
+# Доска в режиме шотов рисует колонку на каждый кадр из attrs["кадры"]. У этих
+# шотов нет слотов shot1/shot2, поэтому старые операции (regen/upload/delete by
+# frame+shot) к ним не применимы: тут свои точечные ручки.
+
+_SHOT_ID_RE = re.compile(r"^s(\d+)-k(\d+)$", re.IGNORECASE)
+
+
+def _shot_id_or_400(shot_id: str) -> str:
+    text = str(shot_id or "").strip()
+    matched = _SHOT_ID_RE.match(text)
+    if not matched:
+        raise HTTPException(status_code=400, detail=f"неверный id шота: {shot_id!r}")
+    return f"S{int(matched.group(1))}-K{int(matched.group(2))}"
+
+
+def _shot_cards_of(frame: Frame) -> list[dict]:
+    attrs = frame.attrs if isinstance(frame.attrs, dict) else {}
+    return [dict(c) for c in (attrs.get("кадры") or []) if isinstance(c, dict)]
+
+
+def _shot_card_of(cards: list[dict], shot_id: str) -> dict:
+    card = next((c for c in cards if str(c.get("id") or "") == shot_id), None)
+    if card is None:
+        raise HTTPException(status_code=404, detail=f"шот {shot_id} не найден в кадре")
+    return card
+
+
+@router.post("/{project_id}/montage-board/shot-prompt")
+async def montage_board_shot_prompt(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    shot_id: str = Query(...),
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Сохранить ``промт_картинки`` одного шота (правится прямо на доске)."""
+    from app.services.plan_cinema.apply import write_scene_attrs
+
+    p = _project_or_404(await session.get(Project, project_id))
+    card_id = _shot_id_or_400(shot_id)
+    frame = await _board_frame_or_404(session, p, frame_number)
+    cards = _shot_cards_of(frame)
+    card = _shot_card_of(cards, card_id)
+    text = str(body.get("prompt") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="пустой промт картинки")
+    card["промт_картинки"] = text
+    await write_scene_attrs(session, p, str(frame.uuid), {"кадры": cards})
+    await commit_with_retry(session)
+    return {"ok": True, "shot_id": card_id, "chars": len(text)}
+
+
+@router.post("/{project_id}/montage-board/shot-image-regen")
+async def montage_board_shot_image_regen(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    shot_id: str = Query(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Перерисовать картинку одного шота по его ``промт_картинки``."""
+    from app.services.plan_cinema import shots_render
+
+    p = _project_or_404(await session.get(Project, project_id))
+    card_id = _shot_id_or_400(shot_id)
+    frame = await _board_frame_or_404(session, p, frame_number)
+    cards = _shot_cards_of(frame)
+    card = _shot_card_of(cards, card_id)
+    prompt = str(card.get("промт_картинки") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="у шота нет промта картинки")
+    refs = shots_render._ref_files(p, card)
+    path = await shots_render.render_one(
+        session,
+        p,
+        shot_id=card_id,
+        frame_number=frame_number,
+        prompt=prompt,
+        refs=refs,
+        force=True,
+    )
+    await commit_with_retry(session)
+    if path is None:
+        raise HTTPException(status_code=500, detail="провайдер не вернул картинку")
+    return {
+        "ok": True,
+        "shot_id": card_id,
+        "path": str(path),
+        "preview_url": f"/api/files?path={path}",
+    }
+
+
+@router.post("/{project_id}/montage-board/shot-image-upload")
+async def montage_board_shot_image_upload(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    shot_id: str = Query(...),
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Залить свою картинку на шот: ``shots/<Sx-Ky>.png``."""
+    import os as _os
+
+    from app.services.plan_cinema.shots_render import shot_path
+
+    p = _project_or_404(await session.get(Project, project_id))
+    card_id = _shot_id_or_400(shot_id)
+    frame = await _board_frame_or_404(session, p, frame_number)
+    _shot_card_of(_shot_cards_of(frame), card_id)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="пустой файл")
+    path = shot_path(p, card_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_bytes(content)
+    _os.replace(tmp, path)
+    return {
+        "ok": True,
+        "shot_id": card_id,
+        "path": str(path),
+        "preview_url": f"/api/files?path={path}",
+    }
+
+
+@router.post("/{project_id}/montage-board/shot-image-delete")
+async def montage_board_shot_image_delete(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    shot_id: str = Query(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Удалить картинку шота (файл и его json-описание)."""
+    from app.services.plan_cinema.shots_render import shot_path
+
+    p = _project_or_404(await session.get(Project, project_id))
+    card_id = _shot_id_or_400(shot_id)
+    frame = await _board_frame_or_404(session, p, frame_number)
+    _shot_card_of(_shot_cards_of(frame), card_id)
+    path = shot_path(p, card_id)
+    deleted = False
+    for target in (path, path.with_name(path.name + ".json")):
+        if target.is_file():
+            target.unlink()
+            deleted = True
+    return {"ok": deleted, "shot_id": card_id}
 
 
 @router.get("/{project_id}/montage-board/ref-assets")
@@ -3473,6 +3623,187 @@ async def audio_align_status(
     if isinstance(p.meta, dict):
         last = p.meta.get("audio_align_last")
     return {"job": get_audio_align_job(p), "last": last}
+
+
+# --- Проверка картинок монтажа (docs/MONTAGE-IMAGE-CHECK.md §9) ---
+
+
+class MontageCheckRunBody(BaseModel):
+    """Тело POST /montage-board/check/run: всё, кадры или сцена."""
+
+    frame_numbers: list[int] | None = None
+    scene: int | None = None
+    kind: str | None = None
+
+
+class MontageCheckApplyImageBody(BaseModel):
+    """Тело POST /montage-board/check/apply-image."""
+
+    frame_number: int
+    file: str
+
+
+def _montage_check_frames(results: dict) -> list[dict]:
+    """``frames`` из meta: ключ — номер кадра, отдаём списком по возрастанию."""
+    frames: list[dict] = []
+    for key, raw in (results or {}).items():
+        if not isinstance(raw, dict):
+            continue
+        try:
+            frame_number = int(raw.get("frame_number") or key)
+        except (TypeError, ValueError):
+            continue
+        item = dict(raw)
+        item["frame_number"] = frame_number
+        frames.append(item)
+    frames.sort(key=lambda item: item["frame_number"])
+    return frames
+
+
+def _montage_check_history(items: list[dict]) -> list[dict]:
+    """История версий: добавляем ``url`` превью, если meta его не хранит."""
+    out: list[dict] = []
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        path = str(item.get("path") or "")
+        if not item.get("url") and path:
+            try:
+                target = Path(path)
+                if target.is_file():
+                    item["url"] = (
+                        f"/api/files?path={quote(str(target), safe='')}"
+                        f"&v={int(target.stat().st_mtime)}"
+                    )
+            except OSError:
+                pass
+        out.append(item)
+    return out
+
+
+@router.get("/{project_id}/montage-board/check")
+async def montage_board_check(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Проверка картинок: настройки, агенты, job, вердикты по кадрам, история, итог."""
+    from app.services.montage_check_job import get_image_check_job
+    from app.services.montage_check_meta import (
+        list_agents,
+        read_history,
+        read_results,
+        read_settings,
+        summary_of,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    results = read_results(p) or {}
+    return {
+        "settings": read_settings(p),
+        "agents": list_agents(),
+        "job": get_image_check_job(p),
+        "frames": _montage_check_frames(results),
+        "history": _montage_check_history(read_history(p)),
+        "summary": summary_of(results),
+    }
+
+
+@router.get("/{project_id}/montage-board/check/status")
+async def montage_board_check_status(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Лёгкий polling статуса прогона проверки."""
+    from app.services.montage_check_job import get_image_check_job
+
+    p = _project_or_404(await session.get(Project, project_id))
+    return {"job": get_image_check_job(p)}
+
+
+@router.post("/{project_id}/montage-board/check/run")
+async def montage_board_check_run(
+    project_id: int,
+    body: MontageCheckRunBody | None = Body(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Запуск проверки картинок в фоне: весь проект, кадры или сцена."""
+    from app.services.montage_check_job import get_image_check_job, spawn_image_check_job
+    from app.services.montage_check_meta import read_settings
+
+    payload = body or MontageCheckRunBody()
+    p = _project_or_404(await session.get(Project, project_id))
+    kind = str(payload.kind or (read_settings(p) or {}).get("kind") or "images").strip().lower()
+    if kind == "video":
+        raise HTTPException(status_code=400, detail="проверка видео ещё не включена")
+    if kind != "images":
+        raise HTTPException(status_code=400, detail=f"неизвестная механика проверки: {kind}")
+
+    job = get_image_check_job(p)
+    if job.get("status") == "running":
+        return {"started": False, "already_running": True, "job": job}
+
+    spawn_image_check_job(project_id, frame_numbers=payload.frame_numbers, scene=payload.scene)
+    return {
+        "started": True,
+        "job": {
+            "status": "running",
+            "kind": kind,
+            "frame_numbers": payload.frame_numbers,
+            "scene": payload.scene,
+        },
+    }
+
+
+@router.post("/{project_id}/montage-board/check/settings")
+async def montage_board_check_settings(
+    project_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Частичный патч настроек проверки; неизвестный kind/mode → 400."""
+    from app.services.montage_check_meta import write_settings
+
+    p = _project_or_404(await session.get(Project, project_id))
+    try:
+        updated = write_settings(p, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await commit_with_retry(session)
+    return {"settings": updated}
+
+
+@router.post("/{project_id}/montage-board/check/apply-image")
+async def montage_board_check_apply_image(
+    project_id: int,
+    body: MontageCheckApplyImageBody = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """«Поставить»: выбранная из истории версия картинки становится активной."""
+    from app.services.montage_check_images import apply_history_image
+
+    p = _project_or_404(await session.get(Project, project_id))
+    try:
+        result = await apply_history_image(session, p, body.frame_number, body.file)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await commit_with_retry(session)
+    image_url = None
+    if isinstance(result, dict):
+        image_url = result.get("image_url") or result.get("url")
+    return {"ok": True, "frame_number": body.frame_number, "image_url": image_url}
+
+
+@router.post("/{project_id}/montage-board/check/cancel")
+async def montage_board_check_cancel(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Остановить прогон проверки."""
+    from app.services.montage_check_job import cancel_image_check_job
+
+    _project_or_404(await session.get(Project, project_id))
+    return {"cancelled": await cancel_image_check_job(project_id)}
 
 
 @router.post("/{project_id}/remount-video")

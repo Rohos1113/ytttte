@@ -1089,6 +1089,7 @@ def wipe_node_result_outputs(project: Project, node_key: str) -> list[str]:
         "parsed.json",
         "result.json",
         "plan_scenes.json",
+        "dialogues.json",
         "shots.json",
         "report.json",
         "style_report.json",

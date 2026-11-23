@@ -77,25 +77,36 @@ def _canvas_node_count(raw: Any) -> int:
     return len(nodes) if isinstance(nodes, list) else 0
 
 
+def _accepted_canvas_graph(patch_val: dict) -> dict:
+    """Принятый граф: пустой набор нод помечаем saved_at, иначе он «не сохранён»."""
+    out = dict(patch_val)
+    if not _canvas_node_count(out) and not out.get("saved_at"):
+        out["saved_at"] = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+    return out
+
+
 def _merge_canvas_graph(base_val: Any, patch_val: Any) -> Any:
-    """canvas_graph: не принимать пустой/урезанный граф из stale UI autosave."""
+    """canvas_graph: канвас — источник истины, патч применяем как есть.
+
+    Удаление нод, в том числе всех, — законное действие человека, поэтому
+    урезание графа не блокируем. Уменьшение только логируем: раньше здесь
+    стоял откат «на всякий случай», и из-за него нельзя было удалить ноды —
+    сервер возвращал старый граф. Пустой набор помечаем ``saved_at``, иначе
+    ``canvas_graph_from_meta`` сочтёт его отсутствующим и подставит шаблон.
+    """
     if patch_val is None:
         return base_val
     if not isinstance(patch_val, dict):
         return patch_val
     base_n = _canvas_node_count(base_val)
     patch_n = _canvas_node_count(patch_val)
-    if patch_n == 0 and base_n > 0:
-        return dict(base_val) if isinstance(base_val, dict) else base_val
-    # Урезало ≥30% нод — почти всегда stale cache, не autosave одной ноды.
-    if base_n >= 8 and patch_n < int(base_n * 0.7):
-        logger.warning(
-            "project_meta: отказано в canvas_graph wipe {} → {} nodes",
+    if patch_n < base_n:
+        logger.info(
+            "project_meta: canvas_graph {} → {} nodes (удаление нод принято)",
             base_n,
             patch_n,
         )
-        return dict(base_val) if isinstance(base_val, dict) else base_val
-    return dict(patch_val)
+    return _accepted_canvas_graph(patch_val)
 
 
 def _merge_protected_bucket(base_val: Any, patch_val: Any) -> Any:

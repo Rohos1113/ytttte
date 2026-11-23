@@ -46,8 +46,18 @@ KIE_IMAGE_IDS = frozenset(
 PAY52_IMAGE_IDS = frozenset(
     {
         "gpt-image-2",
+        "gpt-image-2-4k",
         "gpt-image-2-vip",
         "gpt-image-1.5",
+    }
+)
+# Seedream через 52pay: свой ключ PAY52_SEEDREAM_KEY (doubao-seedream-*).
+# Без ключа модели остаются на kie, как было.
+PAY52_SEEDREAM_IMAGE_IDS = frozenset(
+    {
+        "seedream-5-pro",
+        "seedream-5-lite",
+        "seedream-4-0",
     }
 )
 OUTSEE_VIDEO_IDS = frozenset(
@@ -73,6 +83,7 @@ KIE_VIDEO_IDS = frozenset(
 # Старый Slow и studio-id → канонический slug.
 _ALIASES = {
     "gpt-image-2": "gpt-image-2",
+    "gpt-image-2-4k": "gpt-image-2",
     "gpt-image-2-vip": "gpt-image-2",
     "nano-banana-2": "nano-banana-2",
     "nano-banana-2-lite": "nano-banana-2-lite",
@@ -97,6 +108,11 @@ def is_nano_banana_pro(model_slug: str | None) -> bool:
 
 def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
+    if cid in PAY52_SEEDREAM_IMAGE_IDS:
+        from app.bots.pay52_images import seedream_configured
+
+        if seedream_configured():
+            return "pay52"
     if cid in PAY52_IMAGE_IDS and (getattr(settings, "pay52_gpt_image_key", "") or "").strip():
         return "pay52"
     if cid in KIE_IMAGE_IDS:

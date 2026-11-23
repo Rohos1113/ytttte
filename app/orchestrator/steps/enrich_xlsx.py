@@ -1046,23 +1046,6 @@ async def _after_excel_gpt_done(
                 node_key,
             )
 
-    # excel_gpt→excel_gpt по стрелкам — цепочка группы, не auto_mode.
-    # maybe_auto_advance на img_pr/hero/… — только если auto_mode=True.
-    # force_full не снимаем здесь: хвост группы (action→shots→QC) иначе
-    # ест старые кадры/действие и skip-filled не пишет новые ops.
-    if not getattr(project, "auto_mode", False):
-        logger.info(
-            "[#{}] enrich_xlsx: slot {} → {} — auto_mode выкл, без pipeline auto-advance",
-            project.id,
-            slot_idx,
-            ready_status.value,
-        )
-        # Новая линия: без auto_mode обычный excel_gpt дальше не цепляет.
-        # Исключение — группы «Кадры» (fw_*) и «Кино по плану» (pk_*):
-        # их хвост идет по стрелкам сам.
-        if not _chains_like_overflow_group(node_key):
-            return
-
     # ▶ «только эта нода» (only_node=true в /steps/excel_gpt/run): без цепочки.
     meta_stop = dict(project.meta or {})
     stop_key = str(meta_stop.get("excel_gpt_stop_after_key") or "").strip()
@@ -1079,6 +1062,33 @@ async def _after_excel_gpt_done(
         )
         return
 
+    # Автопродвижение ВЫКЛ (auto_mode=False): одна запущенная нода = только она.
+    # Раньше excel_gpt→excel_gpt по стрелкам шёл и при выключенном тумблере:
+    # юзер запускал одну ноду группы — и следом сами стартовали следующие
+    # («ноды запускаются сами при выключенном автопродвижении»).
+    # Цепочка группы — только при auto_mode=True (или явный ▶ на следующей).
+    if not getattr(project, "auto_mode", False):
+        meta_hold = dict(project.meta or {})
+        meta_hold.pop("enrich_auto_chain_to", None)
+        # не оставляем active на следующей — иначе воркер/UI думают, что уже идём дальше
+        if node_key:
+            meta_hold["active_excel_gpt_node_key"] = node_key
+        project.meta = meta_hold
+        _hold_pipeline_after_excel_gpt(project)
+        await session.flush()
+        logger.info(
+            "[#{}] enrich_xlsx: slot {} → {} — auto_mode выкл, без auto-chain/advance "
+            "(остановились на {})",
+            project.id,
+            slot_idx,
+            ready_status.value,
+            node_key or "?",
+        )
+        return
+
+    # auto_mode=True: excel_gpt→excel_gpt по стрелкам (может прыгнуть на hero/img_pr
+    # через maybe_auto_advance). force_full не снимаем: хвост группы
+    # (action→shots→QC) иначе ест старые кадры/действие и skip-filled не пишет ops.
     await _maybe_auto_chain_excel_gpt(
         session,
         project,

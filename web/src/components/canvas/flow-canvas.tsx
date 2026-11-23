@@ -286,7 +286,10 @@ export function FlowCanvas({
     // Только структура + projectId (без saved_at): drag/autosave не пересобирает граф.
     // Позиции из source — ждём project.isFetched, чтобы не залипнуть на factory.
     const ver = `${projectId ?? "none"}|${workflowStructureKey(graphSource)}`;
-    if (ver === graphVersion && nodes.length > 0) return;
+    // Та же структура — не пересобираем. Раньше здесь стояло ещё «и нод больше
+    // нуля», из-за чего после удаления последней ноды граф возвращался из
+    // кэша проекта и удаление не сохранялось.
+    if (ver === graphVersion) return;
     setGraphVersion(ver);
     const switched = lastGraphProjectRef.current !== projectId;
     lastGraphProjectRef.current = projectId;
@@ -852,6 +855,17 @@ export function FlowCanvas({
     [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges, setNodes],
   );
 
+  /** Ctrl+A — выделить все ноды, дальше обычный Delete. */
+  const selectAllNodes = useCallback(() => {
+    const all = nodesRef.current;
+    if (!all.length) return;
+    setNodes((prev) =>
+      prev.map((n) => ({ ...n, selected: true })) as Node<PipelineNodeData>[],
+    );
+    selectedNodesRef.current = all;
+    setSelectedCount(all.length);
+  }, [setNodes]);
+
   const copySelectedNodes = useCallback(() => {
     const selected = selectedNodesRef.current;
     if (!selected.length) {
@@ -1016,6 +1030,11 @@ export function FlowCanvas({
     const onKeyDown = (ev: KeyboardEvent) => {
       if (isEditableTarget(ev.target)) return;
       const mod = ev.ctrlKey || ev.metaKey;
+      if (mod && ev.key.toLowerCase() === "a") {
+        ev.preventDefault();
+        selectAllNodes();
+        return;
+      }
       if (mod && ev.key.toLowerCase() === "c") {
         ev.preventDefault();
         copySelectedNodes();
@@ -1028,7 +1047,7 @@ export function FlowCanvas({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [projectId, copySelectedNodes, pasteFromClipboard]);
+  }, [projectId, copySelectedNodes, pasteFromClipboard, selectAllNodes]);
 
   const addNode = useCallback(
     (type: string) => {

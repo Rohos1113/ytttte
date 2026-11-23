@@ -401,6 +401,9 @@ def find_model(model_id: str | None, *, channel: str | None = None) -> dict[str,
         return None
     want = IMAGE_MODEL_ALIASES.get(want, want)
     want = TEXT_MODEL_ALIASES.get(want, want)
+    from app.services.text_llm_catalog import prefer_active_text_provider
+
+    want = prefer_active_text_provider(want) or want
     for item in models_for_channel(channel=channel):
         if item["id"] == want:
             return item

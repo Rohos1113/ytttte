@@ -2,7 +2,7 @@
   "version": 1,
   "group_id": "plan_cinema",
   "title": "Кино по плану",
-  "description": "Ролик из project.general_plan без закадра: сцены по плану (код + GPT, гейт R-PLAN-COVER) → персонажи (R-CAST-DUP) → каркас сцен (Frame.attrs, voiceover_text=\"\") → диалоги (attrs[\"речь\"], R-DLG-FORM/SPEAKER) → фоны (Entity(background) f0N, у сцены attrs[\"фон\"], R-BG-REF) → шоты (кадры по фонам, R-DLG-SHOT) → QC (семантика + диалоги + фон) → стиль (код, лимит 4877) → отчёт. project_meta source_mode=plan, VO-гейты отключены (vo_mode=False). Вместе с script_frames_qc не ставится. Модель всех нод группы: gpt-6.1-sol-52pay, мышление medium.",
+  "description": "Ролик из project.general_plan без закадра: сцены по плану (код + GPT, гейт R-PLAN-COVER) → персонажи (R-CAST-DUP) → каркас сцен (Frame.attrs, voiceover_text=\"\") → диалоги (attrs[\"речь\"], R-DLG-FORM/SPEAKER) → шоты (кадры, R-DLG-SHOT) → фоны (читают кадры: Entity(background) f0N на повторяющиеся локации, у сцены attrs[\"фон\"], R-BG-REF) → QC (семантика + диалоги + фон) → стиль (код, лимит 4877) → отчёт. project_meta source_mode=plan, VO-гейты отключены (vo_mode=False). Вместе с script_frames_qc не ставится. Модель всех нод группы: gpt-6.1-sol-52pay, мышление medium.",
   "category": "planning",
   "default_after_type": "plan",
   "nodes": [
@@ -78,7 +78,7 @@
       "local_key": "pk_backgrounds",
       "node_type": "excel_gpt",
       "label": "Фоны",
-      "description": "Нормализованные места всех сцен → Entity(type=background, code=f0N): место, описание, свет, время, промт; у каждой сцены attrs[\"фон\"] = f0N. Один фон на локацию. Промт plan_backgrounds. Гейт R-BG-REF.",
+      "description": "Кадры всех сцен (attrs[\"кадры\"]) → Entity(type=background, code=f0N) только для повторяющихся локаций: место, описание, свет, время, промт; у сцены attrs[\"фон\"] и у кадров фон_код. Правила объединения — в промте plan_backgrounds: кадры одной сцены с одной локацией = один фон, продолжение берёт прежний код, одиночное место карточки не заводит. Гейт R-BG-REF.",
       "preferred_id": "n_excel_gpt_pk_backgrounds",
       "dx": 1500.0,
       "dy": 0.0,
@@ -107,6 +107,23 @@
       },
       "model_id": "gpt-6.1-sol-52pay",
       "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_check",
+      "node_type": "excel_gpt",
+      "label": "Проверка",
+      "description": "После «Фонов»: проверяет и правит позиционирование и геометрию кадров через apply-ops — состав персонажей в кадре (вписывает/выписывает), где стоят, что делают, какая сторона экрана по ракурсу относительно точки обзора фона, непрерывность с предыдущим кадром. Понимает, что деталь/крупный план может не вместить фигуру. Меняет только кто/где/позы/фон/промт_картинки. Промт shots_check_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_check",
+      "dx": 3300.0,
+      "dy": 0.0,
+      "prompt_variant": "shots_check_plan_ru",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "claude-opus-5-5",
+      "reasoning_effort": "high"
     },
     {
       "local_key": "pk_qc",
@@ -157,6 +174,40 @@
       },
       "model_id": "gpt-6.1-sol-52pay",
       "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_fix",
+      "node_type": "excel_gpt",
+      "label": "Правки кадров",
+      "description": "После «Отчёта»: проверяет и правит промт_картинки всех кадров сцены через apply-ops — мизансцена (кто где и кто перед кем), инварианты исходного фона, камера и взгляд, запрет повторять исходный кадр фона, логика последовательности, планировка и движение. Меняет только промт_картинки; число, порядок и план кадров не трогает. Промт shots_fix_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_fix",
+      "dx": 3000.0,
+      "dy": 0.0,
+      "prompt_variant": "shots_fix_plan_ru",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
+    },
+    {
+      "local_key": "pk_prompts",
+      "node_type": "excel_gpt",
+      "label": "Промты картинок",
+      "description": "После «Правок кадров», перед генерацией картинок: собирает ФИНАЛЬНЫЙ промт кадра из переменных — линза, план, ракурс, высота, действие с персонажами по кодам, положение на экране (пересчитывается из ракурса и высоты), фон с номером панели листа 2×2, блок референсов, стиль последним блоком. Панели считает код: кадры 1–4 фона → панели 1–4, кадры 5+ — по логике первых четырёх. Пишет кадры[].промт_картинки, кадры[].панель_фона и image_prompt мастер-кадра. Промт image_prompts_plan_ru, артефакт image_prompts_report.json.",
+      "preferred_id": "n_excel_gpt_pk_prompts",
+      "dx": 3300.0,
+      "dy": 0.0,
+      "prompt_variant": "image_prompts_plan_ru",
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      },
+      "model_id": "gpt-6.1-sol-52pay",
+      "reasoning_effort": "medium"
     }
   ],
   "internal_edges": [
@@ -187,6 +238,11 @@
     ],
     [
       "pk_shots",
+      "pk_check",
+      "after"
+    ],
+    [
+      "pk_check",
       "pk_qc",
       "after"
     ],
@@ -199,16 +255,26 @@
       "pk_style",
       "pk_report",
       "after"
+    ],
+    [
+      "pk_report",
+      "pk_fix",
+      "after"
+    ],
+    [
+      "pk_fix",
+      "pk_prompts",
+      "after"
     ]
   ],
   "entry_keys": [
     "pk_scenes"
   ],
-  "exit_key": "pk_report",
+  "exit_key": "pk_prompts",
   "project_meta": {
     "source_mode": "plan"
   },
   "replaces_types": [],
   "exit_edge_kind": "after",
-  "updated_at": "2026-11-08T22:20:00+03:00"
+  "updated_at": "2026-11-23T05:20:00+03:00"
 }

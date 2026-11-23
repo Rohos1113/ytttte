@@ -46,6 +46,13 @@ async def run(session: AsyncSession, project: Project, bot: object | None = None
     # Полная перерисовка — явный флаг в meta (для ручной кнопки/скрипта).
     force = bool(meta.get("backgrounds_force_redraw")) and not bool(meta.get("auto_mode"))
     rendered, already = await render_missing(session, project, force=force)
+    if force:
+        # Флаг — разовый: его ставит wipe/«Перезапустить ноду», чтобы этот
+        # прогон перерисовал всё. Если оставить его в meta, каждый следующий
+        # ручной ▶ снова жёг бы деньги на полной перерисовке.
+        fresh = dict(project.meta or {})
+        fresh.pop("backgrounds_force_redraw", None)
+        project.meta = fresh
     style_cache = (project.meta or {}).get("background_style")
     style_name = str(style_cache.get("name") or "") if isinstance(style_cache, dict) else ""
     failed = (project.meta or {}).get("background_render_failures") or {}

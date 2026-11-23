@@ -103,6 +103,14 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
             node_key = sd_runner.resolve_sd_node_key(project, "assemble")
 
     choice_raw = resolve_node_choice(meta, node_key=node_key, node_type=node_type)
+    if choice_raw and choice_raw.get("kind") == "text":
+        # Активен 52pay — vibecode-модель с ноды меняем на её 52pay-двойника:
+        # на vibecode пустой баланс, и шаг вставал по 402.
+        from app.services.text_llm_catalog import prefer_active_text_provider
+
+        twin = prefer_active_text_provider(str(choice_raw.get("id") or ""))
+        if twin and twin != choice_raw.get("id"):
+            choice_raw = {**choice_raw, "id": twin, "provider": "52pay"}
     ov: NodeLlmOverride | None = None
     if choice_raw and choice_raw.get("kind") == "text":
         prov = str(choice_raw.get("provider") or "").strip().lower()
@@ -149,13 +157,34 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
         yield bound
 
 
+def _text_provider_for(model_id: str) -> str:
+    """Провайдер по id модели: суффикс важнее настройки, иначе — активный."""
+    mid = (model_id or "").strip().lower()
+    if "-pay52" in mid:
+        return "52pay"
+    if "-vibecode" in mid:
+        return "vibecode"
+    if "-kie" in mid:
+        return "kie"
+    from app.settings import settings
+
+    prov = str(settings.resolved_text_llm_provider() or "").strip().lower()
+    if prov in ("pay52", "52pay"):
+        return "52pay"
+    return prov or "52pay"
+
+
 def generation_text_override(
     project: Any | None = None,
     *,
     node_type: str = "image_prompts",
     node_key: str | None = None,
 ) -> NodeLlmOverride:
-    """Текстовая генерация всегда vibecode, шапка kie/Kimi не перебивает."""
+    """Текстовая генерация промтов: активный провайдер, а не жёсткий vibecode."""
+    from app.services.text_llm_catalog import (
+        prefer_active_text_provider,
+        resolve_active_model_id,
+    )
     from app.services.vibecode_catalog import (
         DEFAULT_TEXT_MODEL_ID,
         find_model,
@@ -165,19 +194,21 @@ def generation_text_override(
     meta = getattr(project, "meta", None) if project is not None else None
     choice_raw = resolve_node_choice(meta, node_key=node_key, node_type=node_type)
     if not (choice_raw and choice_raw.get("kind") == "text"):
-        choice_raw = find_model(DEFAULT_TEXT_MODEL_ID)
-    if not choice_raw:
-        choice_raw = {
-            "id": DEFAULT_TEXT_MODEL_ID,
+        from app.settings import settings
+
+        fallback_id = resolve_active_model_id(settings) or DEFAULT_TEXT_MODEL_ID
+        choice_raw = find_model(fallback_id) or {
+            "id": prefer_active_text_provider(DEFAULT_TEXT_MODEL_ID) or DEFAULT_TEXT_MODEL_ID,
             "label": "GPT 6.1 Sol",
             "channel": "stable",
         }
+    model_id = str(choice_raw.get("id") or DEFAULT_TEXT_MODEL_ID)
     return NodeLlmOverride(
-        model_id=str(choice_raw.get("id") or DEFAULT_TEXT_MODEL_ID),
+        model_id=model_id,
         channel=str(choice_raw.get("channel") or "stable"),
         kind="text",
-        provider="vibecode",
-        label=str(choice_raw.get("label") or choice_raw.get("id") or DEFAULT_TEXT_MODEL_ID),
+        provider=_text_provider_for(model_id),
+        label=str(choice_raw.get("label") or model_id),
     )
 
 

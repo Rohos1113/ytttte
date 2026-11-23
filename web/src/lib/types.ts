@@ -388,6 +388,8 @@ export interface MontageBoardShot {
   закадр?: string;
   /** Still шота: images/<Sx-Ky>.png, пока файла нет — null. */
   image_url?: string | null;
+  /** Промт картинки шота из attrs["кадры"] — читается под кадром. */
+  промт_картинки?: string;
   character_refs?: MontageBoardCharacterRef[];
   item_refs?: MontageBoardCharacterRef[];
   background_ref?: MontageBoardBackgroundRef | null;
@@ -550,6 +552,82 @@ export interface MontageBoardDTO {
   coverage_template_choices?: MontageTemplateChoice[];
   ref_kind_choices?: MontageRefKindChoice[];
 }
+
+// ---- Проверка картинок монтажа (docs/MONTAGE-IMAGE-CHECK.md §10) ----
+
+/** Настройки механики проверки (meta.montage_board.image_check_settings). */
+export interface MontageCheckSettings {
+  kind: "images" | "video";
+  mode: "notify" | "auto";
+  /** id варианта промта из prompts/check_montage/<id>.md. */
+  agent: string;
+  /** Свободная задача проверки (пусто — только промт варианта). */
+  task: string;
+  /** 0..5 — сколько раз перепроверять кадр после регена. */
+  max_rechecks: number;
+  /** 0..5 — сколько раз перегенерировать кадр за прогон. */
+  max_regens: number;
+  frames_per_sheet: number;
+  sheet_long_side: number;
+}
+
+/** Агент проверки: вариант промта с заголовком и кратким описанием. */
+export interface MontageCheckAgent {
+  id: string;
+  title: string;
+  summary: string;
+}
+
+/** Вердикт проверки по одному кадру проекта. */
+export interface MontageCheckFrameResult {
+  frame_number: number;
+  verdict: "pass" | "fail" | "skip";
+  score: number | null;
+  prompt_match: boolean;
+  problems: string[];
+  sheet: string | null;
+  cell: number | null;
+  checked_at: string | null;
+  regen_round: number;
+}
+
+/** Версия картинки кадра в истории (активная или архивная). */
+export interface MontageCheckHistoryItem {
+  frame_number: number;
+  shot: number;
+  file: string;
+  path: string;
+  url: string | null;
+  created_at: string | null;
+  source: "generated" | "regen" | "archive";
+  verdict: "pass" | "fail" | "unknown";
+  problems: string[];
+  active: boolean;
+}
+
+/** Фоновая джоба проверки картинок. */
+export interface MontageCheckJob {
+  status: "idle" | "running" | "done" | "error" | "cancelled";
+  phase?: string;
+  phase_detail?: string;
+  done?: number;
+  total?: number;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  result?: Record<string, unknown> | null;
+}
+
+/** Ответ `GET /api/projects/{id}/montage-board/check`. */
+export interface MontageCheckDTO {
+  settings: MontageCheckSettings;
+  agents: MontageCheckAgent[];
+  job: MontageCheckJob;
+  frames: MontageCheckFrameResult[];
+  history: MontageCheckHistoryItem[];
+  summary: { total: number; pass: number; fail: number; skip: number };
+}
+
 
 /** Вид переменной — управляет тем, как панель её рисует. */
 export type MontageVariableKind =

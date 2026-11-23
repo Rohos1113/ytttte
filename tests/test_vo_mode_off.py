@@ -192,9 +192,15 @@ def test_background_missing_and_foreign_caught() -> None:
         {"номер": 3, "фон": "нормальный двор"},
     ]
     problems = background_ref_problems(scenes, ["f01"])
-    assert any("нет «фон»" in problem for problem in problems)
+    # Пустой фон легален: одиночное место карточку не заводит («Фоны» из кадров).
+    assert not any("сцена 1" in problem for problem in problems)
     assert any("f09 не существует" in problem for problem in problems)
     assert any("не код f0N" in problem for problem in problems)
+
+
+def test_background_empty_allowed_without_registry() -> None:
+    scenes = [{"номер": 1, "фон": ""}, {"номер": 2, "фон": ""}]
+    assert background_ref_problems(scenes, []) == []
 
 
 # --- R-DLG-SHOT -----------------------------------------------------------

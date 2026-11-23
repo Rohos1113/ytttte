@@ -39,7 +39,17 @@ SPEECH_MAX_REPLICAS = 6
 #: Код фона: f01, f02… (Entity(type="background", code="f0N")).
 SCENE_BACKGROUND_CODE_RE = re.compile(r"^f\d{2,}$")
 #: attrs фона ровно по контракту (порядок как в CONTRACT.md §3).
-BACKGROUND_ATTR_KEYS: tuple[str, ...] = ("место", "описание", "свет", "время", "промт")
+#: ``статисты`` (кто стоит на фоне с индивидуальным «где») и ``перемещения``
+#: (кто движется: откуда → куда) — новые поля П5, необязательные.
+BACKGROUND_ATTR_KEYS: tuple[str, ...] = (
+    "место",
+    "описание",
+    "свет",
+    "время",
+    "промт",
+    "статисты",
+    "перемещения",
+)
 #: Ключ режима plan_cinema в attrs сцены: ровно `"источник": "pk"` (§3).
 SCENE_SOURCE_ATTR = "источник"
 SCENE_SOURCE_MARK = "pk"
@@ -132,14 +142,19 @@ def validate_scene_speech(raw: Any, *, scope: str = "речь сцены") -> di
 
 
 def normalize_scene_background_code(value: Any, *, scope: str = "фон сцены") -> str:
-    """``Frame.attrs["фон"]`` = код ``f0N``; неверный формат — отказ."""
+    """``Frame.attrs["фон"]`` = код ``f0N`` или ``""`` — «карточки нет».
+
+    Пустая строка легальна: одиночное место карточку фона не заводит
+    (``plan_backgrounds.md``) и кадр опирается на ``место`` сцены. Непустой код
+    обязан быть ``f0N``.
+    """
     if not isinstance(value, str):
         raise ApplyOpsError(
             f"{scope}: код фона должен быть строкой f0N, а не {type(value).__name__}"
         )
     code = value.strip()
     if not code:
-        raise ApplyOpsError(f"{scope}: нужен код фона f0N (например, f01)")
+        return ""
     if not SCENE_BACKGROUND_CODE_RE.match(code):
         raise ApplyOpsError(f"{scope}: код фона {code!r} не по формату f0N (например, f01)")
     return code
@@ -472,6 +487,47 @@ async def write_entities(
             session, project, list(backgrounds)
         )
     return result
+
+
+async def archive_characters_not_in(
+    session: AsyncSession,
+    project: Project,
+    codes: set[str],
+) -> int:
+    """Пометить архивом персонажей, которых нет в новом реестре «Персонажи».
+
+    ``db_apply.upsert_characters`` перезаписывает совпавшие коды и добавляет
+    новые, а старые карточки оставляет активными: после смены сценария в
+    реестре висели люди прошлого ролика (c12…), и «Диалоги»/«Шоты» могли взять
+    чужой код. Архив — тот же флаг, что ставит «Каркас»: карточка исчезает из
+    промтов и меню, но остаётся в базе.
+
+    Транзакцию не коммитит.
+    """
+    from app.services.db_v2 import entity_is_archived
+
+    keep = {str(code or "").strip() for code in codes if str(code or "").strip()}
+    rows = list(
+        (
+            await session.execute(
+                select(Entity).where(
+                    Entity.project_id == project.id,
+                    Entity.type == "character",
+                )
+            )
+        ).scalars()
+    )
+    archived = 0
+    for entity in rows:
+        code = str(entity.code or "").strip()
+        if not code or code in keep or entity_is_archived(entity):
+            continue
+        attrs = dict(entity.attrs or {})
+        attrs["archived"] = True
+        attrs["inactive"] = True
+        entity.attrs = attrs
+        archived += 1
+    return archived
 
 
 async def write_scene_attrs(

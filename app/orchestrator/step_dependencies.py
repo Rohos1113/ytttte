@@ -31,6 +31,8 @@ from typing import Any
 #   референсов; слоты — цепочкой (каждый видит правки предыдущего).
 # - img_pr ← enrich_5 + scene_asm: backfill по кадрам после правок +
 #   scene_registry/attrs кадров от сборщика сцен.
+# - bg ← split: карточки фонов (Entity type="background") приходят из плана
+#   сцен; PNG фонов — вход «Картинок» (референс локации).
 # - img ← img_pr + hero + items: PNG генерится из image_prompt И
 #   референсов героя/предметов — регенерация hero инвалидирует картинки.
 # - audio ← enrich_5: voiceover_text кадров правится apply-ops enrich'а.
@@ -44,13 +46,14 @@ STEP_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "scene_asm": ("scene_d",),
     "hero": ("split",),
     "items": ("hero",),
+    "bg": ("split",),
     "enrich_1": ("split", "hero", "items"),
     "enrich_2": ("enrich_1",),
     "enrich_3": ("enrich_2",),
     "enrich_4": ("enrich_3",),
     "enrich_5": ("enrich_4",),
     "img_pr": ("enrich_5", "scene_asm"),
-    "img": ("img_pr", "hero", "items"),
+    "img": ("img_pr", "hero", "items", "bg"),
     "anim_pr": ("img",),
     "video": ("anim_pr", "img"),
     "audio": ("enrich_5",),

@@ -26,7 +26,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -40,15 +40,24 @@ SOURCE_MODE_KEY = "source_mode"
 PLAN_MODE = "plan"
 
 ARTIFACT_SCENES = "plan_scenes.json"
+ARTIFACT_DIALOGUES = "dialogues.json"
 ARTIFACT_SHOTS = "shots.json"
 ARTIFACT_QC = "qc_report.json"
+ARTIFACT_FIX = "shots_fix_report.json"
+ARTIFACT_CHECK = "shots_check_report.json"
 ARTIFACT_STYLE = "style_report.json"
 ARTIFACT_REPORT = "report.json"
+ARTIFACT_PROMPTS = "image_prompts_report.json"
 
 #: Минимум сцен в артефакте «Сцены по плану» (CONTRACT.md §4: гейт R-PLAN-COVER).
 MIN_SCENES = 1
 #: Попыток ответа модели на гейт R-PLAN-COVER (CONTRACT.md §4: один повтор).
-COVER_ATTEMPTS = 2
+COVER_ATTEMPTS = 3
+#: Порог карточки фона: локация должна встречаться в кадрах больше одного раза.
+#: Одиночное место карточку не заводит — его описывает сам кадр (plan_backgrounds.md).
+BACKGROUND_MIN_FRAMES = 2
+#: Код фона (тот же контракт, что ``apply.SCENE_BACKGROUND_CODE_RE``).
+_BACKGROUND_CODE_RE = re.compile(r"^f\d{2,}$")
 
 
 # ── Реестр нод ───────────────────────────────────────────────────────────────
@@ -92,6 +101,13 @@ NODE_SPECS: tuple[PlanCinemaNodeSpec, ...] = (
         "style", "pk_style", "Стиль", "style_noir_watercolour_16_09", "artifact"
     ),
     PlanCinemaNodeSpec("report", "pk_report", "Отчёт", None, "artifact"),
+    PlanCinemaNodeSpec("fix", "pk_fix", "Правки кадров", "shots_fix_plan_ru", "project_file"),
+    PlanCinemaNodeSpec(
+        "check", "pk_check", "Проверка", "shots_check_plan_ru", "project_file"
+    ),
+    PlanCinemaNodeSpec(
+        "prompts", "pk_prompts", "Промты картинок", "image_prompts_plan_ru", "project_file"
+    ),
 )
 
 _BY_KIND: dict[str, PlanCinemaNodeSpec] = {spec.kind: spec for spec in NODE_SPECS}
@@ -105,6 +121,13 @@ for _spec in NODE_SPECS:
 
 #: Ноды без модели: «Стиль» пишет код (промт-вариант — имя файла стиля), «Отчёт» — HTML.
 CODE_ONLY_KINDS: frozenset[str] = frozenset({"style", "report"})
+
+#: Подпись источника входа «Сцен» в тексте результата.
+_INPUT_KIND_RU: dict[str, str] = {
+    "topic": "«Тема»",
+    "plan": "«Сценарий»",
+    "project_plan": "план проекта",
+}
 
 #: Легаси-суффиксы script_frames_qc (v1 ``_fw_*`` и v3 ``_sfq3_*``).
 LEGACY_SUFFIXES: tuple[str, ...] = (
@@ -275,11 +298,15 @@ def _scene_dict(frame: Any) -> dict[str, Any]:
         "персонажи": list(attrs.get("персонажи") or []),
         "предметы": list(attrs.get("предметы") or []),
         "событие": str(attrs.get("событие") or ""),
+        "примечание": str(attrs.get("примечание") or ""),
         "сцена": str(attrs.get("сцена") or ""),
         "id_плана": list(attrs.get("id_плана") or []),
         "фон": str(attrs.get("фон") or ""),
     }
 
+
+    # Владелец 2026-11-20: требование «есть реплика в плане — тип не „нет“»
+    # отключено (plan_text="" в гейте). Новые проверки — только с разрешения.
 
 _TIME_WORDS = (
     "рассвет",
@@ -349,14 +376,137 @@ def _speech_of(frame: Any) -> dict[str, Any]:
     return {"тип": "нет", "реплики": []}
 
 
+def _scene_location_key(scene: Mapping[str, Any], plan_by_code: Mapping[str, str]) -> str:
+    """Ключ локации сцены: место из шапки плана (или первые слова места) + время суток.
+
+    Локация, а не сцена: кадры одной локации получают один фон, а время суток —
+    часть локации, потому что задаёт свет (``plan_backgrounds.md``, правило 5).
+    """
+    place = " ".join(str(scene.get("место") or "").split()).strip()
+    refs = [str(code) for code in (scene.get("id_плана") or [])]
+    base = _plan_location(dict(plan_by_code), refs) or _place_group_key(place)
+    time_of_day = _time_of_day(place)
+    return f"{base} · {time_of_day}" if time_of_day else base
+
+
+def _flat_text(value: Any) -> str:
+    """Строка для входа модели: пробелы схлопнуты, текст идёт целиком.
+
+    Никакой обрезки: «Фоны» собирают локацию из кадров, и отрезанный хвост
+    описания («…») — это потерянные данные, а не экономия бюджета. Промт
+    собирается из полных полей карточки.
+    """
+    return " ".join(str(value or "").split())
+
+
+def _background_placeholder(scene: Mapping[str, Any]) -> dict[str, Any]:
+    """Фон-заглушка для сцены, у которой карточки ещё нет.
+
+    «Фоны» стоят **после** «Шотов»: фон собирается из кадров, поэтому на первом
+    прогоне карточки нет. Кадры строятся от места сцены, код фона проставит
+    нода «Фоны» после раскадровки.
+    """
+    return {
+        "id": "",
+        "место": str(scene.get("место") or ""),
+        "описание": "",
+        "свет": "",
+        "время": "",
+        "промт": "",
+        "нет_карточки": True,
+    }
+
+
 def _frames_of(frame: Any) -> list[dict[str, Any]]:
     attrs = frame.attrs if isinstance(frame.attrs, dict) else {}
     kadry = attrs.get("кадры")
     return [row for row in kadry if isinstance(row, dict)] if isinstance(kadry, list) else []
 
 
+def _shots_artifact_kadry(project: Any, node_key: str) -> dict[str, list[dict[str, Any]]]:
+    """Кадры из артефакта «Шотов» по uuid сцены — запасной вход ноды «Фоны».
+
+    Основной вход — ``Frame.attrs["кадры"]`` в БД. Артефакт нужен, когда шаг
+    кадров записал ответ, но до БД он не доехал (упал коммит, ручной прогон).
+    """
+    spec = _BY_KIND["shots"]
+    for key in (spec.node_id, spec.local_key):
+        payload = _apply().read_artifact(project, key, ARTIFACT_SHOTS)
+        if not isinstance(payload, Mapping):
+            continue
+        out: dict[str, list[dict[str, Any]]] = {}
+        for op in payload.get("ops") or []:
+            if not isinstance(op, Mapping):
+                continue
+            uuid = str(op.get("frame_uuid") or "").strip()
+            raw_fields = op.get("fields")
+            fields: Mapping[str, Any] = raw_fields if isinstance(raw_fields, Mapping) else {}
+            raw_kadry = fields.get("кадры")
+            if uuid and isinstance(raw_kadry, list):
+                out[uuid] = [dict(row) for row in raw_kadry if isinstance(row, Mapping)]
+        if out:
+            return out
+    return {}
+
+
 def _registry_list(characters: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return [characters[code] for code in sorted(characters)]
+
+
+#: Секция «Диалог: …» пункта плана до следующей «Вставка:» или конца пункта.
+_DIALOGUE_SECTION_RE = re.compile(r"Диалог:\s*(.*?)(?:\s*Вставка:|$)", re.S)
+
+
+def _dialogue_text_of_point(text: str) -> str:
+    """Текст словесного действия из пункта плана (пусто, если «Диалог: нет»)."""
+    match = _DIALOGUE_SECTION_RE.search(str(text or ""))
+    if not match:
+        return ""
+    value = match.group(1).strip().strip(".")
+    if not value or value.lower().startswith("нет"):
+        return ""
+    return value
+
+
+def _speech_points_owners(
+    scenes: Sequence[dict[str, Any]],
+    plan_by_code: dict[str, str],
+    characters: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    """Пункт плана → номер сцены, которая отыгрывает его речь.
+
+    Один пункт плана часто разложен на несколько сцен (воспоминание + реакция),
+    и модель повторяла одну и ту же реплику в каждой. Владельцем словесного
+    действия становится сцена, где есть названные в плане говорящие; остальным
+    сценам того же пункта промт прямо говорит «речь уже отыграна — тип нет».
+    """
+    by_point: dict[str, list[dict[str, Any]]] = {}
+    for scene in scenes:
+        for code in scene.get("id_плана") or []:
+            by_point.setdefault(str(code), []).append(scene)
+
+    owners: dict[str, int] = {}
+    for code, group in by_point.items():
+        dialogue = _dialogue_text_of_point(plan_by_code.get(code, ""))
+        if not dialogue:
+            continue
+        mentioned = {
+            key
+            for key, card in characters.items()
+            if str(card.get("имя") or "").split(",")[0].strip()
+            and str(card.get("имя") or "").split(",")[0].strip() in dialogue
+        }
+
+        def _score(scene: dict[str, Any]) -> tuple[int, int]:
+            persons = {str(item) for item in scene.get("персонажи") or []}
+            return (
+                len(persons & mentioned),
+                -int(scene.get("номер") or 0),
+            )
+
+        best = max(group, key=_score)
+        owners[code] = int(best.get("номер") or 0)
+    return owners
 
 
 def _retry_block(problems: Sequence[str]) -> str:
@@ -442,6 +592,38 @@ DEFAULT_REASONING_EFFORT = "medium"
 ALLOWED_MODEL_IDS = frozenset({"gpt-6.1-sol-52pay", "gpt-6.1-sol"})
 
 
+def _is_text_choice(model_id: str) -> bool:
+    """Текстовая ли модель: каталог знает её как ``kind == "text"`` либо есть
+    маршрут pay52 (у части id каталога нет, но шлюз её принимает)."""
+    from app.services.pay52_routes import resolve_text
+    from app.services.vibecode_catalog import find_model
+
+    found = find_model(model_id)
+    if found:
+        return str(found.get("kind") or "") == "text"
+    return resolve_text(model_id) is not None
+
+
+def _node_canvas_data(project: Any, node_key: str) -> dict[str, Any]:
+    """``data`` ноды с канваса проекта (без WorkflowRun)."""
+    from app.services.vibecode_catalog import find_canvas_node
+
+    meta = getattr(project, "meta", None) or {}
+    node = find_canvas_node(meta, node_key=node_key)
+    data = node.get("data") if isinstance(node, dict) and isinstance(node.get("data"), dict) else node
+    return data if isinstance(data, dict) else {}
+
+
+def node_model_pinned(project: Any, node_key: str) -> bool:
+    """Человек выбрал модель на канвасе руками (флаг ``modelPinned``).
+
+    Явный выбор сильнее и белого списка группы, и аварийного env-обхода
+    провайдера: иначе «поставил Opus 5.5» молча работал
+    бы gpt-6.1-sol — именно так выбор человека и терялся.
+    """
+    return bool(_node_canvas_data(project, node_key).get("modelPinned"))
+
+
 def _routable_model_id(raw: str) -> str | None:
     """id модели, который каталог/маршруты действительно знают.
 
@@ -497,7 +679,12 @@ def node_llm_choice(project: Any, node_key: str) -> tuple[str | None, str | None
         "ultra": "xhigh",
         "xhigh": "xhigh",
     }.get(raw_effort) or DEFAULT_REASONING_EFFORT
+    pinned = bool(data.get("modelPinned"))
     if raw_model in ALLOWED_MODEL_IDS:
+        return raw_model, effort
+    # Явный пин с канваса (например, Claude Opus 5.5) — это выбор человека,
+    # а не UI-дефолт: принимаем любую текстовую модель, на которую есть маршрут.
+    if pinned and raw_model and _is_text_choice(raw_model):
         return raw_model, effort
     return DEFAULT_MODEL_ID, effort
 
@@ -515,19 +702,46 @@ async def _ask_text(project: Any, node_key: str, prompt: str, accompanying: str)
 
     model_id, effort = node_llm_choice(project, node_key)
     found = find_model(str(model_id)) or {}
-    forced_provider = str(os.environ.get("PLAN_CINEMA_TEXT_PROVIDER") or "").strip().lower()
-    if forced_provider == "kie":
+    # Маршрут берём из настроек (.env читает pydantic), а не только из os.environ:
+    # PLAN_CINEMA_TEXT_PROVIDER в .env иначе не долетает до процесса.
+    from app.settings import settings as _settings_provider
+
+    forced_provider = str(
+        getattr(_settings_provider, "plan_cinema_text_provider", "")
+        or os.environ.get("PLAN_CINEMA_TEXT_PROVIDER")
+        or ""
+    ).strip().lower()
+    if forced_provider in ("kie", "vibecode") and node_model_pinned(project, node_key):
+        # Аварийный обход шлюза — для дефолтной модели группы. Явный пин
+        # человека (например, Claude Opus 5.5) он не перебивает: иначе выбор
+        # на канвасе молча превращался в gpt-6.1-sol.
+        logger.info(
+            "[#%s] %s: модель закреплена на канвасе (%s) — аварийный обход "
+            "PLAN_CINEMA_TEXT_PROVIDER=%s не применяю",
+            getattr(project, "id", "?"),
+            node_key,
+            model_id,
+            forced_provider,
+        )
+        forced_provider = ""
+    if forced_provider in ("kie", "vibecode"):
         # Аварийный обход шлюза 52pay: он режет валидацию промта (HTTP 400 на
         # сценах с оружием) и таймаутит (524 по 3-4 мин). Env-переключатель
-        # гоняет текстовые ноды группы через kie (gpt-5-6-sol); без переменной
-        # поведение прежнее (52pay, gpt-6.1-sol).
-        model_id, effort, found = "gpt-5-6-sol", "medium", {}
+        # гоняет текстовые ноды группы через kie (gpt-5-6-sol) или vibecode
+        # (та же модель gpt-6.1-sol, другой шлюз); без переменной поведение
+        # прежнее (52pay, gpt-6.1-sol).
+        if forced_provider == "kie":
+            model_id, effort, found = "gpt-5-6-sol", "medium", {}
+            label = "kie gpt-5-6-sol"
+        else:
+            model_id, effort, found = "gpt-6.1-sol", "medium", {}
+            label = "vibecode gpt-6.1-sol"
         ov = NodeLlmOverride(
             model_id=model_id,
             channel="stable",
             kind="text",
-            provider="kie",
-            label="kie gpt-5-6-sol",
+            provider=forced_provider,
+            label=label,
             reasoning_effort=effort,
         )
     else:
@@ -540,16 +754,31 @@ async def _ask_text(project: Any, node_key: str, prompt: str, accompanying: str)
             reasoning_effort=effort,
         )
     with use_override(ov):
-        res = await run_operator_api(
-            project_dir=Path(project.data_dir),
-            node_key=node_key,
-            role="work",
-            output_mode="text",
-            prompt=prompt,
-            accompanying=accompanying,
-            input_paths=[],
-            auto_pack=False,
-        )
+        # Жёсткая стена на один вызов. Шлюзы (52pay) умеют молча держать
+        # соединение: httpx идёт с read=None, и без своего таймаута нода
+        # висит часами (21.11 «Проверка» стояла 3 ч с одной зависшей пачкой).
+        wall_s = float(os.environ.get("PLAN_CINEMA_CALL_TIMEOUT_S") or 0) or float(
+            getattr(_settings_provider, "gpt_timeout_s", 0) or 0
+        ) or 600.0
+        try:
+            res = await asyncio.wait_for(
+                run_operator_api(
+                    project_dir=Path(project.data_dir),
+                    node_key=node_key,
+                    role="work",
+                    output_mode="text",
+                    prompt=prompt,
+                    accompanying=accompanying,
+                    input_paths=[],
+                    auto_pack=False,
+                ),
+                timeout=max(60.0, wall_s),
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: таймаут ответа модели "
+                f"({int(max(60.0, wall_s))} с) — шлюз не ответил"
+            ) from exc
     logger.info(
         "[#%s] %s: модель %s, мышление %s",
         getattr(project, "id", "?"),
@@ -742,31 +971,111 @@ def _scenes_for_gate(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+# Стиль сцены: конспект вместо действия — брак, а не вкусовщина. Гейт ловит
+# ровно то, что промт называет запретом, чтобы «Шоты» не разбирали пересказ.
+SCENE_WORDS_MIN = 85
+SCENE_WORDS_MAX = 160
+SCENE_INSERT_WORDS_MIN = 50
+SCENE_INSERT_WORDS_MAX = 100
+SCENE_BANNED_PHRASES = (
+    "пишет о",
+    "рассказывает о",
+    "сообщает о",
+    "объявляет о",
+    "осознаёт",
+    "вспоминает",
+    "размышляет",
+    "мы видим",
+    "в кадре видно",
+    "эта история",
+    "данный эпизод",
+)
+
+
+def _scene_style_problems(scenes: Sequence[dict[str, Any]]) -> list[str]:
+    """Проверка объёма, кадрового бюджета и запрещённого пересказа.
+
+    Кадровый бюджет проверяем только когда модель его прислала: нода пишет
+    карточку сцены как текст (``номер``, ``id_плана``, ``сцена``,
+    ``сцена_вставка``), а ``место``/``персонажи``/``кадров_макс`` собирают
+    следующие шаги (решение владельца 22.11.2026). Требовать бюджет у
+    четырёхпольной карточки — значит гонять прогон в вечный ретрай.
+    """
+    problems: list[str] = []
+    for raw in scenes:
+        if not isinstance(raw, dict):
+            continue
+        number = int(raw.get("номер") or 0)
+        text = str(raw.get("сцена") or "")
+        words = len(text.split())
+        insert = bool(raw.get("сцена_вставка"))
+        back = int(raw.get("возврат_к_сцене") or 0)
+        cap_raw = raw.get("кадров_макс")
+        cap = int(cap_raw or 0)
+        if insert:
+            lo, hi = SCENE_INSERT_WORDS_MIN, SCENE_INSERT_WORDS_MAX
+        else:
+            lo, hi = SCENE_WORDS_MIN, SCENE_WORDS_MAX
+        if words < lo or words > hi:
+            problems.append(
+                f"сцена {number}: {words} слов, нужно {lo}–{hi} — действие подробнее"
+            )
+        low = text.casefold()
+        for phrase in SCENE_BANNED_PHRASES:
+            if phrase in low:
+                problems.append(
+                    f"сцена {number}: «{phrase}» — пересказ, покажи следствием поступка"
+                )
+        if not cap:
+            # Карточка без кадрового бюджета: нода пишет текст сцены, а число
+            # кадров режут следующие шаги. 0 — «не задан», а не «ноль кадров».
+            continue
+        if insert:
+            # Промт разрешает 1–2 кадра на врезку (короткая сцена-удар), гейт
+            # врезок тоже держит потолок 2: требовать ровно 2 — расхождение с
+            # контрактом, из-за него врезка на один кадр падала в ретрай.
+            if cap not in (1, 2):
+                problems.append(f"сцена {number}: врезка, кадров_макс={cap}, нужно 1–2")
+        elif back:
+            if cap not in (0, *range(4, 11)):
+                problems.append(
+                    f"сцена {number}: возврат после врезки, кадров_макс={cap}, нужно 0"
+                )
+        elif cap not in range(4, 11):
+            problems.append(
+                f"сцена {number}: кадров_макс={cap}, нужно 4–10 по числу битов"
+            )
+    return problems
+
+
 # ── Обработчики нод ─────────────────────────────────────────────────────────
 
 
 async def _run_scenes(session: Any, project: Any, *, node_key: str) -> NodeResult:
-    """Шаг 1: план P1…Pn → сцены; гейт R-PLAN-COVER, один повтор."""
+    """Шаг 1: сценарий прозой → пункты (разбивка ноды) → сцены.
+
+    Пункты плана выделяет сама нода: на вход идёт исходный текст как есть,
+    ответ содержит разбивку ``пункты`` (P1…Pn) и ``сцены`` со ссылками на неё.
+    Код проверяет только честность разбивки (дословность, порядок, покрытие
+    входа) и держит гейт R-PLAN-COVER.
+    """
     split = _split()
     gates = _gates()
-    plan_text = _source().read_plan_text(project)
+    # Вход — выход ноды, подведённой стрелкой: «Тема» даёт текст темы,
+    # «Сценарий» — общий план. Без стрелки остаётся план проекта.
+    plan_text, input_kind = _source().read_node_input_text(project, node_key)
     if not plan_text:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: план пуст "
-            "(project.general_plan пустой) — резать нечего"
+            f"#{getattr(project, 'id', '?')} {node_key}: вход пуст — подведи "
+            "«Тему» (или заполни «Сценарий»): резать нечего"
         )
-    points = split.num_plan_points(plan_text)
-    if len(points) < MIN_SCENES:
-        raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: в плане не нашлось пунктов P1…Pn"
-        )
-    numbered = split.format_plan_points(points)
     master = _read_master(project, node_key, _BY_KIND["scenes"])
 
     last_problems: list[str] = []
+    points: list[tuple[str, str]] = []
     scenes: list[dict[str, Any]] = []
     for attempt in range(1, COVER_ATTEMPTS + 1):
-        prompt = _render(master, ПЛАН_С_НОМЕРАМИ=numbered)
+        prompt = _render(master, ПЛАН=plan_text)
         raw = await _ask_text(
             project,
             node_key,
@@ -774,41 +1083,95 @@ async def _run_scenes(session: Any, project: Any, *, node_key: str) -> NodeResul
             _retry_block(last_problems) if attempt > 1 else "",
         )
         try:
-            scenes = split.parse_scenes_reply(raw)
+            points, scenes = split.parse_plan_reply(raw)
         except split.PlanScenesError as exc:
             last_problems = [f"ответ не по контракту: {exc}"]
             logger.warning("[#%s] %s: попытка %s — %s", project.id, node_key, attempt, exc)
             continue
-        verdict = gates.check_plan_coverage(points, scenes)
-        if verdict.get("passed"):
-            path = _apply().save_artifact(
-                project,
+        # Модель иногда подменяет кириллицу латиницей в месте («лачугa»):
+        # такая подмена разрывает группировку мест и имён на следующих шагах.
+        points = [(code, split.fix_homoglyphs(text)) for code, text in points]
+        scenes = [split.fix_scene_homoglyphs(scene) for scene in scenes]
+        if len(points) < MIN_SCENES:
+            last_problems = [
+                f"пунктов {len(points)}, нужно 4–10 по числу битов сценария"
+            ]
+            logger.warning(
+                "[#%s] %s: попытка %s, пунктов мало: %s",
+                project.id,
                 node_key,
-                ARTIFACT_SCENES,
-                {
-                    "пункты": [{"код": code, "текст": text} for code, text in points],
-                    "план_с_номерами": numbered,
-                    "сцены": scenes,
-                },
+                attempt,
+                len(points),
             )
-            return NodeResult(
-                reply_text=(
-                    f"сцены по плану: пунктов {len(points)}, сцен {len(scenes)}, "
-                    f"покрытие R-PLAN-COVER pass"
-                ),
-                output_paths=[path],
+            continue
+        plan_problems = split.check_points_cover_plan(plan_text, points)
+        if plan_problems:
+            last_problems = plan_problems
+            logger.warning(
+                "[#%s] %s: попытка %s, разбивка не покрывает вход: %s",
+                project.id,
+                node_key,
+                attempt,
+                "; ".join(plan_problems[:6]),
             )
-        last_problems = list(verdict.get("errors") or [])
-        for code in verdict.get("uncovered") or []:
-            last_problems.append(f"пункт {code} не покрыт ни одной сценой")
-        for code in verdict.get("unknown") or []:
-            last_problems.append(f"сцена ссылается на несуществующий пункт {code}")
-        logger.warning(
-            "[#%s] %s: попытка %s, R-PLAN-COVER fail: %s",
-            project.id,
+            continue
+        numbered = split.format_plan_points(points)
+        # Врезка (П3) — мягкая проверка пары «врезка → возврат»: гейт покрытия
+        # её не ужесточает, но кривую пару покажем модели на второй попытке.
+        last_problems = list(split.insert_scene_problems(scenes))
+        verdict = gates.check_plan_coverage(points, scenes)
+        if not verdict.get("passed"):
+            last_problems = list(verdict.get("errors") or [])
+            for code in verdict.get("uncovered") or []:
+                last_problems.append(f"пункт {code} не покрыт ни одной сценой")
+            for code in verdict.get("unknown") or []:
+                last_problems.append(f"сцена ссылается на несуществующий пункт {code}")
+            logger.warning(
+                "[#%s] %s: попытка %s, R-PLAN-COVER fail: %s",
+                project.id,
+                node_key,
+                attempt,
+                "; ".join(last_problems[:6]),
+            )
+            continue
+        style_problems = _scene_style_problems(scenes)
+        if style_problems:
+            last_problems = style_problems
+            logger.warning(
+                "[#%s] %s: попытка %s, стиль сцены: %s",
+                project.id,
+                node_key,
+                attempt,
+                "; ".join(style_problems[:8]),
+            )
+            continue
+        path = _apply().save_artifact(
+            project,
             node_key,
-            attempt,
-            "; ".join(last_problems[:6]),
+            ARTIFACT_SCENES,
+            {
+                "пункты": [{"код": code, "текст": text} for code, text in points],
+                "план_с_номерами": numbered,
+                "сцены": scenes,
+            },
+        )
+        # Ноды «Каркас» больше нет: сцены сами несут карточку (место,
+        # персонажи, предметы, событие, действие), поэтому ячейки Frame
+        # пишет этот же шаг — иначе «Диалоги» и «Шоты» читают старые сцены.
+        cells = await _ensure_scene_cells(session, project, scenes, scenes)
+        # Реестр персонажей уже собран (повторный прогон «Сцен»): сразу переводим
+        # имена в коды, иначе «Диалоги»/«Шоты» увидят в сцене людей без кодов.
+        remapped = await _map_scene_characters_to_codes(session, project)
+        if remapped:
+            await session.commit()
+        return NodeResult(
+            reply_text=(
+                f"сцены по плану: вход {_INPUT_KIND_RU.get(input_kind, input_kind)} "
+                f"{len(plan_text)} зн., пунктов {len(points)}, сцен {len(scenes)}, "
+                f"ячеек {len(cells)}, покрытие R-PLAN-COVER pass, стиль pass"
+                + (f", кодов персонажей {remapped}" if remapped else "")
+            ),
+            output_paths=[path],
         )
     raise RuntimeError(
         f"#{getattr(project, 'id', '?')} {node_key}: R-PLAN-COVER fail после "
@@ -839,12 +1202,296 @@ async def _run_cast(session: Any, project: Any, *, node_key: str) -> NodeResult:
             f"{json.dumps(problems[:8], ensure_ascii=False)}"
         )
     result = await _apply().write_entities(session, project, characters=characters)
+    # Старый реестр остаётся в базе активным после смены сценария: люди
+    # прошлого ролика (c12…) попадали в промты «Диалогов» и «Шотов» наравне
+    # с новыми. Всё, чего нет в этом ответе, уводим в архив.
+    new_codes = {
+        str(item.get("id") or "").strip()
+        for item in characters
+        if isinstance(item, dict)
+    }
+    archived = await _apply().archive_characters_not_in(session, project, new_codes)
+    # Реестр построен: «Сцены» пишут персонажей именами (кодов на том шаге ещё
+    # нет, каркас удалён), а «Диалоги»/«Шоты» ждут коды c0N. Заменяем имена на
+    # коды прямо в attrs сцен — иначе гейт R-DLG-SPEAKER и карточки кадров
+    # видят людей без кодов.
+    # Сначала привязка, которую модель дала сама («кто в какой сцене»), —
+    # она читает текст сцены целиком и знает вариации. Текстовый разбор ниже
+    # остаётся запасным путём: он не различает падежи и роли.
+    scene_roles = payload.get("сцены")
+    mapped = 0
+    if isinstance(scene_roles, list) and scene_roles:
+        mapped = await _apply_scene_roles_from_reply(session, project, scene_roles)
+    if not mapped:
+        mapped = await _map_scene_characters_to_codes(session, project)
     return NodeResult(
         reply_text=(
             f"персонажи: {len(characters)} записей, записано "
-            f"{result.get('characters', 0)}, R-CAST-DUP pass"
+            f"{result.get('characters', 0)}, в архиве {archived}, "
+            f"кодов в сценах {mapped}, R-CAST-DUP pass"
         )
     )
+
+
+#: Синонимы полей реплики: модель иногда пишет латиницей/по-английски.
+_REPLICA_ALIASES = {
+    "text": "текст",
+    "line": "текст",
+    "who": "кто",
+    "speaker": "кто",
+    "emotion": "эмоция",
+    "tone": "эмоция",
+}
+#: Синонимы типа речи.
+_SPEECH_TYPE_ALIASES = {
+    "no": "нет",
+    "none": "нет",
+    "monologue": "монолог",
+    "dialogue": "диалог",
+}
+
+
+def _normalize_speech_payload(payload: Any) -> dict[str, Any]:
+    """``речь`` из ответа модели → контрактные поля.
+
+    Гейт ``R-DLG-FORM`` строгий: лишнее поле — брак. Но ответы приходят с
+    ``text``/``who`` вместо ``текст``/``кто``, и шаг падал на формальности,
+    хотя диалог верный. Переводим синонимы до гейта, не ослабляя контракт:
+    неизвестное поле по-прежнему остаётся и будет поймано.
+    """
+    raw = payload if isinstance(payload, Mapping) else {}
+    speech: dict[str, Any] = {
+        "тип": str(raw.get("тип") or raw.get("type") or "").strip(),
+        "реплики": [],
+    }
+    kind = speech["тип"].casefold()
+    if kind in _SPEECH_TYPE_ALIASES:
+        speech["тип"] = _SPEECH_TYPE_ALIASES[kind]
+    replicas = raw.get("реплики")
+    if not isinstance(replicas, list):
+        replicas = raw.get("replicas") if isinstance(raw.get("replicas"), list) else []
+    for replica in replicas:
+        if not isinstance(replica, Mapping):
+            speech["реплики"].append(replica)
+            continue
+        item: dict[str, Any] = {}
+        for key, value in replica.items():
+            name = str(key).strip()
+            item[_REPLICA_ALIASES.get(name.casefold(), name)] = value
+        speech["реплики"].append(item)
+    return speech
+
+
+def _name_key(value: Any) -> str:
+    """Ключ сравнения имён: нижний регистр, без знаков, лишних пробелов."""
+    text = re.sub(r"[^0-9a-zа-яё]+", " ", str(value or "").lower())
+    return " ".join(text.split())
+
+
+async def _map_scene_characters_to_codes(session: Any, project: Any) -> int:
+    """Имена персонажей в ``Frame.attrs["персонажи"]`` → коды реестра.
+
+    Совпадение точное по нормализованному имени, затем по вхождению одного в
+    другое (в плане пишут «комиссар Маркес Джодокус», в сцене — «комиссар»).
+    Неизвестное имя не выдумывает код: оно просто выпадает из списка.
+
+    С шага «Сцены» карточка сцены больше не содержит поля ``персонажи`` (его
+    собирают следующие ноды), поэтому для пустого списка имена ищем прямо в
+    тексте сцены: «Император» → ``c01``. Иначе «Диалоги» и «Шоты» остаются без
+    привязки людей к сцене.
+    """
+    apply = _apply()
+    registry = await apply.load_characters(session, project)
+    by_name: dict[str, str] = {}
+    for code, item in registry.items():
+        key = _name_key(item.get("имя") or item.get("name"))
+        if key:
+            by_name.setdefault(key, str(code))
+    if not by_name:
+        return 0
+    keys = list(by_name)
+    #: Ключи поиска по тексту сцены. Берём все слова имени до запятой: в
+    #: сцене пишут «Дорн», а в реестре «Рогал Дорн, участник ударной группы».
+    #: Слово, которое встречается у двух карточек («командир»), пропускаем:
+    #: иначе оно приписывало сцене чужих людей. Вариации («Хорус — ранен») не
+    #: ищем: у них то же имя, что у основы.
+    variations = {
+        str(code)
+        for code, item in registry.items()
+        if _is_variation_card(item)
+    }
+    candidates: dict[str, set[str]] = {}
+    for key, code in by_name.items():
+        if code in variations:
+            continue
+        head = key.split(",")[0].strip()
+        for word in head.split(" "):
+            if len(word) >= 4:
+                candidates.setdefault(word, set()).add(code)
+    text_keys: list[tuple[str, str]] = [
+        (word, next(iter(codes)))
+        for word, codes in candidates.items()
+        if len(codes) == 1
+    ]
+    mapped = 0
+    for frame in await apply.load_scenes(session, project):
+        attrs = dict(frame.attrs) if isinstance(frame.attrs, dict) else {}
+        names = attrs.get("персонажи")
+        # Привязку от самой модели не перебиваем: она видела текст сцены.
+        if attrs.get("персонажи_из_сцен"):
+            continue
+        # Коды, выведенные из текста раньше, пересчитываем: после правки
+        # реестра в них могли попасть вариации и лишние люди. Признак такой
+        # привязки — список из одних кодов `c0N` без пометки.
+        all_codes = (
+            isinstance(names, list)
+            and bool(names)
+            and all(re.fullmatch(r"c\d{2,}", str(item or "").strip()) for item in names)
+        )
+        derive_from_text = (
+            bool(attrs.get("персонажи_из_текста"))
+            or all_codes
+            or not (isinstance(names, list) and names)
+        )
+        has_names = not derive_from_text and isinstance(names, list) and bool(names)
+        codes: list[str] = []
+        if has_names:
+            for raw in names:
+                text = str(raw or "").strip()
+                if not text:
+                    continue
+                if re.fullmatch(r"c\d{2,}", text):
+                    codes.append(text)
+                    continue
+                key = _name_key(text)
+                code = by_name.get(key)
+                if code is None and key:
+                    for candidate in keys:
+                        if key in candidate or candidate in key:
+                            code = by_name[candidate]
+                            break
+                if code and code not in codes:
+                    codes.append(code)
+        else:
+            scene_key = _name_key(attrs.get("сцена"))
+            if not scene_key:
+                continue
+            for head, code in text_keys:
+                if code in codes:
+                    continue
+                # Окончание до трёх букв: в сцене «умирающим Императором»,
+                # в реестре — «Император».
+                if re.search(
+                    rf"(?<![\wа-яё]){re.escape(head)}[а-яё]{{0,3}}(?![\wа-яё])",
+                    scene_key,
+                ):
+                    codes.append(code)
+        if has_names and codes == list(names):
+            continue
+        if not codes:
+            if not derive_from_text or not names:
+                continue
+        attrs["персонажи"] = codes
+        if derive_from_text:
+            attrs["персонажи_из_текста"] = True
+        await apply.write_scene_attrs(session, project, str(frame.uuid), attrs)
+        mapped += len(codes)
+    return mapped
+
+
+def _is_variation_card(item: Mapping[str, Any]) -> bool:
+    """Карточка-вариация: у неё заполнено ``правила`` (id основы)."""
+    rules = str(item.get("правила") or item.get("rules") or "").strip()
+    if rules:
+        return True
+    name = str(item.get("имя") or item.get("name") or "").casefold()
+    return "вариация" in name
+
+
+async def _apply_scene_roles_from_reply(
+    session: Any,
+    project: Any,
+    scene_roles: Sequence[Any],
+) -> int:
+    """``сцены`` из ответа «Персонажей»: номер сцены + имена → коды в attrs.
+
+    Модель читает текст сцены целиком и сама называет, кто в ней есть, — это
+    точнее текстового разбора по словам (он цепляется за падежи и роли).
+    Имена ищутся в реестре по полному имени и по части до запятой. Неизвестное
+    имя не выдумывает код. Транзакцию не коммитит.
+    """
+    apply = _apply()
+    registry = await apply.load_characters(session, project)
+    by_name: dict[str, str] = {}
+    for code, item in registry.items():
+        name = str(item.get("имя") or item.get("name") or "")
+        for key in (_name_key(name), _name_key(name.split(",")[0])):
+            if key:
+                by_name.setdefault(key, str(code))
+    frames = {int(frame.number): frame for frame in await apply.load_scenes(session, project)}
+    applied = 0
+    for raw in scene_roles:
+        if not isinstance(raw, Mapping):
+            continue
+        try:
+            number = int(raw.get("номер") or 0)
+        except (TypeError, ValueError):
+            continue
+        frame = frames.get(number)
+        if frame is None:
+            continue
+        names = raw.get("персонажи")
+        if not isinstance(names, list):
+            continue
+        codes: list[str] = []
+        for name in names:
+            key = _name_key(name)
+            if not key:
+                continue
+            code = by_name.get(key) or by_name.get(_name_key(str(name).split(",")[0]))
+            if code is None:
+                for candidate, candidate_code in by_name.items():
+                    if key in candidate or candidate in key:
+                        code = candidate_code
+                        break
+            if code and code not in codes:
+                codes.append(code)
+        attrs = dict(frame.attrs) if isinstance(frame.attrs, dict) else {}
+        attrs["персонажи"] = codes
+        attrs["персонажи_из_сцен"] = True
+        await apply.write_scene_attrs(session, project, str(frame.uuid), attrs)
+        applied += len(codes)
+    return applied
+
+
+def _scene_attrs(raw: Mapping[str, Any], plan_refs: list[str]) -> dict[str, Any]:
+    """``attrs`` ячейки сцены из карточки модели: все поля, ничего не теряем.
+
+    Раньше здесь был жёсткий список из 11 ключей, и ``примечание`` (а также
+    любое поле, которое модель добавила сама) в базу не попадало: результат в
+    БД расходился с artifact, следующие шаги этих данных не видели.
+    """
+    attrs: dict[str, Any] = {
+        "источник": "pk",
+        "id_плана": list(plan_refs),
+        "место": str(raw.get("место") or ""),
+        "персонажи": list(raw.get("персонажи") or []),
+        "предметы": list(raw.get("предметы") or []),
+        "событие": str(raw.get("событие") or ""),
+        "сцена": str(raw.get("сцена") or ""),
+        "примечание": str(raw.get("примечание") or ""),
+        # Врезка (П3): поля необязательные, у обычной сцены просто false/0.
+        "сцена_вставка": bool(raw.get("сцена_вставка") or False),
+        "возврат_к_сцене": int(raw.get("возврат_к_сцене") or 0),
+        "продолжение_фона": bool(raw.get("продолжение_фона") or False),
+        "кадров_макс": int(raw.get("кадров_макс") or 0),
+    }
+    for key, value in raw.items():
+        name = str(key)
+        if name in attrs or name in ("номер", "id_плана", "источник"):
+            continue
+        attrs[name] = value
+    return attrs
 
 
 async def _ensure_scene_cells(
@@ -904,15 +1551,7 @@ async def _ensure_scene_cells(
     if existing:
         for frame, raw in zip(existing, scenes, strict=False):
             number = int(raw.get("номер") or 0)
-            attrs = {
-                "источник": "pk",
-                "id_плана": refs_by_number.get(number, []),
-                "место": str(raw.get("место") or ""),
-                "персонажи": list(raw.get("персонажи") or []),
-                "предметы": list(raw.get("предметы") or []),
-                "событие": str(raw.get("событие") or ""),
-                "сцена": str(raw.get("сцена") or ""),
-            }
+            attrs = _scene_attrs(raw, refs_by_number.get(number, []))
             await apply.write_scene_attrs(session, project, str(frame.uuid), attrs)
         return existing
 
@@ -938,15 +1577,7 @@ async def _ensure_scene_cells(
             sort_key=float(index) * 10.0,
             scene_id=scene.id,
             status=FrameStatus.planned,
-            attrs={
-                "источник": "pk",
-                "id_плана": refs_by_number.get(number, []),
-                "место": str(raw.get("место") or ""),
-                "персонажи": list(raw.get("персонажи") or []),
-                "предметы": list(raw.get("предметы") or []),
-                "событие": str(raw.get("событие") or ""),
-                "сцена": str(raw.get("сцена") or ""),
-            },
+            attrs=_scene_attrs(raw, refs_by_number.get(number, [])),
         )
         session.add(frame)
         cells.append(frame)
@@ -985,6 +1616,30 @@ async def _run_skeleton(session: Any, project: Any, *, node_key: str) -> NodeRes
     )
 
 
+def _plan_points(project: Any) -> list[tuple[str, str]]:
+    """Пункты плана с кодами: артефакт «Сцены» важнее нумерации прозы.
+
+    Нода «Сцены» формулирует свои опорные точки (``пункты`` с кодами P1..Pn) и
+    ссылается на них в ``id_плана``. Нумерация абзацев сырой прозы — другая
+    нумерация: тот же код P2 там означает чужой абзац, и «Диалоги» получали
+    план не про свою сцену (модель честно отвечала «нет речи»). Поэтому берём
+    пункты из артефакта сцен, а на нумерацию прозы падаем только если артефакта
+    нет.
+    """
+    artifact = _scenes_artifact(project) or {}
+    points: list[tuple[str, str]] = []
+    for item in artifact.get("пункты") or []:
+        if not isinstance(item, Mapping):
+            continue
+        code = str(item.get("код") or "").strip()
+        text = " ".join(str(item.get("текст") or "").split())
+        if code and text:
+            points.append((code, text))
+    if points:
+        return points
+    return _split().num_plan_points(_source().read_plan_text(project))
+
+
 async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeResult:
     """Шаг 4: по сцене → ``attrs["речь"]``; гейты R-DLG-FORM и R-DLG-SPEAKER."""
     apply = _apply()
@@ -992,13 +1647,34 @@ async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeRe
     scenes = await apply.load_scenes(session, project)
     if not scenes:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
         )
     characters = await apply.load_characters(session, project)
     registry_codes = sorted(characters)
-    plan_points = _split().num_plan_points(_source().read_plan_text(project))
+    # Сцены могли переписать уже после «Персонажей» (повторный прогон одного
+    # шага): в attrs снова имена, а модель пишет реплики кодами c0N — гейт
+    # R-DLG-SPEAKER бракует верный диалог. Пересобираем коды из реестра здесь
+    # же, чтобы нода работала при частичном прогоне, а не только по цепочке.
+    if registry_codes:
+        remapped = await _map_scene_characters_to_codes(session, project)
+        if remapped:
+            logger.info(
+                "[#%s] %s: персонажи сцен → коды реестра, заменено %s",
+                getattr(project, "id", "?"),
+                node_key,
+                remapped,
+            )
+            await session.commit()
+            scenes = await apply.load_scenes(session, project)
+    plan_points = _plan_points(project)
     plan_by_code = dict(plan_points)
     master = _read_master(project, node_key, _BY_KIND["dialogues"])
+    # Один пункт плана — одна сцена с речью. Владелец словесного действия
+    # определяется по говорящим из реестра, остальные сцены этого пункта
+    # получают пометку «уже отыграно» (план → номер сцены-владельца).
+    speech_owners = _speech_points_owners(
+        [_scene_dict(frame) for frame in scenes], plan_by_code, characters
+    )
     # Промты собираем заранее и один раз: в пачке разница только в том, когда
     # именно ушёл вызов, сам промт сцены от этого не меняется.
     jobs: list[tuple[dict[str, Any], str]] = []
@@ -1010,9 +1686,17 @@ async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeRe
         scene_plan = "\n".join(
             f"{code}: {plan_by_code[code]}" for code in refs if code in plan_by_code
         ) or "\n".join(f"{code}: {text}" for code, text in plan_points)
+        already = [
+            {"пункт": code, "сцена": owner}
+            for code, owner in speech_owners.items()
+            if code in refs and owner != int(scene.get("номер") or 0)
+        ]
+        scene_for_prompt = dict(scene)
+        if already:
+            scene_for_prompt["речь_уже_отыграна"] = already
         prompt = _render(
             master,
-            СЦЕНА=_json(scene),
+            СЦЕНА=_json(scene_for_prompt),
             ПЛАН=scene_plan,
             РЕЕСТР=_json(_registry_list(characters)),
         )
@@ -1024,18 +1708,24 @@ async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeRe
         return scene, payload
 
     written = 0
+    # Итог по сценам — для артефакта: без файла вкладка «Результат» у диалогов
+    # пустая, хотя речь записана в кадры.
+    speeches: list[dict[str, Any]] = []
+    speeches_by_number: dict[str, dict[str, Any]] = {}
 
     async def _commit(answer: tuple[dict[str, Any], dict[str, Any]]) -> None:
         nonlocal written
         scene, payload = answer
-        speech = {
-            "тип": str(payload.get("тип") or ""),
-            "реплики": payload.get("реплики") or [],
-        }
+        speech = _normalize_speech_payload(payload)
         problems = gates.dialog_problems(
             speech,
             list(scene.get("персонажи") or []),
             registry_codes,
+            # План этой сцены для требования «в плане реплика — значит не „нет“».
+            # Владелец 2026-11-20: требование отключено — нода не имеет права
+            # падать из-за того, что модель честно ответила «нет». Дальше решает
+            # человек, а не гейт.
+            plan_text="",
         )
         if problems:
             raise RuntimeError(
@@ -1047,7 +1737,13 @@ async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeRe
             project,
             [{"frame_uuid": scene["id"], "fields": {"речь": speech}}],
         )
-        written += 1
+        row = {"номер": scene["номер"], "тип": speech.get("тип") or "нет"}
+        reply_lines = speech.get("реплики") or []
+        row["реплик"] = len(reply_lines)
+        if reply_lines:
+            row["речь"] = reply_lines
+            speeches_by_number[str(scene["номер"])] = row
+            written += 1
         # Коммитим каждую сцену: иначе длинная транзакция шага держит write-lock
         # SQLite, и учёт LLM (`llm_ledger`) не может вставить строку — каждый
         # вызов ждёт освобождения блокировки (~66 с на сцену). Плюс прогресс
@@ -1073,7 +1769,25 @@ async def _run_dialogues(session: Any, project: Any, *, node_key: str) -> NodeRe
         node_key=node_key,
         label=lambda job: job[0]["номер"],
     )
-    return NodeResult(reply_text=f"диалоги: сцен с речью {written}, R-DLG-FORM/SPEAKER pass")
+    speeches = [
+        speeches_by_number[str(scene["номер"])]
+        for scene, _prompt in jobs
+        if str(scene["номер"]) in speeches_by_number
+    ]
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_DIALOGUES,
+        {
+            "сцены": speeches,
+            "сцен_с_речью": written,
+            "сцен_всего": len(jobs),
+        },
+    )
+    return NodeResult(
+        reply_text=f"диалоги: сцен с речью {written}, R-DLG-FORM/SPEAKER pass",
+        output_paths=[path],
+    )
 
 
 def _shot_prompt_from_fields(
@@ -1128,6 +1842,306 @@ def _clamp(text: str, limit: int) -> str:
     return cut.rstrip()
 
 
+# ── Непрерывность и камера кадров: детерминированная нормализация ────────────
+
+#: Код персонажа в полях кадра: ``c01``, ``c12``.
+_PERSON_CODE_RE = re.compile(r"c\d{2}")
+#: Слова стороны в поле ``где``. Порядок важен: «в центре» раньше «по центру».
+_SIDE_WORDS: tuple[str, ...] = (
+    "слева",
+    "справа",
+    "в центре",
+    "по центру",
+    "на переднем плане",
+    "в глубине",
+)
+#: Глаголы перехода: только они разрешают персонажу сменить сторону между кадрами.
+_MOVE_WORDS: tuple[str, ...] = (
+    "переш",
+    "переход",
+    "подош",
+    "отош",
+    "отход",
+    "вста",
+    "сел ",
+    "села",
+    "шагн",
+    "вош",
+    "выш",
+    "обош",
+    "оберн",
+    "поверн",
+    "перебеж",
+    "подбеж",
+    "уход",
+    "ушё",
+    "двину",
+    "сдвину",
+    "приблиз",
+)
+#: Канонные значения камеры — по ним и только по ним правится текст промта.
+_CAMERA_VALUES: dict[str, tuple[str, ...]] = {
+    "план": ("ДАЛЬНИЙ", "ОБЩИЙ", "СРЕДНИЙ", "СРЕДНЕ-КРУПНЫЙ", "КРУПНЫЙ", "ДЕТАЛЬ"),
+    "ракурс": ("фронт", "3/4", "с плеча", "сверху", "снизу", "макро"),
+    "высота": ("уровень глаз", "снизу вверх", "сверху вниз"),
+}
+#: Фрагмент камеры в промте: «план ОБЩИЙ, ракурс фронт, высота уровень глаз».
+_CAMERA_FRAGMENT_RE = re.compile(
+    r"(?i)(?<![\w-])(план|ракурс|высота)\s+([^,.;\n]+)"
+)
+
+
+def _card_codes(shot: Mapping[str, Any]) -> set[str]:
+    """Коды персонажей из поля ``кто``."""
+    return set(_PERSON_CODE_RE.findall(str(shot.get("кто") or "")))
+
+
+def _card_people(shot: Mapping[str, Any]) -> dict[str, str]:
+    """Код → имя персонажа из поля ``кто``: «Аделфус (c01), Геннэдиус (c05)»."""
+    text = str(shot.get("кто") or "")
+    people: dict[str, str] = {}
+    for match in _PERSON_CODE_RE.finditer(text):
+        head = re.split(r"[,;]", text[: match.start()])[-1].strip(" .,:;()")
+        for word in head.split():
+            if word[:1].isupper():
+                people.setdefault(match.group(0), word)
+                break
+    return people
+
+
+def _sides_by_code(shot: Mapping[str, Any]) -> dict[str, str]:
+    """Сторона каждого персонажа в ``где``: код → «слева»/«справа»/…"""
+    text = str(shot.get("где") or "")
+    if not text:
+        return {}
+    names = _card_people(shot)
+    sides: dict[str, str] = {}
+    for clause in re.split(r"[;.]", text):
+        for piece in re.split(r",", clause):
+            piece_fold = piece.casefold()
+            side = next((word for word in _SIDE_WORDS if word in piece_fold), "")
+            if not side:
+                continue
+            codes = _PERSON_CODE_RE.findall(piece)
+            if codes:
+                for code in codes:
+                    sides.setdefault(code, side)
+                continue
+            for code, name in names.items():
+                if name and re.search(
+                    rf"(?i)(?<![\w-]){re.escape(name)}(?![\w-])", piece
+                ):
+                    sides.setdefault(code, side)
+    return sides
+
+
+def _motion_text(shot: Mapping[str, Any]) -> str:
+    """Текст кадра для поиска глаголов перехода."""
+    parts = (shot.get("где"), shot.get("позы"), shot.get("действие"))
+    return " ".join(str(part or "") for part in parts).casefold()
+
+
+def _rewrite_camera_text(shot: dict[str, Any]) -> None:
+    """Переписать фрагмент камеры в промтах кадра под поля ``план/ракурс/высота``.
+
+    Промт «Шотов» пишет камеру строчными через запятую: «Линза 35 мм, план ОБЩИЙ,
+    ракурс фронт, высота уровень глаз». Меняются только канонные значения, чтобы
+    не портить фразы вида «крупный план героя»; если фрагмента нет — камера
+    дописывается предложением.
+    """
+    plan = str(shot.get("план") or "").strip()
+    angle = str(shot.get("ракурс") or "").strip()
+    height = str(shot.get("высота") or "").strip()
+    wanted = {"план": plan, "ракурс": angle, "высота": height}
+    if not any(wanted.values()):
+        return
+    canonical = {
+        key: {value.casefold() for value in values}
+        for key, values in _CAMERA_VALUES.items()
+    }
+
+    for field_name in ("промт_картинки",):
+        text = str(shot.get(field_name) or "").strip()
+        if not text:
+            continue
+        rewritten = {"план": False, "ракурс": False, "высота": False}
+
+        def _replace(match: re.Match[str]) -> str:
+            key = match.group(1).casefold()
+            value = str(match.group(2) or "").strip().casefold()
+            if not wanted[key] or value not in canonical[key]:
+                return match.group(0)
+            rewritten[key] = True
+            return f"{match.group(1)} {wanted[key]}"
+
+        text = _CAMERA_FRAGMENT_RE.sub(_replace, text)
+        if sum(rewritten.values()) < 2:
+            text = (
+                f"{text.rstrip('.')}. "
+                f"План {plan or 'ОБЩИЙ'}, ракурс {angle or 'фронт'}, "
+                f"высота {height or 'уровень глаз'}."
+            )
+        shot[field_name] = _clamp(text, 4700)
+
+
+def _normalize_reply_cameras(kadry: list[dict[str, Any]], speech: Mapping[str, Any]) -> None:
+    """Закрепить камеру кадра с репликой (П8): диалог — «с плеча», монолог — КРУПНЫЙ.
+
+    Модель ставит репликам «глухой фронт» и случайные планы; снимаем с неё это
+    решение: крупность и угол кадра реплики задаёт правило, а не импровизация.
+    Встречная пара (две реплики подряд) по канону идёт одним планом, поэтому
+    повтор сетапа здесь разрешён.
+    """
+    replies = [item for item in speech.get("реплики") or [] if isinstance(item, dict)]
+    speakers = {str(item.get("кто") or "") for item in replies if str(item.get("кто") or "")}
+    monologue = str(speech.get("тип") or "") == "монолог" or len(speakers) == 1
+    for shot in kadry:
+        if not str(shot.get("реплика") or "").strip():
+            continue
+        shot["высота"] = "уровень глаз"
+        if monologue:
+            shot["план"] = "КРУПНЫЙ"
+            shot["ракурс"] = "фронт"
+            shot["объект"] = "лицо"
+        else:
+            shot["план"] = "СРЕДНЕ-КРУПНЫЙ"
+            shot["ракурс"] = "с плеча"
+            shot["объект"] = "двое" if len(_card_codes(shot)) > 1 else "лицо"
+        _rewrite_camera_text(shot)
+
+
+#: Служебные слова, которые не являются якорем зоны («в центре», «на тех же местах»).
+_ZONE_STOP_WORDS = frozenset(
+    {
+        "кадре", "кадр", "прошлом", "тех", "местах", "центре", "переднем",
+        "плане", "глубине", "слева", "справа", "рядом", "стоит", "стоят",
+        "сидит", "сидят", "находится", "находятся", "который", "которая",
+        "после", "того", "этом", "этой", "этого", "тоже", "около", "вдоль",
+        "лицом", "боком", "прямо", "чуть", "ближе", "дальше", "между",
+    }
+)
+
+
+def _zone_tokens(shot: Mapping[str, Any]) -> set[str]:
+    """Якоря зоны из ``где``: «койка», «стол», «прилавок», «проём».
+
+    Сравниваем по основам (первые 5 букв): «Тесенна» в соседних кадрах и
+    «Тесенны» — это одна и та же зона, а не смена локации. Иначе валидатор
+    валил кадры, где модель назвала тот же объект в другой падежной форме.
+    """
+    text = str(shot.get("где") or "").casefold()
+    text = text.split("на тех же местах")[0]
+    return {
+        word[:5]
+        for word in re.findall(r"[а-яё]{4,}", text)
+        if word not in _ZONE_STOP_WORDS
+    }
+
+
+def _zone_changed(previous: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
+    """Сменилась ли зона фона: у соседних кадров нет общих якорей места."""
+    before = _zone_tokens(previous)
+    after = _zone_tokens(current)
+    if not before or not after:
+        return False
+    if str(previous.get("место") or "") != str(current.get("место") or ""):
+        return True
+    return not (before & after)
+
+
+#: Минимум знаков в ``действие``: одна фраза короче — это не «начало → ход → итог».
+_ACTION_MIN_CHARS = 120
+
+
+def _shot_contract_problems(kadry: Sequence[Any]) -> list[str]:
+    """Замечания, из-за которых ответ по сцене уходит модели на правку.
+
+    Два требования владельца (2026-11-19):
+    1) ``действие`` описывает кусок целиком — начало, ход, итог: 2–3 предложения,
+       не меньше 120 знаков, без вывода-морали после тире;
+    2) кадры внутри сцены не перескакивают между зонами фона без кадра перехода
+       с глаголом перемещения.
+    """
+    shots = [item for item in kadry if isinstance(item, dict)]
+    problems: list[str] = []
+    for position, shot in enumerate(shots, 1):
+        label = str(shot.get("id") or f"K{position}")
+        action = str(shot.get("действие") or "").strip()
+        sentences = [part for part in re.split(r"(?<=[.!?])\s+", action) if part.strip()]
+        if len(action) < _ACTION_MIN_CHARS or len(sentences) < 2:
+            problems.append(
+                f"{label}: в `действие` одна фраза — нужны начало (кто где и что "
+                "собирается), ход и итог (кто где оказался), 2–3 предложения, "
+                "не меньше 120 знаков, без морали после тире"
+            )
+    for position, (previous, current) in enumerate(
+        zip(shots, shots[1:], strict=False), 2
+    ):
+        label = str(current.get("id") or f"K{position}")
+        if not _zone_changed(previous, current):
+            continue
+        if any(word in _motion_text(current) for word in _MOVE_WORDS):
+            continue
+        problems.append(
+            f"{label}: кадр сразу в другой зоне, чем прошлый "
+            f"({str(previous.get('где') or '')[:60]!r} → {str(current.get('где') or '')[:60]!r}) — "
+            "нужен кадр перехода с глаголом перемещения (встаёт, шагает, подходит) "
+            "или та же зона, что в прошлом кадре"
+        )
+    problems.extend(_people_named_problems(shots))
+    return problems
+
+
+#: Код персонажа без имени: «Персонаж c01», «персонаж c09», «человек c03».
+_ANON_PERSON_RE = re.compile(r"(?i)персонаж\w*\s+\(?c\d{2}\)?")
+#: Одна пара «имя (код)» в поле «кто».
+_NAMED_PERSON_RE = re.compile(r"\S.*?\(c\d{2}\)")
+#: Разделитель людей в «кто»: запятая, плюс, косая черта или союз «и».
+_PEOPLE_SPLIT_RE = re.compile(r"\s*(?:[,;+/]|\sи\s)\s*")
+
+
+def _people_named_problems(shots: Sequence[dict[str, Any]]) -> list[str]:
+    """Кадры не называют людей кодом вместо имени.
+
+    Реестр персонажей теперь уходит в промт отдельным блоком ``{{РЕЕСТР}}``:
+    без этой проверки модель при нехватке имени писала «Персонаж c01», и
+    генератор картинок не знал, кого рисовать (владелец, 2026-11-20).
+    """
+    problems: list[str] = []
+    for position, shot in enumerate(shots, 1):
+        label = str(shot.get("id") or f"K{position}")
+        who = str(shot.get("кто") or "").strip()
+        fields = {
+            "кто": who,
+            "действие": str(shot.get("действие") or ""),
+            "промт_картинки": str(shot.get("промт_картинки") or ""),
+        }
+        for name, value in fields.items():
+            match = _ANON_PERSON_RE.search(value)
+            if match:
+                problems.append(
+                    f"{label}: в `{name}` персонаж назван без имени — {match.group(0)!r}. "
+                    "Возьми имя, внешность и одежду из реестра персонажей и пиши "
+                    "«Имя (c0N)»; код без имени — брак"
+                )
+                break
+        if not who:
+            continue
+        # В кадре бывает несколько людей: промт разрешает список «Иван (c01),
+        # Пётр (c02)», и генератору картинок он нужен целиком. Проверяем каждую
+        # пару, а не строку целиком (иначе валидный список считался браком).
+        people = [part for part in _PEOPLE_SPLIT_RE.split(who) if part.strip()]
+        bad = [part for part in people if not _NAMED_PERSON_RE.fullmatch(part.strip())]
+        if bad:
+            problems.append(
+                f"{label}: в `кто` нет пары «имя (код)» — {bad[0][:60]!r}. Пиши людей "
+                "именами из реестра с кодом: «Иван (c01), Пётр (c02)». Группы без "
+                "кода реестра (семья, преследователи, мечники) в `кто` не пиши"
+            )
+    return problems
+
+
+
 def _normalize_kadry(
     kadry: list[Any],
     speech: dict[str, Any],
@@ -1136,51 +2150,36 @@ def _normalize_kadry(
 ) -> list[Any]:
     """Довести кадры сцены до контракта валидатора кадров (``shot_rules_v2``).
 
-    Модель пишет K1 в ``промт_картинки``, а детям — ``промт_старт``/``промт_конец``.
-    Валидатор же требует ``промт_картинки`` у каждого кадра (обязательное поле
-    ``REQUIRED_SHOT_FIELDS``) и промт старта при ``точность="старт/конец"``.
-    Здесь промт не выдумывается: промт старта и есть промт входной картинки
-    ребёнка, поэтому он дублируется в ``промт_картинки``; если промта нет вовсе —
-    он собирается из полей самого кадра (``_shot_prompt_from_fields``).
+    Пары ``старт/конец`` в этой цепочке нет: её делает отдельная нода, поэтому
+    поля пары здесь вычищаются и в ответ не попадают. Валидатор требует
+    ``промт_картинки`` у каждого кадра — если модель его не дала, промт
+    собирается из полей самого кадра (``_shot_prompt_from_fields``).
     Ещё проставляются ``номер`` и ``фон_код`` из сцены.
     """
     out: list[Any] = []
-    pairs_used = 0
     for index, shot in enumerate(kadry, 1):
         if not isinstance(shot, dict):
             out.append(shot)
             continue
         row = dict(shot)
         picture = str(row.get("промт_картинки") or "").strip()
-        start = str(row.get("промт_старт") or "").strip()
-        end = str(row.get("промт_конец") or "").strip()
-        if not picture:
-            picture = start or end
         if not picture:
             picture = _shot_prompt_from_fields(row, scene, background)
         row["промт_картинки"] = _clamp(picture, 4700)
-        # Пара старт/конец — исключение, а не норма: не больше двух на сцену.
-        accuracy = str(row.get("точность") or "").strip()
-        if accuracy != "старт/конец" or pairs_used >= _MAX_STARTEND_PER_SCENE:
-            row["точность"] = "одна картинка"
-            row["старт"] = ""
-            row["конец"] = ""
-            row["причина"] = ""
-            row.pop("промт_конец", None)
-        else:
-            pairs_used += 1
-            if not end:
-                row["промт_конец"] = _clamp(
-                    f"{picture} Конец кадра: {row.get('конец') or ''}", 4700
-                )
-        # Внутренний промт старта генератору нужен всегда — это и есть вход кадра.
-        if not start:
-            row["промт_старт"] = _clamp(picture, 4700)
+        # Пара старт/конец — забота отдельной ноды: чужие поля не тащим.
+        for legacy in ("старт", "конец", "точность", "причина", "промт_старт", "промт_конец"):
+            row.pop(legacy, None)
         row.setdefault("номер", index)
         row.setdefault("ракурс", "фронт")
-        if scene.get("фон"):
-            row["фон_код"] = scene["фон"]
+        # Сквозные данные сцены: номер сцены и место одни на все кадры.
+        row.setdefault("сцена", int(scene.get("номер") or 0))
+        row.setdefault("место", str(scene.get("место") or ""))
+        # Код фона — из сцены, а не из ответа модели: у одиночного места кода
+        # нет (пустая строка), у повторяющегося его проставит нода «Фоны».
+        row["фон_код"] = str(scene.get("фон") or "").strip()
         out.append(row)
+    cards = [item for item in out if isinstance(item, dict)]
+    _normalize_reply_cameras(cards, speech)
     return out
 
 
@@ -1200,6 +2199,7 @@ async def _plan_scene_shots(
     *,
     scene_vo: str | None = None,
     previous: _ShotAttempt | None = None,
+    registry: Sequence[Mapping[str, Any]] | None = None,
 ) -> _ShotAttempt:
     """Спросить у модели кадры одной сцены и сразу прогнать код-валидатор.
 
@@ -1209,6 +2209,9 @@ async def _plan_scene_shots(
 
     ``previous`` — прошлая попытка: её замечания уходят модели отдельным
     блоком «Исправь». Так исправляются и техсбой, и неверная раскладка закадра.
+
+    ``registry`` — реестр персонажей ``c01…``: без него модель знает из сцены
+    только коды и пишет в кадры «Персонаж c01» без имени, возраста и одежды.
     """
     if scene_vo is None:
         master = _read_master(project, node_key, _BY_KIND["shots"])
@@ -1228,6 +2231,7 @@ async def _plan_scene_shots(
             РЕЧЬ=_json(speech),
             ФОН=_json(background),
             ЗАКАДР_СЦЕНЫ=scene_vo,
+            РЕЕСТР=_json(list(registry or [])),
         )
     if previous is not None and previous.problems:
         prompt += (
@@ -1265,9 +2269,10 @@ async def _plan_scene_shots(
         raw_kadry = fields.get("кадры")
         if isinstance(raw_kadry, list):
             kadry.extend(_normalize_kadry(raw_kadry, speech, scene, background))
-    # Правил-отбраковки нет намеренно (решение владельца 2026-11-15): кадры
-    # делаются промтом, а не доработкой по замечаниям валидатора.
-    return _ShotAttempt(kadry=kadry, problems=[])
+    # Контракт владельца 2026-11-19: кадры правятся промтом, но два жёстких
+    # нарушения (скачок зоны без кадра перехода и «действие» из одной фразы)
+    # возвращаются модели блоком «## Исправь».
+    return _ShotAttempt(kadry=kadry, problems=_shot_contract_problems(kadry))
 
 
 # ── Режим VO: закадровый текст, подведённый к «Шотам» ───────────────────────
@@ -1310,6 +2315,7 @@ VO_PLACEHOLDER_ALIASES: dict[str, str] = {
     "РЕЧЬ": "‹речь сцены выше›",
     "ФОН": "‹фон сцены выше›",
     "UUID_СЦЕНЫ": "‹UUID сцены выше›",
+    "РЕЕСТР": "‹реестр персонажей выше›",
 }
 
 
@@ -1510,21 +2516,17 @@ async def _run_shots_vo(
     scenes = await apply.load_scenes(session, project)
     if not scenes:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
         )
     backgrounds = await apply.load_backgrounds(session, project)
+    # Реестр персонажей обязателен: в сцене лежат только коды ``c01…``, и без
+    # реестра модель писала в кадры «Персонаж c01» — имени, возраста и одежды
+    # взять ей было неоткуда, генератор картинок никого не узнавал.
+    characters = await apply.load_characters(session, project)
+    registry = _registry_list(characters)
     scene_dicts = [_scene_dict(frame) for frame in scenes]
-    no_background = [
-        scene["номер"]
-        for scene in scene_dicts
-        if not scene["фон"] or scene["фон"] not in backgrounds
-    ]
-    if no_background:
-        raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: режим VO — у сцен "
-            f"{no_background[:8]} нет существующего фона (R-BG-REF): сначала «Фоны», "
-            "иначе кусок закадра не к чему привязать"
-        )
+    # «Фоны» стоят ПОСЛЕ «Шотов»: фон собирается из кадров, поэтому на первом
+    # прогоне карточки ещё нет. Это не ошибка — кадры строятся от места сцены.
     chunks = await _vo_partition(project, node_key, scene_dicts, text)
     chunk_by_number = {int(row["номер"]): row["закадр"] for row in chunks}
     # Склейка проверяется ДО вызовов модели на кадры: деление уже прошло
@@ -1550,7 +2552,8 @@ async def _run_shots_vo(
                 "scene": scene,
                 "frame": frame,
                 "speech": _speech_of(frame),
-                "background": backgrounds[scene["фон"]],
+                "background": backgrounds.get(scene["фон"])
+                or _background_placeholder(scene),
                 "scene_vo": chunk_by_number.get(int(scene["номер"]), ""),
             }
         )
@@ -1574,6 +2577,7 @@ async def _run_shots_vo(
                     job["background"],
                     scene_vo=scene_vo,
                     previous=previous,
+                    registry=registry,
                 )
             except RuntimeError as exc:
                 problems = [str(exc)]
@@ -1596,7 +2600,9 @@ async def _run_shots_vo(
                 )
                 return {**job, "kadry": [], "skip_reason": str(exc)}
             last_kadry = _kadry_in_order(attempt.kadry)
-            problems = vo.shots_partition_problems(scene_vo, last_kadry)
+            problems = list(attempt.problems) + vo.shots_partition_problems(
+                scene_vo, last_kadry
+            )
             if not problems:
                 return {**job, "kadry": last_kadry, "code_split": False}
             logger.warning(
@@ -1744,7 +2750,7 @@ async def _run_shots(session: Any, project: Any, *, node_key: str) -> NodeResult
     scenes = await apply.load_scenes(session, project)
     if not scenes:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
         )
     backgrounds = await apply.load_backgrounds(session, project)
     all_ops: list[dict[str, Any]] = []
@@ -1766,13 +2772,10 @@ async def _run_shots(session: Any, project: Any, *, node_key: str) -> NodeResult
         if only and int(scene["номер"]) not in only:
             continue
         speech = _speech_of(frame)
-        background = backgrounds.get(scene["фон"])
-        if background is None:
-            problems_total.append(
-                f"R-BG-REF: сцена {scene['номер']} без существующего фона "
-                f"({scene['фон']!r}) — сначала «Фоны»"
-            )
-            continue
+        # «Фоны» идут ПОСЛЕ «Шотов» (фон собирается из кадров), поэтому на
+        # первом прогоне карточки ещё нет. Это не ошибка: кадры строятся от
+        # места сцены, код фона проставит нода «Фоны».
+        background = backgrounds.get(scene["фон"]) or _background_placeholder(scene)
         jobs.append({"scene": scene, "speech": speech, "background": background})
 
     async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
@@ -1886,6 +2889,13 @@ async def _run_shots(session: Any, project: Any, *, node_key: str) -> NodeResult
         )
     if not all_ops:
         raise RuntimeError(f"#{getattr(project, 'id', '?')} {node_key}: нет ни одного кадра")
+    # Отладочный shots_fail.json от прерванных прогонов больше не нужен: его
+    # таблица в «Результатах» дублировала кадры успешного прогона.
+    stale_fail = Path(project.data_dir) / "excel_gpt_uploads" / node_key / "shots_fail.json"
+    try:
+        stale_fail.unlink(missing_ok=True)
+    except OSError:
+        logger.debug("[#%s] %s: shots_fail.json не удалился", getattr(project, "id", "?"), node_key)
     path = apply.save_artifact(project, node_key, ARTIFACT_SHOTS, {"ops": all_ops})
     kadrov = sum(len(op["fields"]["кадры"]) for op in all_ops)
     reply = f"шоты: сцен {len(all_ops)}, кадров {kadrov}"
@@ -1900,101 +2910,424 @@ async def _run_shots(session: Any, project: Any, *, node_key: str) -> NodeResult
     return NodeResult(reply_text=reply, output_paths=[path])
 
 
+def _backgrounds_input(
+    scenes: Sequence[Mapping[str, Any]],
+    kadry_by_scene: Mapping[str, Sequence[Mapping[str, Any]]],
+    plan_by_code: Mapping[str, str],
+) -> dict[str, Any]:
+    """Вход ноды «Фоны»: кадры всех сцен, сгруппированные по сценам.
+
+    Модель получает раскадровку (что и где снято), а не места сцен: правил
+    объединения в промте, группирует она. Код считает ключи локаций и число
+    кадров — по ним проверяются порог повторяемости и связь «сцена → фон».
+    """
+    rows: list[dict[str, Any]] = []
+    keys: dict[int, str] = {}
+    frames: dict[int, int] = {}
+    total = 0
+    for scene in scenes:
+        number = int(scene.get("номер") or 0)
+        kadry = [
+            row
+            for row in (kadry_by_scene.get(str(scene.get("id") or "")) or [])
+            if isinstance(row, Mapping)
+        ]
+        keys[number] = _scene_location_key(scene, plan_by_code)
+        frames[number] = len(kadry)
+        total += len(kadry)
+        rows.append(
+            {
+                "сцена": number,
+                "место": _flat_text(scene.get("место")),
+                "кадров": len(kadry),
+                # Первые четыре ракурса кадров сцены: из них код соберёт лист
+                # фона 2×2 (квадрант 1 → кадр 1 … квадрант 4 → кадр 4). Сама
+                # модель ракурсы не выбирает и в промт не пишет.
+                "ракурсы": [_flat_text(kadr.get("ракурс")) for kadr in kadry[:4]],
+                "кадры": [
+                    {
+                        "id": _flat_text(kadr.get("id")),
+                        "порядок": kadr.get("порядок"),
+                        "план": _flat_text(kadr.get("план")),
+                        "ракурс": _flat_text(kadr.get("ракурс")),
+                        "высота": _flat_text(kadr.get("высота")),
+                        # «кто и где» — одно поле новой раскадровки; старое
+                        # разбиение на «кто»/«где» поддерживаем как есть.
+                        "где": _flat_text(kadr.get("где") or kadr.get("кто_где")),
+                        "кто_где": _flat_text(kadr.get("кто_где")),
+                        "место": _flat_text(kadr.get("место")),
+                        "фон": _flat_text(kadr.get("фон")),
+                        "действие": _flat_text(kadr.get("действие")),
+                        "кто": _flat_text(kadr.get("кто")),
+                    }
+                    for kadr in kadry
+                ],
+            }
+        )
+    return {"сцены": rows, "keys": keys, "frames": frames, "frames_total": total}
+
+
+def _assign_backgrounds(
+    cards: Any,
+    *,
+    scene_keys: Mapping[int, str],
+    scene_frames: Mapping[int, int],
+) -> dict[str, Any]:
+    """Разобрать ответ модели: карточки фонов и код фона каждой сцены.
+
+    Правила ``plan_backgrounds.md``: карточка — только на повторяющуюся
+    локацию; кадры одной сцены с одной локацией — один фон; продолжение и
+    возврат к прежнему месту берут прежний код (второй ``Entity`` не нужен).
+
+    Возвращает ``{"cards", "code_by_scene", "dropped", "warnings", "problems",
+    "frames_by_key", "expected_keys"}``.
+    """
+    empty: dict[str, Any] = {
+        "cards": [],
+        "code_by_scene": {},
+        "dropped": [],
+        "warnings": [],
+        "problems": [],
+        "frames_by_key": {},
+        "expected_keys": 0,
+    }
+    if not isinstance(cards, list):
+        empty["problems"] = ["ответ без списка «фоны»"]
+        return empty
+    problems: list[str] = []
+    dropped: list[str] = []
+    warnings: list[str] = []
+    code_by_scene: dict[int, str] = {}
+    kept: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    for index, raw in enumerate(cards, 1):
+        if not isinstance(raw, Mapping):
+            problems.append(f"фон #{index}: элемент не объект")
+            continue
+        code = str(raw.get("id") or "").strip().lower()
+        if not _BACKGROUND_CODE_RE.match(code):
+            problems.append(f"фон #{index}: id {code!r} не по формату f0N (например, f01)")
+            continue
+        if code in seen_codes:
+            problems.append(f"фон {code}: код повторяется")
+            continue
+        place = " ".join(str(raw.get("место") or "").split())
+        if not place:
+            problems.append(f"фон {code}: пустое «место»")
+            continue
+        raw_numbers = raw.get("сцены")
+        if not isinstance(raw_numbers, list) or not raw_numbers:
+            problems.append(f"фон {code}: пустой «сцены» — перечисли сцены этого фона")
+            continue
+        numbers: list[int] = []
+        unknown: list[Any] = []
+        for value in raw_numbers:
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                unknown.append(value)
+                continue
+            if number not in scene_keys:
+                unknown.append(value)
+            elif number not in numbers:
+                numbers.append(number)
+        if unknown:
+            problems.append(f"фон {code}: сцен {unknown[:6]} нет во входе")
+            continue
+        if not numbers:
+            problems.append(f"фон {code}: пустой «сцены» после разбора")
+            continue
+        duplicates = [number for number in numbers if number in code_by_scene]
+        if duplicates:
+            problems.append(f"сцены {duplicates[:6]} указаны в двух фонах")
+            continue
+        card_frames = sum(scene_frames.get(number, 0) for number in numbers)
+        if card_frames < BACKGROUND_MIN_FRAMES:
+            dropped.append(
+                f"{code}: {card_frames} кадр(ов) — одиночное место, карточка не заводится"
+            )
+            continue
+        card_keys = {scene_keys[number] for number in numbers}
+        if len(card_keys) > 1:
+            # Место в текстах разошлось («двор» / «тот же двор»), а модель
+            # объединила кадры в один фон. Ключ — эвристика по тексту, поэтому
+            # это не отказ шага, а предупреждение: семантику решила модель.
+            warnings.append(
+                f"фон {code}: сцены разных мест {sorted(card_keys)} — "
+                "объединены моделью в один фон"
+            )
+        for number in numbers:
+            code_by_scene[number] = code
+        seen_codes.add(code)
+        kept.append({**dict(raw), "id": code, "место": place, "сцены": list(numbers)})
+    # Одна локация — один фон. Модель иногда заводит на одно место две карточки
+    # (разбила кадры по подместам или по времени). Это не повод падать: вторую
+    # склеиваем в первую и переводим её сцены на первый код — ровно то, что
+    # сделал бы человек, увидев два фона одного места.
+    kept_by_key: dict[str, dict[str, Any]] = {}
+    merged_kept: list[dict[str, Any]] = []
+    for card in kept:
+        key = scene_keys.get(card["сцены"][0], "")
+        target = kept_by_key.get(key) if key else None
+        if target is not None:
+            target["сцены"] = sorted({*target["сцены"], *card["сцены"]})
+            for number in card["сцены"]:
+                code_by_scene[number] = target["id"]
+            warnings.append(
+                f"локация {key!r}: карточки {card['id']} и {target['id']} "
+                "описывают одно место — склеены в один фон"
+            )
+            continue
+        if key:
+            kept_by_key[key] = card
+        merged_kept.append(card)
+    kept = merged_kept
+    key_code: dict[str, str] = {}
+    for number in sorted(code_by_scene):
+        key = scene_keys.get(number, "")
+        code = code_by_scene[number]
+        if key:
+            key_code[key] = code
+    # Продолжение/возврат: сцена без кода, но её локация уже имеет код, — берём
+    # прежний фон, второй Entity не создаём.
+    for number in sorted(scene_keys):
+        if number in code_by_scene:
+            continue
+        inherited = key_code.get(scene_keys[number])
+        if inherited:
+            code_by_scene[number] = inherited
+    frames_by_key: dict[str, int] = {}
+    for number, key in scene_keys.items():
+        frames_by_key[key] = frames_by_key.get(key, 0) + scene_frames.get(number, 0)
+    expected_keys = {
+        key: count for key, count in frames_by_key.items() if count >= BACKGROUND_MIN_FRAMES
+    }
+    for key in sorted(expected_keys):
+        if key in key_code:
+            continue
+        numbers = sorted(number for number, value in scene_keys.items() if value == key)
+        problems.append(
+            f"локация {key!r} встречается {expected_keys[key]} раз(а) в кадрах, "
+            f"но фона нет (сцены {numbers})"
+        )
+    return {
+        "cards": kept,
+        "code_by_scene": code_by_scene,
+        "dropped": dropped,
+        "warnings": warnings,
+        "problems": problems,
+        "frames_by_key": frames_by_key,
+        "expected_keys": len(expected_keys),
+    }
+
+
+def _card_angles(
+    scenes: Sequence[Mapping[str, Any]],
+    kadry_by_scene: Mapping[str, Sequence[Mapping[str, Any]]],
+    code_by_scene: Mapping[int, str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Кадры-панели листа каждого фона: первые четыре кадра по порядку сцен.
+
+    Квадрант 1 = первый кадр фона, квадрант 4 = четвёртый. Кадры 5+ в лист не
+    попадают, недостающие панели заполняет общий вид (см. ``compose_sheet_prompt``).
+    Отдаём не только ракурс, но и всё, из чего строится вид панели: крупность,
+    высота камеры и что видно из декорации в этом кадре.
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    for scene in scenes:
+        number = int(scene.get("номер") or 0)
+        code = str(code_by_scene.get(number) or "").strip()
+        if not code:
+            continue
+        bucket = out.setdefault(code, [])
+        if len(bucket) >= 4:
+            continue
+        rows = kadry_by_scene.get(str(scene.get("id") or "")) or []
+        for row in rows:
+            if len(bucket) >= 4:
+                break
+            bucket.append(
+                {
+                    "id": str(row.get("id") or ""),
+                    "ракурс": str(row.get("ракурс") or ""),
+                    "высота": str(row.get("высота") or ""),
+                    "план": str(row.get("план") or ""),
+                }
+            )
+    return out
+
+
+def _card_sheet_views(
+    cards: Sequence[Mapping[str, Any]],
+    frames_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, list[str]]:
+    """Вид каждой панели листа: английский текст модели, иначе — ракурс кадра.
+
+    Модель пишет в карточке поле ``кадры_листа``: по записи на кадр этого фона
+    (``кадр`` — id из входа, ``вид`` — что видит камера локации без людей).
+    Код ставит записи в жёсткий порядок панелей: квадрант 1 → первый кадр фона,
+    квадрант 4 → четвёртый. Записи нет — панель получает вид по ракурсу кадра
+    (``front view`` и т.п.), чтобы лист не остался пустым.
+    """
+    from app.services.plan_cinema.backgrounds_render import angle_en
+
+    out: dict[str, list[str]] = {}
+    for card in cards:
+        if not isinstance(card, Mapping):
+            continue
+        code = str(card.get("id") or "").strip()
+        frames = list(frames_by_code.get(code) or [])
+        if not frames:
+            continue
+        by_shot: dict[str, str] = {}
+        raw = card.get("кадры_листа")
+        if isinstance(raw, list):
+            for entry in raw:
+                if not isinstance(entry, Mapping):
+                    continue
+                shot_id = str(entry.get("кадр") or "").strip()
+                text = " ".join(str(entry.get("вид") or "").split())
+                if shot_id and text:
+                    by_shot[shot_id] = text
+        views: list[str] = []
+        for frame in frames[:4]:
+            shot_id = str(frame.get("id") or "")
+            views.append(by_shot.get(shot_id) or angle_en(frame.get("ракурс")))
+        if views:
+            out[code] = views
+    return out
+
+
 async def _run_backgrounds(session: Any, project: Any, *, node_key: str) -> NodeResult:
-    """Шаг 6: места всех сцен → Entity(background) f0N + ``attrs["фон"]`` сцен."""
+    """Шаг 6: кадры всех сцен → Entity(background) f0N + код фона кадру и сцене.
+
+    Вход — ШОТЫ (``attrs["кадры"]``), а не места сцен: объединение кадров в
+    локации и порог повторяемости — правила промта ``plan_backgrounds``.
+    Код проверяет форму ответа, пиннит код на каждую сцену и на каждый её кадр
+    (``фон_код``) и терпит одиночные места без карточки.
+    """
     apply = _apply()
     gates = _gates()
     scenes = await apply.load_scenes(session, project)
     if not scenes:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
         )
-    # Фон — на локацию, а не на сцену. Локацию берём из шапки плана
-    # («НАТ. ЛЕСНАЯ ПРОГАЛИНА — ДЕНЬ» → «лесная прогалина»): сцены одной
-    # локации в плане всегда подписаны одинаково, а «место» сцены — это уже
-    # подробное описание для кадра. Нет шапки — падаем на текст места.
-    plan_by_code = dict(_split().num_plan_points(_source().read_plan_text(project)))
-    places: dict[str, dict[str, Any]] = {}
-    for frame in scenes:
-        scene = _scene_dict(frame)
-        place = " ".join(scene["место"].split()).strip()
+    scene_dicts = [_scene_dict(frame) for frame in scenes]
+    plan_by_code = dict(_plan_points(project))
+    kadry_by_scene: dict[str, list[dict[str, Any]]] = {}
+    for frame, scene in zip(scenes, scene_dicts, strict=False):
+        kadry_by_scene[str(scene["id"])] = _frames_of(frame)
+    if not any(kadry_by_scene.values()):
+        # Кадры могли остаться только в артефакте «Шотов» (упал коммит).
+        artifact = _shots_artifact_kadry(project, node_key)
+        if artifact:
+            kadry_by_scene = {
+                scene_id: list(artifact.get(scene_id, []))
+                for scene_id in kadry_by_scene
+            }
+    # Место сцены: карточка → шапка плана → место кадров → «кто и где» кадра →
+    # текст сцены. Новое разбиение по плану отдельного «места» в карточке не
+    # держит: место живёт в кадрах и в тексте сцены, а у кадра «где» слито с
+    # «кто» в одно поле. Поэтому «пустое место» — не повод ронять шаг.
+    for scene in scene_dicts:
+        rows = kadry_by_scene.get(str(scene["id"])) or []
+        place = " ".join(str(scene.get("место") or "").split())
+        if not place:
+            place = _plan_location(
+                plan_by_code, [str(code) for code in scene.get("id_плана") or []]
+            )
+        if not place:
+            place = next(
+                (
+                    " ".join(str(row.get("место") or "").split())
+                    for row in rows
+                    if " ".join(str(row.get("место") or "").split())
+                ),
+                "",
+            )
+        if not place:
+            place = next(
+                (
+                    " ".join(str(row.get("кто_где") or row.get("где") or "").split())
+                    for row in rows
+                    if " ".join(str(row.get("кто_где") or row.get("где") or "").split())
+                ),
+                "",
+            )
+        if not place:
+            place = " ".join(str(scene.get("сцена") or "").split())
         if not place:
             raise RuntimeError(
                 f"#{getattr(project, 'id', '?')} {node_key}: у сцены {scene['номер']} "
-                "пустое место"
+                "пустое место — ни в карточке, ни в плане, ни в кадрах"
             )
-        key = _plan_location(plan_by_code, scene["id_плана"]) or _place_group_key(place)
-        # Время суток — часть ключа: свет фона должен совпадать со сценой.
-        key = f"{key} · {_time_of_day(place)}" if _time_of_day(place) else key
-        entry = places.setdefault(
-            key, {"место": place, "варианты": [], "сцены": [], "события": []}
+        scene["место"] = place
+    kadrov = sum(len(rows) for rows in kadry_by_scene.values())
+    if not kadrov:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет кадров — сначала «Шоты»"
         )
-        if place not in entry["варианты"]:
-            entry["варианты"].append(place)
-        entry["сцены"].append(scene["номер"])
-        if scene["событие"]:
-            entry["события"].append(scene["событие"])
-    places_payload = [
-        {
-            "код": f"M{index}",
-            "место": entry["место"],
-            "варианты": entry["варианты"],
-            "сцен": len(entry["сцены"]),
-            "события": entry["события"][:4],
-        }
-        for index, entry in enumerate(places.values(), 1)
-    ]
-    code_by_group = {f"M{index}": key for index, key in enumerate(places, 1)}
+    built = _backgrounds_input(scene_dicts, kadry_by_scene, plan_by_code)
     master = _read_master(project, node_key, _BY_KIND["backgrounds"])
-    prompt = _render(master, МЕСТА=_json(places_payload))
+    prompt = _render(master, КАДРЫ=_json(built["сцены"]))
     payload = await _ask_json(project, node_key, prompt, "Фоны целиком.")
-    backgrounds = payload.get("фоны")
-    if not isinstance(backgrounds, list) or not backgrounds:
+    assigned = _assign_backgrounds(
+        payload.get("фоны"),
+        scene_keys=built["keys"],
+        scene_frames=built["frames"],
+    )
+    if assigned["problems"]:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: ответ без списка «фоны»"
+            f"#{getattr(project, 'id', '?')} {node_key}: фоны — "
+            f"{json.dumps(assigned['problems'][:8], ensure_ascii=False)}"
         )
-    if len(backgrounds) != len(places_payload):
-        raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: фонов {len(backgrounds)}, "
-            f"мест во входе {len(places_payload)} — один фон на каждое место"
-        )
-    await apply.write_entities(session, project, backgrounds=backgrounds)
-    code_by_place: dict[str, str] = {}
-    for card in backgrounds:
-        if not isinstance(card, dict):
-            continue
-        code = str(card.get("id") or "").strip()
-        place_code = str(card.get("место") or "").strip()
-        group_key = code_by_group.get(place_code)
-        if not group_key:
-            # модель вернула текст места вместо кода — ищем по началу строки
-            folded = _place_group_key(place_code)
-            for key in places:
-                if folded and (key.startswith(folded) or folded.startswith(key)):
-                    group_key = key
-                    break
-        if group_key and code:
-            code_by_place[group_key] = code
-    missing = [key for key in places if key not in code_by_place]
-    if missing:
-        raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: R-BG-REF fail — нет фона для "
-            f"мест: {json.dumps(missing[:8], ensure_ascii=False)}"
-        )
-    scene_group: dict[str, str] = {}
-    for frame in scenes:
-        scene = _scene_dict(frame)
-        place = " ".join(scene["место"].split()).strip()
-        base = _plan_location(plan_by_code, scene["id_плана"]) or _place_group_key(place)
-        time_of_day = _time_of_day(place)
-        scene_group[scene["id"]] = f"{base} · {time_of_day}" if time_of_day else base
-    ops = [
-        {"frame_uuid": scene_id, "fields": {"фон": code_by_place[group_key]}}
-        for scene_id, group_key in scene_group.items()
-    ]
+    for note in assigned["dropped"]:
+        logger.warning("[#%s] %s: %s", getattr(project, "id", "?"), node_key, note)
+    for note in assigned["warnings"]:
+        logger.info("[#%s] %s: %s", getattr(project, "id", "?"), node_key, note)
+    cards = assigned["cards"]
+    # Лист фона 2×2: в ``промт`` карточки код дописывает блок из четырёх панелей.
+    # Порядок жёсткий: квадрант 1 = первый кадр фона … квадрант 4 = четвёртый.
+    # Текст панели пишет модель в ``кадры_листа`` — что перед камерой и на чём
+    # акцент; код только ставит записи по местам и снимает служебное поле.
+    angles_by_code = _card_angles(scene_dicts, kadry_by_scene, assigned["code_by_scene"])
+    if cards:
+        from app.services.plan_cinema.backgrounds_render import compose_sheet_prompt
+
+        views_by_code = _card_sheet_views(cards, angles_by_code)
+        for card in cards:
+            code = str(card.get("id") or "").strip()
+            base = str(card.get("промт") or "").strip()
+            views = views_by_code.get(code) or []
+            card.pop("кадры_листа", None)
+            if not base or not views:
+                continue  # кадры без ракурсов (старые данные) — промт не трогаем
+            card["промт"] = compose_sheet_prompt(base, views)
+            logger.info(
+                "[#%s] %s: фон %s — панели 1-4 из кадров %s, у каждой свой вид",
+                getattr(project, "id", "?"),
+                node_key,
+                code,
+                [str(frame.get("id") or "") for frame in angles_by_code.get(code) or []],
+            )
+        await apply.write_entities(session, project, backgrounds=cards)
+    ops: list[dict[str, Any]] = []
+    patched_by_scene: dict[str, list[dict[str, Any]]] = {}
+    for scene in scene_dicts:
+        code = str(assigned["code_by_scene"].get(int(scene["номер"]), "") or "")
+        scene["фон"] = code
+        ops.append({"frame_uuid": scene["id"], "fields": {"фон": code}})
+        rows = kadry_by_scene.get(str(scene["id"])) or []
+        if rows:
+            patched_by_scene[str(scene["id"])] = [
+                {**dict(row), "фон_код": code} for row in rows
+            ]
     await apply.apply_plan_ops(session, project, ops)
+    for scene_id, patched in patched_by_scene.items():
+        await apply.write_scene_attrs(session, project, scene_id, {"кадры": patched})
     problems = gates.background_ref_problems(
-        [_scene_dict(frame) for frame in scenes],
+        scene_dicts,
         await apply.load_backgrounds(session, project),
     )
     if problems:
@@ -2002,13 +3335,43 @@ async def _run_backgrounds(session: Any, project: Any, *, node_key: str) -> Node
             f"#{getattr(project, 'id', '?')} {node_key}: R-BG-REF fail — "
             f"{json.dumps(problems[:8], ensure_ascii=False)}"
         )
-    # Фон — не только текст: до генерации кадров у каждой локации должна быть
-    # PNG (механика как у референсов персонажей). Иначе «Картинки» стартуют с
-    # пустыми фонами, и кадры рисуются «в воздухе» — ровно то, на что указал
-    # владелец 2026-11-16: «Фоны должны генерироваться перед картинками».
-    from app.services.plan_cinema.backgrounds_render import render_missing
+    # Фон — не только текст: у заведённой локации должна быть PNG (механика
+    # как у референсов персонажей). У одиночных мест карточки нет — PNG не
+    # рисуется, кадр опирается на место сцены.
+    from app.services.plan_cinema.backgrounds_render import prune_backgrounds, render_missing
 
-    rendered, already = await render_missing(session, project)
+    # Перезапуск «Фонов» пишет новый комплект локаций: коды прошлого прогона
+    # (f10…f16) обязаны уходить с учёта вместе с артефактами и PNG, иначе в
+    # реестре и «Результатах» висят промты и картинки старой группировки.
+    pruned = await prune_backgrounds(
+        session, project, [str(card.get("id") or "") for card in cards]
+    )
+    if pruned["archived"] or pruned["artifacts_removed"] or pruned["files_removed"]:
+        logger.info(
+            "[#%s] %s: старые фоны сняты с учёта — карточек %s, артефактов %s, PNG %s",
+            getattr(project, "id", "?"),
+            node_key,
+            pruned["archived"],
+            pruned["artifacts_removed"],
+            pruned["files_removed"],
+        )
+
+    render_paused = bool((getattr(project, "meta", None) or {}).get("backgrounds_render_paused"))
+    if render_paused:
+        rendered, already = 0, 0
+        logger.info(
+            "[#%s] %s: рисование PNG фонов на паузе (meta.backgrounds_render_paused)",
+            getattr(project, "id", "?"),
+            node_key,
+        )
+    elif cards:
+        # Только коды этого прогона: в реестре могли остаться карточки прежней
+        # группировки (upsert не удаляет), и рисовать их PNG — платить за мусор.
+        rendered, already = await render_missing(
+            session, project, only=[str(card.get("id") or "") for card in cards]
+        )
+    else:
+        rendered, already = 0, 0
     logger.info(
         "[#%s] %s: PNG фонов — нарисовано %s, уже было %s",
         getattr(project, "id", "?"),
@@ -2016,12 +3379,20 @@ async def _run_backgrounds(session: Any, project: Any, *, node_key: str) -> Node
         rendered,
         already,
     )
-    return NodeResult(
-        reply_text=(
-            f"фоны: мест {len(places_payload)}, фонов {len(backgrounds)}, "
-            f"PNG нарисовано {rendered}, готовых {already}, R-BG-REF pass"
-        )
+    without_card = sum(
+        1
+        for scene in scene_dicts
+        if not assigned["code_by_scene"].get(int(scene["номер"]))
     )
+    reply = (
+        f"фоны: сцен {len(scene_dicts)}, кадров {kadrov}, фонов {len(cards)} "
+        f"(повторяющихся локаций {assigned['expected_keys']}), "
+        f"лист 2×2: ракурсов {sum(len(v) for v in angles_by_code.values())}, "
+        f"сцен без карточки {without_card}, "
+        f"PNG нарисовано {rendered}, готовых {already}"
+        f"{', рисование на паузе' if render_paused else ''}, R-BG-REF pass"
+    )
+    return NodeResult(reply_text=reply)
 
 
 async def _run_qc(session: Any, project: Any, *, node_key: str) -> NodeResult:
@@ -2065,7 +3436,7 @@ async def _qc_pass(
     scenes = await apply.load_scenes(session, project)
     if not scenes:
         raise RuntimeError(
-            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Каркас»"
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
         )
     characters = await apply.load_characters(session, project)
     backgrounds = await apply.load_backgrounds(session, project)
@@ -2079,7 +3450,9 @@ async def _qc_pass(
         scene = _scene_dict(frame)
         speech = _speech_of(frame)
         kadry = _frames_of(frame)
-        mechanical = _shot_mechanics(kadry, vo_mode=vo_source is not None)
+        mechanical = _shot_mechanics(
+            kadry, vo_mode=vo_source is not None, scene=scene
+        )
         neighbour_prev = _scene_dict(scenes[index - 1]) if index > 0 else None
         neighbour_next = _scene_dict(scenes[index + 1]) if index + 1 < len(scenes) else None
         prompt = _render(
@@ -2158,22 +3531,528 @@ async def _qc_pass(
     return Path(path), verdicts, violations_total
 
 
+def _fix_cards_problems(kadry_in: Sequence[Any], cards: Any) -> list[str]:
+    """Что не так с карточками из ответа модели правок.
+
+    Нода правит только ``промт_картинки``; всё, что меняет раскадровку
+    (число, порядок, id), — ошибка ответа, а не повод перезаписать сцену.
+    Остальные поля при сборке берутся из входа, поэтому здесь их не сверяем.
+    """
+    if not isinstance(cards, list):
+        return ["поле «кадры» — не список"]
+    if len(cards) != len(kadry_in):
+        return [f"кадров {len(cards)} вместо {len(kadry_in)}"]
+    problems: list[str] = []
+    for expected, got in zip(kadry_in, cards, strict=False):
+        if not isinstance(got, dict):
+            problems.append(f"кадр {expected.get('id')}: карточка не объект")
+            continue
+        shot_id = str(expected.get("id") or "")
+        if str(got.get("id") or "") != shot_id:
+            problems.append(f"кадр {shot_id}: id изменился на {got.get('id')!r}")
+        # Порядок модель не обязана возвращать: в ответе его может не быть вовсе
+        # (промт просит править только отдельные поля), а порядок кадра уже
+        # закреплён его id. Сверяем только присланный порядок.
+        got_order = str(got.get("порядок") or "").strip()
+        expected_order = str(expected.get("порядок") or "").strip()
+        if got_order and expected_order and got_order != expected_order:
+            problems.append(f"кадр {shot_id}: порядок изменился")
+        if not str(got.get("промт_картинки") or "").strip():
+            problems.append(f"кадр {shot_id}: пустой промт_картинки")
+    return problems
+
+
+def _fix_cards_merge(kadry_in: Sequence[Any], cards: Sequence[Any]) -> list[dict[str, Any]]:
+    """Карточки для apply-ops: меняется ровно одно поле — ``промт_картинки``."""
+    merged: list[dict[str, Any]] = []
+    for original, got in zip(kadry_in, cards, strict=False):
+        card = dict(original) if isinstance(original, dict) else {}
+        card["промт_картинки"] = str(got.get("промт_картинки") or "").strip()
+        merged.append(card)
+    return merged
+
+
+
+#: Поля кадра, которые правит «Проверка» (позиционирование и геометрия).
+_CHECK_FIELDS: tuple[str, ...] = ("кто", "где", "позы", "фон", "промт_картинки")
+
+
+def _check_cards_problems(kadry_in: Sequence[Any], cards: Any) -> list[str]:
+    """Что не так с карточками из ответа «Проверки».
+
+    Нода меняет только положение/состав персонажей. Всё, что меняет
+    раскадровку (число кадров, порядок, id), — ошибка ответа, а не повод
+    перезаписать сцену.
+    """
+    if not isinstance(cards, list):
+        return ["поле «кадры» — не список"]
+    if len(cards) != len(kadry_in):
+        return [f"кадров {len(cards)} вместо {len(kadry_in)}"]
+    problems: list[str] = []
+    for expected, got in zip(kadry_in, cards, strict=False):
+        if not isinstance(got, dict):
+            problems.append(f"кадр {expected.get('id')}: карточка не объект")
+            continue
+        shot_id = str(expected.get("id") or "")
+        if str(got.get("id") or "") != shot_id:
+            problems.append(f"кадр {shot_id}: id изменился на {got.get('id')!r}")
+        # Порядок модель не обязана возвращать: в ответе его может не быть вовсе
+        # (промт просит править только отдельные поля), а порядок кадра уже
+        # закреплён его id. Сверяем только присланный порядок.
+        got_order = str(got.get("порядок") or "").strip()
+        expected_order = str(expected.get("порядок") or "").strip()
+        if got_order and expected_order and got_order != expected_order:
+            problems.append(f"кадр {shot_id}: порядок изменился")
+    return problems
+
+
+def _check_cards_merge(
+    kadry_in: Sequence[Any], cards: Sequence[Any]
+) -> list[dict[str, Any]]:
+    """Карточки для записи: меняются только поля ``_CHECK_FIELDS``.
+
+    Всё остальное (план, ракурс, высота, действие, промты старта/конца,
+    фон_код, id, порядок) берётся из входа — модель их не переписывает.
+    Пустой ``кто``/``где``/``позы`` — легальная правка (персонажа выписали),
+    пустой ``промт_картинки`` — нет: промт не обнуляем.
+    """
+    merged: list[dict[str, Any]] = []
+    for original, got in zip(kadry_in, cards, strict=False):
+        card = dict(original) if isinstance(original, dict) else {}
+        source = got if isinstance(got, dict) else {}
+        for key in _CHECK_FIELDS:
+            if key not in source:
+                continue
+            value = str(source.get(key) or "").strip()
+            if key == "промт_картинки" and not value:
+                continue
+            card[key] = value
+        merged.append(card)
+    return merged
+
+
+async def _run_check(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг: проверка и корректировка кадров — позиционирование и геометрия.
+
+    Стоит после «Фонов»: кадры и карточка фона уже есть. Правит только состав
+    персонажей кадра (``кто``), их место (``где``), положение и действие
+    (``позы``), описание видимого фона (``фон``) и положение в ``промт_картинки``.
+    Непрерывность проверяется по предыдущему кадру массива, экранные стороны —
+    из ракурса кадра относительно точки обзора фона. Число, порядок, план и
+    остальные поля кадров защищены валидацией и не уезжают.
+    """
+    apply = _apply()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
+        )
+    characters = await apply.load_characters(session, project)
+    backgrounds = await apply.load_backgrounds(session, project)
+    master = _read_master(project, node_key, _BY_KIND["check"])
+    vo_source = _vo().shots_node_vo_source(project, _BY_KIND["shots"].node_id)
+    jobs: list[dict[str, Any]] = []
+    for index, frame in enumerate(scenes):
+        scene = _scene_dict(frame)
+        kadry = _frames_of(frame)
+        if not kadry:
+            continue
+        mechanical = _shot_mechanics(
+            kadry, vo_mode=vo_source is not None, scene=scene
+        )
+        neighbour_prev = _scene_dict(scenes[index - 1]) if index > 0 else None
+        neighbour_next = (
+            _scene_dict(scenes[index + 1]) if index + 1 < len(scenes) else None
+        )
+        prompt = _render(
+            master,
+            сцена=_json(scene),
+            кадры=_json(kadry),
+            реестр_персонажи=_json(_registry_list(characters)),
+            реестр_фоны=_json([backgrounds[code] for code in sorted(backgrounds)]),
+            механические_нарушения=_json(mechanical),
+            соседи=_json({"предыдущая": neighbour_prev, "следующая": neighbour_next}),
+        )
+        jobs.append({"scene": scene, "frame": frame, "kadry": kadry, "prompt": prompt})
+    if not jobs:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет кадров — сначала «Шоты»"
+        )
+
+    reports: list[dict[str, Any]] = []
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        """Спросить правки одной сцены, переспрашивая при битом наборе кадров.
+
+        Модель иногда возвращает меньше кадров, чем было во входе («кадров 0
+        вместо 6») — раньше это валило всю ноду и она перезапускалась с первой
+        сцены, теряя уже сделанное. Теперь такая сцена переспрашивается до трёх
+        раз, остальные сцены пачки продолжают работу.
+        """
+        prompt = str(job["prompt"])
+        problems: list[str] = []
+        for attempt in range(1, 4):
+            try:
+                payload = await _ask_json(
+                    project, node_key, prompt, "Исправленные кадры этой сцены."
+                )
+            except Exception as exc:  # noqa: BLE001 — обрыв/битый JSON у шлюза
+                problems = [f"ответ модели не разобран: {exc}"]
+                logger.warning(
+                    "[#%s] %s: сцена %s — ответ не разобран (попытка %s/3): %s",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    job["scene"]["номер"],
+                    attempt,
+                    str(exc)[:200],
+                )
+                if attempt == 3:
+                    raise
+                continue
+            cards = payload.get("кадры") if isinstance(payload, dict) else None
+            problems = _check_cards_problems(job["kadry"], cards)
+            if not problems:
+                return {**job, "payload": payload}
+            logger.warning(
+                "[#%s] %s: сцена %s — набор кадров не принят (попытка %s/3): %s",
+                getattr(project, "id", "?"),
+                node_key,
+                job["scene"]["номер"],
+                attempt,
+                "; ".join(problems[:3]),
+            )
+            prompt = (
+                str(job["prompt"])
+                + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРИНЯТ: "
+                + "; ".join(problems[:3])
+                + ".\nВерни ВСЕ кадры сцены ровно в том же количестве и с теми же id,"
+                " что во входе: правь только кто/где/позы/фон/промт_картинки, ничего не выбрасывай."
+            )
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: сцена {job['scene']['номер']} — "
+            + "; ".join(problems[:3])
+        )
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene, kadry_in = answer["scene"], answer["kadry"]
+        payload = answer["payload"]
+        cards = payload.get("кадры")
+        problems = _check_cards_problems(kadry_in, cards)
+        if problems:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+                + "; ".join(problems[:3])
+            )
+        fixed = _check_cards_merge(kadry_in, cards)
+        changed = sum(
+            1
+            for before, after in zip(kadry_in, fixed, strict=False)
+            if any(
+                str(before.get(key) or "").strip()
+                != str(after.get(key) or "").strip()
+                for key in _CHECK_FIELDS
+            )
+        )
+        if changed:
+            # Кадры сцены живут в ``Frame.attrs["кадры"]``: точечный патч
+            # атрибутов сцены, а не apply-ops по ядру — ``db_apply`` не знает
+            # поле «кадры» и валится «неизвестные поля ['кадры']» (поймано
+            # живым прогоном 2026-11-21 01:33).
+            await apply.write_scene_attrs(session, project, scene["id"], {"кадры": fixed})
+            await session.commit()
+        report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+        verdict = str(report.get("verdict") or ("fixed" if changed else "pass"))
+        if verdict not in ("pass", "fixed", "warn"):
+            verdict = "fixed" if changed else "pass"
+        reports.append(
+            {
+                "номер": scene["номер"],
+                "verdict": verdict,
+                "changed": changed,
+                "violations": [
+                    row for row in report.get("violations") or [] if isinstance(row, dict)
+                ],
+                "unresolved": [str(item) for item in report.get("unresolved") or []],
+            }
+        )
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен с кадрами %s, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+    )
+    await _run_in_batches(
+        jobs,
+        _ask_scene,
+        _commit,
+        size=size,
+        stagger=stagger,
+        project_id=getattr(project, "id", "?"),
+        node_key=node_key,
+        label=lambda job: job["scene"]["номер"],
+    )
+    fixed_total = sum(int(row["changed"]) for row in reports)
+    violations_total = sum(len(row["violations"]) for row in reports)
+    unresolved_total = sum(len(row["unresolved"]) for row in reports)
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_CHECK,
+        {"сцены": reports, "правлено": fixed_total},
+    )
+    return NodeResult(
+        reply_text=(
+            f"проверка кадров: сцен {len(reports)}, правлено кадров {fixed_total}, "
+            f"нарушений {violations_total}, unresolved {unresolved_total}"
+        ),
+        output_paths=[Path(path)],
+    )
+
+
+
+async def _run_fix(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг: правка ``промт_картинки`` кадров сцены — последняя нода цепочки.
+
+    Стоит после «Отчёта»: правки промтов идут в самом конце, перед генерацией
+    картинок. В отличие от «QC» нода не только находит нарушения, но и
+    **дописывает промты**: мизансцена и кто перед кем, инварианты единого
+    исходного фона сцены, камера и взгляд, запрет повторять исходный кадр
+    фона, логика последовательности, планировка и движение. Кадры правятся
+    строго последовательно, 1 → N. Правит только ``промт_картинки``: число,
+    порядок, план и остальные поля кадров защищены валидацией и не уезжают.
+    """
+    apply = _apply()
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
+        )
+    characters = await apply.load_characters(session, project)
+    backgrounds = await apply.load_backgrounds(session, project)
+    master = _read_master(project, node_key, _BY_KIND["fix"])
+    vo_source = _vo().shots_node_vo_source(project, _BY_KIND["shots"].node_id)
+    jobs: list[dict[str, Any]] = []
+    for index, frame in enumerate(scenes):
+        scene = _scene_dict(frame)
+        kadry = _frames_of(frame)
+        if not kadry:
+            continue
+        mechanical = _shot_mechanics(
+            kadry, vo_mode=vo_source is not None, scene=scene
+        )
+        neighbour_prev = _scene_dict(scenes[index - 1]) if index > 0 else None
+        neighbour_next = (
+            _scene_dict(scenes[index + 1]) if index + 1 < len(scenes) else None
+        )
+        prompt = _render(
+            master,
+            сцена=_json(scene),
+            кадры=_json(kadry),
+            реестр_персонажи=_json(_registry_list(characters)),
+            реестр_фоны=_json([backgrounds[code] for code in sorted(backgrounds)]),
+            механические_нарушения=_json(mechanical),
+            соседи=_json({"предыдущая": neighbour_prev, "следующая": neighbour_next}),
+        )
+        jobs.append({"scene": scene, "frame": frame, "kadry": kadry, "prompt": prompt})
+    if not jobs:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет кадров — сначала «Шоты»"
+        )
+
+    reports: list[dict[str, Any]] = []
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        """Спросить правки одной сцены, переспрашивая при битом наборе кадров.
+
+        Модель иногда возвращает меньше кадров, чем было во входе («кадров 0
+        вместо 6») — раньше это валило всю ноду и она перезапускалась с первой
+        сцены, теряя уже сделанное. Теперь такая сцена переспрашивается до трёх
+        раз, остальные сцены пачки продолжают работу.
+        """
+        prompt = str(job["prompt"])
+        problems: list[str] = []
+        for attempt in range(1, 4):
+            try:
+                payload = await _ask_json(
+                    project, node_key, prompt, "Исправленные кадры этой сцены."
+                )
+            except Exception as exc:  # noqa: BLE001 — обрыв/битый JSON у шлюза
+                problems = [f"ответ модели не разобран: {exc}"]
+                logger.warning(
+                    "[#%s] %s: сцена %s — ответ не разобран (попытка %s/3): %s",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    job["scene"]["номер"],
+                    attempt,
+                    str(exc)[:200],
+                )
+                if attempt == 3:
+                    raise
+                continue
+            cards = payload.get("кадры") if isinstance(payload, dict) else None
+            problems = _fix_cards_problems(job["kadry"], cards)
+            if not problems:
+                return {**job, "payload": payload}
+            logger.warning(
+                "[#%s] %s: сцена %s — набор кадров не принят (попытка %s/3): %s",
+                getattr(project, "id", "?"),
+                node_key,
+                job["scene"]["номер"],
+                attempt,
+                "; ".join(problems[:3]),
+            )
+            prompt = (
+                str(job["prompt"])
+                + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРИНЯТ: "
+                + "; ".join(problems[:3])
+                + ".\nВерни ВСЕ кадры сцены ровно в том же количестве и с теми же id,"
+                " что во входе: правь только промт_картинки, ничего не выбрасывай."
+            )
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: сцена {job['scene']['номер']} — "
+            + "; ".join(problems[:3])
+        )
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene, kadry_in = answer["scene"], answer["kadry"]
+        payload = answer["payload"]
+        cards = payload.get("кадры")
+        problems = _fix_cards_problems(kadry_in, cards)
+        if problems:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+                + "; ".join(problems[:3])
+            )
+        fixed = _fix_cards_merge(kadry_in, cards)
+        changed = sum(
+            1
+            for before, after in zip(kadry_in, fixed, strict=False)
+            if str(before.get("промт_картинки") or "").strip()
+            != str(after.get("промт_картинки") or "").strip()
+        )
+        if changed:
+            # Кадры сцены живут в ``Frame.attrs["кадры"]``: точечный патч
+            # атрибутов сцены, а не apply-ops по ядру — ``db_apply`` не знает
+            # поле «кадры» и валится «неизвестные поля ['кадры']» (поймано
+            # живым прогоном 2026-11-21 01:33).
+            await apply.write_scene_attrs(session, project, scene["id"], {"кадры": fixed})
+            await session.commit()
+        report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+        verdict = str(report.get("verdict") or ("fixed" if changed else "pass"))
+        if verdict not in ("pass", "fixed", "warn"):
+            verdict = "fixed" if changed else "pass"
+        reports.append(
+            {
+                "номер": scene["номер"],
+                "verdict": verdict,
+                "changed": changed,
+                "violations": [
+                    row for row in report.get("violations") or [] if isinstance(row, dict)
+                ],
+                "unresolved": [str(item) for item in report.get("unresolved") or []],
+            }
+        )
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен с кадрами %s, пачка %s, пауза %.1f с",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+    )
+    await _run_in_batches(
+        jobs,
+        _ask_scene,
+        _commit,
+        size=size,
+        stagger=stagger,
+        project_id=getattr(project, "id", "?"),
+        node_key=node_key,
+        label=lambda job: job["scene"]["номер"],
+    )
+    fixed_total = sum(int(row["changed"]) for row in reports)
+    violations_total = sum(len(row["violations"]) for row in reports)
+    unresolved_total = sum(len(row["unresolved"]) for row in reports)
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_FIX,
+        {"сцены": reports, "правлено": fixed_total},
+    )
+    return NodeResult(
+        reply_text=(
+            f"правки кадров: сцен {len(reports)}, правлено промтов {fixed_total}, "
+            f"нарушений {violations_total}, unresolved {unresolved_total}"
+        ),
+        output_paths=[Path(path)],
+    )
+
+
 #: Механические коды кадров, которые в режиме VO снимаются: старый потолок
 #: «не больше 6 кадров на сцену» противоречит правилу владельца «весь закадр
 #: разложен по кадрам»: на 600–900 знаков сцены нужно 7–10 кадров.
 VO_RELAXED_SHOT_CODES: tuple[str, ...] = ("R-SHOT-CEILING",)
 
 
-def _shot_mechanics(kadry: Sequence[Any], *, vo_mode: bool = False) -> list[str]:
-    """Механические нарушения кадров; в режиме VO потолок кадров снят."""
+def _reply_pair_shot_ids(kadry: Sequence[Any]) -> set[str]:
+    """Кадры встречных реплик: пара разных говорящих подряд.
+
+    По канону промта у такой пары один план и один ракурс, поэтому повтор сетапа
+    здесь разрешён, а механическое ``R-PLAN-SAME`` — ложное замечание.
+    """
+    shots = [item for item in kadry if isinstance(item, dict)]
+    ids: set[str] = set()
+    for previous, current in zip(shots, shots[1:], strict=False):
+        previous_reply = str(previous.get("реплика") or "").strip()
+        current_reply = str(current.get("реплика") or "").strip()
+        if not (previous_reply and current_reply):
+            continue
+        if str(previous.get("говорит") or "") == str(current.get("говорит") or ""):
+            continue
+        for shot in (previous, current):
+            shot_id = str(shot.get("id") or "").strip()
+            if shot_id:
+                ids.add(shot_id)
+    return ids
+
+
+def _shot_mechanics(
+    kadry: Sequence[Any],
+    *,
+    vo_mode: bool = False,
+    scene: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Механические нарушения кадров; в режиме VO потолок кадров снят.
+
+    Только валидатор ``shot_rules_v2``. Проверки непрерывности (30°, стороны,
+    телепорты персонажей) удалены решением владельца 2026-11-21: кадры не
+    разводятся кодом, QC ничего про угол не пишет. Ложное ``R-PLAN-SAME``
+    у встречных реплик снимается: одинаковый сетап у пары диалога — канон.
+    """
     problems = list(_gates().shots_gate_problems(kadry, vo_mode=False))
-    if not vo_mode:
-        return problems
-    return [
-        item
-        for item in problems
-        if not any(item.startswith(code) for code in VO_RELAXED_SHOT_CODES)
-    ]
+    if vo_mode:
+        problems = [
+            item
+            for item in problems
+            if not any(item.startswith(code) for code in VO_RELAXED_SHOT_CODES)
+        ]
+    reply_pair_ids = _reply_pair_shot_ids(kadry)
+    if reply_pair_ids:
+        problems = [
+            item
+            for item in problems
+            if not (
+                item.startswith("R-PLAN-SAME ")
+                and any(f" {shot_id}:" in item for shot_id in reply_pair_ids)
+            )
+        ]
+    return problems
 
 
 def _vo_chunks_by_number(
@@ -2226,6 +4105,9 @@ async def _shots_repair_pass(
     all_scenes = await apply.load_scenes(session, project)
     frames_by_number = {int(_scene_dict(frame)["номер"]): frame for frame in all_scenes}
     backgrounds = await apply.load_backgrounds(session, project)
+    # Реестр персонажей — как и в основном прогоне шотов: ремонт после QC
+    # не должен терять имена и внешность героев.
+    registry = _registry_list(await apply.load_characters(session, project))
     # Ремонт после QC обязан сохранить режим VO: иначе с отремонтированной
     # сцены исчезнут закадры, а полный текст перестанет сходиться.
     vo_source = vo.shots_node_vo_source(project, shots_key)
@@ -2265,6 +4147,7 @@ async def _shots_repair_pass(
                 РЕЧЬ=_json(speech),
                 ФОН=_json(background),
                 ЗАКАДР_СЦЕНЫ=scene_vo,
+                РЕЕСТР=_json(registry),
             )
         else:
             base_prompt = _render(
@@ -2317,7 +4200,7 @@ async def _shots_repair_pass(
                 kadry = vo.distribute_scene_vo(scene_vo, kadry)
             kadry = vo.with_durations(kadry)
         problems = list(gates.shots_dialogue_problems_plan(kadry, speech))
-        problems.extend(_shot_mechanics(kadry, vo_mode=bool(scene_vo)))
+        problems.extend(_shot_mechanics(kadry, vo_mode=bool(scene_vo), scene=scene))
         if problems:
             logger.warning(
                 "[#%s] %s: сцена %s после правки не прошла валидатор — %s",
@@ -2366,8 +4249,6 @@ _CADR_BODY_MAX = 4000
 #: В keys `frame_style.max_style_chars_v2` нет, поэтому считаем локально.
 _STYLE_BLOCK_LIMIT_V2 = 700
 _MIN_SCENE_BUDGET = 200
-#: Исходник `промт_старт` без STYLE-блока (в keys такой константы нет).
-_START_RAW_KEY = "промт_старт_без_стиля"
 
 
 def _max_style_chars_v2(limit: int | None = None) -> int:
@@ -2380,11 +4261,6 @@ def _max_style_chars_v2(limit: int | None = None) -> int:
 
 #: Сколько раз спрашивать модель по сцене, если ответ не разобрался как JSON.
 _SHOTS_ATTEMPTS = 3
-
-#: Сколько кадров со парой «старт/конец» допустимо в одной сцене. Пара — это
-#: вторая картинка, а не способ показать обычное движение: больше двух на
-#: сцену не бывает.
-_MAX_STARTEND_PER_SCENE = 2
 
 
 def _compact_style(style_text: str, limit: int) -> str:
@@ -2419,11 +4295,10 @@ def _apply_style_to_kadry(
     ``image_prompt`` по переданному бюджету — режется сцена по предложению,
     стиль никогда.
 
-    Дети (``промт_старт``/``промт_конец``) в план-группе не отдельные ``Frame``,
-    а строки ``attrs["кадры"]``, поэтому штатный
-    ``apply_style_to_child_prompts`` их не видит. Дописываем их сами тем же
-    публичным ``compose_styled_prompt`` и с тем же бюджетом; исходник — в
-    ``промт_*_без_стиля``, повтор идемпотентен.
+    Остальные кадры сцены в план-группе не отдельные ``Frame``, а строки
+    ``attrs["кадры"]``, поэтому штатный ``apply_style_to_child_prompts`` их не
+    видит. Дописываем их сами тем же публичным ``compose_styled_prompt`` и с тем
+    же бюджетом; исходник — в ``промт_без_стиля``, повтор идемпотентен.
 
     ``limit`` = тело промта (4000 по валидатору) + длина сжатого STYLE-блока,
     чтобы итог не вылетал за ``R-PROMPT-LEN``.
@@ -2442,34 +4317,34 @@ def _apply_style_to_kadry(
     limit = frame_style.body_limit() if limit is None else int(limit)
     style_clean = str(style_text or "").strip()
     master = frame_style.master_index(kadry)
-    children = 0
     trimmed_children = 0
     for index, entry in enumerate(kadry):
+        # Мастеру промт уже дописал apply_style_to_frames; остальным — сами.
         if index == master:
             continue
-        styled_any = False
-        for key, raw_key in (
-            (frame_style.START_PROMPT_KEY, _START_RAW_KEY),
-            ("промт_конец", "промт_конец_без_стиля"),
-        ):
-            base = str(entry.get(raw_key) or "").strip() or str(
-                frame_style.strip_style(entry.get(key)) or ""
-            ).strip()
-            if not base:
-                continue
-            final, _scene_cut, trimmed = frame_style.compose_styled_prompt(
-                base, style_clean, limit=limit
-            )
-            if not final or final == str(entry.get(key) or ""):
-                continue
-            entry[key] = final
-            entry[raw_key] = base
-            styled_any = True
-            if trimmed:
-                trimmed_children += 1
-        if styled_any:
-            entry[frame_style.STYLE_NAME_KEY] = frame_style.clean_style_name(style_name)
-            children += 1
+        base = str(entry.get(frame_style.SCENE_RAW_KEY) or "").strip() or str(
+            frame_style.strip_style(entry.get(frame_style.MAIN_PROMPT_KEY)) or ""
+        ).strip()
+        if not base:
+            continue
+        final, _scene_cut, trimmed = frame_style.compose_styled_prompt(
+            base, style_clean, limit=limit
+        )
+        if not final or final == str(entry.get(frame_style.MAIN_PROMPT_KEY) or ""):
+            continue
+        entry[frame_style.MAIN_PROMPT_KEY] = final
+        entry[frame_style.SCENE_RAW_KEY] = base
+        if trimmed:
+            trimmed_children += 1
+        entry[frame_style.STYLE_NAME_KEY] = frame_style.clean_style_name(style_name)
+    # «Дети» считаются по факту наличия STYLE-блока в их промтах, а не по
+    # числу записей в этом проходе: повторный прогон ничего не меняет, но
+    # кадры уже стилизованы, и отчёт не должен показывать 0.
+    children = sum(
+        1
+        for idx, ent in enumerate(kadry)
+        if idx != master and str(ent.get(frame_style.STYLE_NAME_KEY) or "").strip()
+    )
     attrs = dict(frame.attrs or {})
     attrs["кадры"] = kadry
     frame.attrs = attrs
@@ -2496,15 +4371,17 @@ def _style_text_from_slot(node_key: str, name: str, text: Any) -> str:
     from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE
     from app.services.prompt_library import prompt_path
 
-    candidates: list[str] = [str(text or "").strip()]
+    candidates: list[tuple[str, bool]] = [(str(text or "").strip(), False)]
     try:
         path = prompt_path(EXCEL_GPT_STEP_CODE, name)
         if path.is_file():
-            candidates.append(path.read_text(encoding="utf-8", errors="replace").strip())
+            candidates.append(
+                (path.read_text(encoding="utf-8", errors="replace").strip(), True)
+            )
     except Exception:  # noqa: BLE001 — путь промта не критичен, важен текст слота
         logger.debug("[%s] не удалось прочитать промт %r", node_key, name)
-    for item in candidates:
-        if _looks_like_style(item):
+    for item, from_named_file in candidates:
+        if _looks_like_style(item, named_file=from_named_file):
             return frame_style.normalize_style_text(item)
     logger.warning(
         "[%s] стиль %r не найден как файл, а текст слота не похож на стиль — "
@@ -2515,10 +4392,18 @@ def _style_text_from_slot(node_key: str, name: str, text: Any) -> str:
     return ""
 
 
-def _looks_like_style(text: str) -> bool:
-    """Стиль — короткий визуальный блок (до 1500 символов), не мастер-промт шага."""
+def _looks_like_style(text: str, *, named_file: bool = False) -> bool:
+    """Стиль — короткий визуальный блок, не мастер-промт шага.
+
+    ``named_file`` — текст взят из промта шага по имени привязки (``warhamer``,
+    ``style_*``): такие файлы бывают длиннее 1500 символов (warhamer.md — 2885),
+    и раньше они отбрасывались как «не стиль», из-за чего нода молча уходила в
+    стиль по умолчанию (акварель-нуар) при живом выборе Warhammer. Мастер-промты
+    шагов всё равно отсекаются по «## » и по «Ты …» в начале.
+    """
     clean = (text or "").strip()
-    if len(clean) < 40 or len(clean) > 1500:
+    limit = 6000 if named_file else 1500
+    if len(clean) < 40 or len(clean) > limit:
         return False
     # Мастер-промты шагов начинаются с постановки роли и содержат разделы «##».
     return "## " not in clean and "Ты " not in clean[:200]
@@ -2579,9 +4464,9 @@ def _resolve_style(project: Any, node_key: str) -> tuple[str, str]:
 async def _run_style(session: Any, project: Any, *, node_key: str) -> NodeResult:
     """Шаг 8: стиль (код, без GPT): STYLE-блок в поля кадров сцен ``attrs["кадры"]``.
 
-    Промтов на уровне сцены в группе нет: промты живут в кадрах (``промт_картинки``,
-    ``промт_старт``, ``промт_конец``), поэтому стиль идёт по кадрам каждой сцены:
-    мастеру K1 — штатным ``apply_style_to_frames``, детям — тем же
+    Промтов на уровне сцены в группе нет: промты живут в кадрах
+    (``промт_картинки``), поэтому стиль идёт по кадрам каждой сцены: мастеру
+    K1 — штатным ``apply_style_to_frames``, остальным — тем же
     ``compose_styled_prompt`` (см. ``_apply_style_to_kadry``). Реплики не
     трогаются: стиль касается промтов, а не текста.
     """
@@ -2723,6 +4608,452 @@ async def _run_report(session: Any, project: Any, *, node_key: str) -> NodeResul
     )
 
 
+# ── Промты картинок: финальный промт кадра из переменных ────────────────────
+
+#: Панели листа фона 2×2: номер → место на картинке.
+SHEET_PANEL_PLACES: dict[int, str] = {
+    1: "верхний левый",
+    2: "верхний правый",
+    3: "нижний левый",
+    4: "нижний правый",
+}
+#: В листе всегда четыре панели (``backgrounds_render.SHEET_ANGLES_COUNT``).
+SHEET_PANEL_COUNT = len(SHEET_PANEL_PLACES)
+#: Ракурс кадра → ближайший ракурс панели (канон ``backgrounds_render.SHEET_ANGLE_EN``).
+_ANGLE_NEAREST: dict[str, str] = {
+    "фронт": "фронт",
+    "3/4": "3/4",
+    "с плеча": "3/4",
+    "профиль": "3/4",
+    "сзади": "фронт",
+    "со спины": "фронт",
+    "сверху": "фронт",
+    "снизу": "фронт",
+    "макро": "3/4",
+}
+#: Крупность по возрастанию: панель с ближайшей крупностью предпочтительнее.
+_PLAN_RANK: tuple[str, ...] = (
+    "ОБЩИЙ",
+    "СРЕДНИЙ",
+    "СРЕДНЕ-КРУПНЫЙ",
+    "КРУПНЫЙ",
+    "ДЕТАЛЬ",
+    "МАКРО",
+)
+#: Поля кадра, которые уходят модели: старый промт не нужен, он пишется с нуля.
+_PROMPT_INPUT_KEYS: tuple[str, ...] = (
+    "id",
+    "номер",
+    "порядок",
+    "план",
+    "ракурс",
+    "высота",
+    "линза",
+    "место",
+    "действие",
+    "кто_где",
+    "позы",
+    "эмоции",
+    "предметы",
+    "говорит",
+    "реплика",
+    "звук",
+    "фон_код",
+    "кто",
+    "где",
+    "фон",
+)
+#: Линза по умолчанию, если в кадре нет своего поля.
+PROMPT_LENS_DEFAULT = "35"
+
+
+def _angle_key(raw: Any) -> str:
+    return " ".join(str(raw or "").split()).lower().replace("\\", "/")
+
+
+def _plan_rank(raw: Any) -> int:
+    text = " ".join(str(raw or "").split()).upper()
+    for index, name in enumerate(_PLAN_RANK):
+        if name in text:
+            return index
+    return 1
+
+
+def _closest_panel(
+    panels: Sequence[Mapping[str, Any]], shot: Mapping[str, Any]
+) -> int:
+    """Панель для кадра 5+: тот же ракурс, иначе ближайший по канону листа."""
+    want = _angle_key(shot.get("ракурс"))
+    if want:
+        same = [
+            (index, panel)
+            for index, panel in enumerate(panels, 1)
+            if _angle_key(panel.get("ракурс")) == want
+        ]
+        if same:
+            rank = _plan_rank(shot.get("план"))
+            return min(
+                same,
+                key=lambda item: (abs(_plan_rank(item[1].get("план")) - rank), item[0]),
+            )[0]
+        nearest = _ANGLE_NEAREST.get(want, "")
+        if nearest:
+            same = [
+                (index, panel)
+                for index, panel in enumerate(panels, 1)
+                if _angle_key(panel.get("ракурс")) == nearest
+            ]
+            if same:
+                return same[0][0]
+    return 1
+
+
+def _shot_panels(
+    scenes: Sequence[Any], kadry_by_scene: Mapping[str, Sequence[Mapping[str, Any]]]
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
+    """(кадры-панели фона, номер панели каждого кадра).
+
+    Панели листа — первые четыре кадра фона в порядке сцен (как их собирает
+    ``_card_angles``). Кадры 5+ в лист не попадают: им достаётся панель по
+    логике первых четырёх — тот же ракурс, при равенстве ближайшая крупность.
+    """
+    frames_by_bg: dict[str, list[dict[str, Any]]] = {}
+    for frame in scenes:
+        for shot in kadry_by_scene.get(str(getattr(frame, "uuid", ""))) or []:
+            code = str(shot.get("фон_код") or "").strip()
+            if not code:
+                continue
+            bucket = frames_by_bg.setdefault(code, [])
+            if len(bucket) < SHEET_PANEL_COUNT:
+                bucket.append(
+                    {
+                        "id": str(shot.get("id") or ""),
+                        "ракурс": str(shot.get("ракурс") or ""),
+                        "план": str(shot.get("план") or ""),
+                    }
+                )
+    shot_panel: dict[str, int] = {}
+    for bucket in frames_by_bg.values():
+        for index, panel in enumerate(bucket, 1):
+            if panel["id"]:
+                shot_panel[panel["id"]] = index
+    for frame in scenes:
+        for shot in kadry_by_scene.get(str(getattr(frame, "uuid", ""))) or []:
+            shot_id = str(shot.get("id") or "").strip()
+            if not shot_id or shot_id in shot_panel:
+                continue
+            code = str(shot.get("фон_код") or "").strip()
+            bucket = frames_by_bg.get(code) or []
+            if bucket:
+                shot_panel[shot_id] = _closest_panel(bucket, shot)
+    return frames_by_bg, shot_panel
+
+
+def _panels_payload(
+    frames_by_bg: Mapping[str, Sequence[Mapping[str, Any]]],
+    shot_panel: Mapping[str, int],
+) -> dict[str, Any]:
+    """Карта листа для промта: панели фонов, номер панели кадра, места на листе."""
+    return {
+        "фоны": {
+            code: {
+                str(index): str(panel.get("id") or "")
+                for index, panel in enumerate(bucket, 1)
+            }
+            for code, bucket in frames_by_bg.items()
+        },
+        "кадры": {shot_id: panel for shot_id, panel in shot_panel.items()},
+        "места": {str(number): place for number, place in SHEET_PANEL_PLACES.items()},
+    }
+
+
+def _ref_block(panel: int) -> str:
+    """Служебный блок «Референсы» — дословно один и тот же в каждом промте."""
+    place = SHEET_PANEL_PLACES.get(int(panel or 0), "")
+    tail = f" ({place})" if place else ""
+    return (
+        "Референсы: каждый референс с персонажем — один персонаж, показанный с разных "
+        "сторон. Лист фона — одна и та же локация в четырёх панелях; бери только "
+        f"панель {panel}{tail}."
+    )
+
+
+def _prompt_input_card(card: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: card[key] for key in _PROMPT_INPUT_KEYS if key in card}
+
+
+def _prompts_cards_problems(kadry_in: Sequence[Any], cards: Any) -> list[str]:
+    """Что не так с карточками из ответа «Промтов картинок»."""
+    if not isinstance(cards, list):
+        return ["поле «кадры» — не список"]
+    if len(cards) != len(kadry_in):
+        return [f"кадров {len(cards)} вместо {len(kadry_in)}"]
+    problems: list[str] = []
+    for expected, got in zip(kadry_in, cards, strict=False):
+        if not isinstance(got, dict):
+            problems.append(f"кадр {expected.get('id')}: карточка не объект")
+            continue
+        shot_id = str(expected.get("id") or "")
+        if str(got.get("id") or "") != shot_id:
+            problems.append(f"кадр {shot_id}: id изменился на {got.get('id')!r}")
+        text = " ".join(str(got.get("промт_картинки") or "").split())
+        if not text:
+            problems.append(f"кадр {shot_id}: пустой промт_картинки")
+        elif len(text) < 200:
+            problems.append(f"кадр {shot_id}: промт короче 200 символов ({len(text)})")
+    return problems
+
+
+def _style_tail_split(text: str, style_text: str) -> tuple[str, str]:
+    """(тело, хвост стиля) — если промт уже кончается текстом стиля."""
+    body = text.strip()
+    style = " ".join(str(style_text or "").split())
+    if style and body.endswith(style):
+        return body[: -len(style)].strip(), style
+    return body, ""
+
+
+def _prompts_cards_merge(
+    kadry_in: Sequence[Any],
+    cards: Sequence[Any],
+    shot_panel: Mapping[str, int],
+    style_text: str,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Карточки для записи: меняются только ``промт_картинки`` и ``панель_фона``.
+
+    Код доводит промт до контракта: номер панели берёт из своей карты (модель
+    могла не посчитать), блок «Референсы» вставляет дословно, стиль ставит
+    последним блоком и режет тело под бюджет: тело ≤ 4000, стиль ≤ 700.
+    """
+    from app.services import frame_style
+
+    style = " ".join(str(style_text or "").split())
+    merged: list[dict[str, Any]] = []
+    trimmed = 0
+    defects: list[str] = []
+    for original, got in zip(kadry_in, cards, strict=False):
+        card = dict(original) if isinstance(original, dict) else {}
+        shot_id = str(card.get("id") or "")
+        panel = int(shot_panel.get(shot_id) or 0)
+        text = " ".join(str((got or {}).get("промт_картинки") or "").split())
+        body, tail = _style_tail_split(text, style)
+        if not tail and style:
+            # Стиля в ответе нет — код ставит его сам, последним блоком.
+            body = text
+        # Блок референсов обязателен и не режется: под него бронируем место,
+        # обрезка идёт до него, а не по нему.
+        ref = ""
+        if panel and "Референс" not in body:
+            ref = _ref_block(panel)
+        budget = _CADR_BODY_MAX - (len(ref) + 1 if ref else 0)
+        if len(body) > budget:
+            body, cut = frame_style.trim_scene(body, budget)
+            trimmed += int(cut)
+        if ref:
+            body = f"{body} {ref}".strip()
+        final = f"{body}\n\n{style}".strip() if style else body
+        if not final:
+            defects.append(f"кадр {shot_id}: пустой промт после сборки")
+        card["промт_картинки"] = final
+        card["панель_фона"] = panel if panel else int(card.get("панель_фона") or 0)
+        merged.append(card)
+    return merged, trimmed, defects
+
+
+async def _run_prompts(session: Any, project: Any, *, node_key: str) -> NodeResult:
+    """Шаг: промты картинок — финальный промт кадра из переменных.
+
+    Стоит после «Правок кадров», перед генерацией картинок. Собирает промт
+    заново по переменным кадра: линза, план, ракурс, высота, действие с
+    персонажами по кодам, положение на экране (модель пересчитывает его из
+    ракурса и высоты, а не копирует ``кто_где``), фон с номером панели листа
+    2×2, блок референсов и стиль. Панели считает код: кадры 1–4 фона → панели
+    1–4, кадры 5+ → панель по логике первых четырёх (тот же ракурс, при
+    равенстве ближайшая крупность), поэтому раскладка листа не разъезжается.
+    """
+    apply = _apply()
+
+    scenes = await apply.load_scenes(session, project)
+    if not scenes:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет сцен — сначала «Сцены по плану»"
+        )
+    characters = await apply.load_characters(session, project)
+    backgrounds = await apply.load_backgrounds(session, project)
+    # Стиль берём у ноды «Стиль»: у «Промтов картинок» свой промт-вариант.
+    style_name, style_text = _resolve_style(project, _BY_KIND["style"].node_id)
+    style_text = _compact_style(style_text, _max_style_chars_v2())
+    master_prompt = _read_master(project, node_key, _BY_KIND["prompts"])
+    kadry_by_scene: dict[str, list[dict[str, Any]]] = {
+        str(frame.uuid): _frames_of(frame) for frame in scenes
+    }
+    frames_by_bg, shot_panel = _shot_panels(scenes, kadry_by_scene)
+    panels_payload = _panels_payload(frames_by_bg, shot_panel)
+    registry_json = _json(_registry_list(characters))
+    backgrounds_json = _json([backgrounds[code] for code in sorted(backgrounds)])
+    jobs: list[dict[str, Any]] = []
+    for frame in scenes:
+        scene = _scene_dict(frame)
+        kadry = kadry_by_scene[str(frame.uuid)]
+        if not kadry:
+            continue
+        prompt = _render(
+            master_prompt,
+            сцена=_json(scene),
+            кадры=_json([_prompt_input_card(card) for card in kadry]),
+            реестр_персонажи=registry_json,
+            реестр_фоны=backgrounds_json,
+            панели_фона=_json(panels_payload),
+            стиль=style_text,
+            линза=PROMPT_LENS_DEFAULT,
+        )
+        jobs.append(
+            {"scene": scene, "frame": frame, "kadry": kadry, "prompt": prompt}
+        )
+    if not jobs:
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: нет кадров — сначала «Шоты»"
+        )
+
+    reports: list[dict[str, Any]] = []
+
+    async def _ask_scene(job: dict[str, Any]) -> dict[str, Any]:
+        """Спросить промты одной сцены, переспрашивая при потерянных кадрах."""
+        prompt = str(job["prompt"])
+        problems: list[str] = []
+        for attempt in range(1, _SHOTS_ATTEMPTS + 1):
+            try:
+                payload = await _ask_json(
+                    project, node_key, prompt, "Промты картинок этой сцены."
+                )
+            except Exception as exc:  # noqa: BLE001 — обрыв/битый JSON у шлюза
+                problems = [f"ответ модели не разобран: {exc}"]
+                logger.warning(
+                    "[#%s] %s: сцена %s — ответ не разобран (попытка %s/%s): %s",
+                    getattr(project, "id", "?"),
+                    node_key,
+                    job["scene"]["номер"],
+                    attempt,
+                    _SHOTS_ATTEMPTS,
+                    str(exc)[:200],
+                )
+                if attempt == _SHOTS_ATTEMPTS:
+                    raise
+                continue
+            cards = payload.get("кадры") if isinstance(payload, dict) else None
+            problems = _prompts_cards_problems(job["kadry"], cards)
+            if not problems:
+                return {**job, "payload": payload}
+            logger.warning(
+                "[#%s] %s: сцена %s — кадры не приняты (попытка %s/%s): %s",
+                getattr(project, "id", "?"),
+                node_key,
+                job["scene"]["номер"],
+                attempt,
+                _SHOTS_ATTEMPTS,
+                "; ".join(problems[:3]),
+            )
+            prompt = (
+                str(job["prompt"])
+                + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРИНЯТ: "
+                + "; ".join(problems[:3])
+                + ".\nВерни ВСЕ кадры сцены в том же количестве и с теми же id,"
+                " у каждого кадра полный промт_картинки."
+            )
+        raise RuntimeError(
+            f"#{getattr(project, 'id', '?')} {node_key}: сцена {job['scene']['номер']} — "
+            + "; ".join(problems[:3])
+        )
+
+    async def _commit(answer: dict[str, Any]) -> None:
+        scene, kadry_in = answer["scene"], answer["kadry"]
+        payload = answer["payload"]
+        cards = payload.get("кадры")
+        problems = _prompts_cards_problems(kadry_in, cards)
+        if problems:
+            raise RuntimeError(
+                f"#{getattr(project, 'id', '?')} {node_key}: сцена {scene['номер']} — "
+                + "; ".join(problems[:3])
+            )
+        merged, trimmed, defects = _prompts_cards_merge(
+            kadry_in, cards, shot_panel, style_text
+        )
+        report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+        unresolved = [str(item) for item in report.get("unresolved") or []]
+        # Мастер K1 — тот же промт в image_prompt сцены: именно его берёт генерация.
+        first = merged[0] if merged else {}
+        frame = answer["frame"]
+        if first.get("промт_картинки"):
+            frame.image_prompt = str(first["промт_картинки"])
+        # Кадры сцены живут в ``Frame.attrs["кадры"]``: точечный патч атрибутов,
+        # а не apply-ops по ядру (``db_apply`` не знает поля «кадры»).
+        await apply.write_scene_attrs(session, project, scene["id"], {"кадры": merged})
+        await session.commit()
+        lengths = [len(str(row.get("промт_картинки") or "")) for row in merged]
+        reports.append(
+            {
+                "номер": scene["номер"],
+                "кадров": len(merged),
+                "панели": {
+                    str(row.get("id") or ""): int(row.get("панель_фона") or 0)
+                    for row in merged
+                },
+                "длина": {
+                    "мин": min(lengths) if lengths else 0,
+                    "макс": max(lengths) if lengths else 0,
+                },
+                "обрезано": trimmed,
+                "unresolved": unresolved + defects,
+            }
+        )
+
+    size, stagger = _parallel_limits()
+    logger.info(
+        "[#%s] %s: сцен с кадрами %s, пачка %s, пауза %.1f с, стиль %s (%s симв)",
+        getattr(project, "id", "?"),
+        node_key,
+        len(jobs),
+        size,
+        stagger,
+        style_name,
+        len(style_text),
+    )
+    await _run_in_batches(
+        jobs,
+        _ask_scene,
+        _commit,
+        size=size,
+        stagger=stagger,
+        project_id=getattr(project, "id", "?"),
+        node_key=node_key,
+        label=lambda job: job["scene"]["номер"],
+    )
+    shots_total = sum(int(row["кадров"]) for row in reports)
+    trimmed_total = sum(int(row["обрезано"]) for row in reports)
+    unresolved_all = [item for row in reports for item in row["unresolved"]]
+    path = apply.save_artifact(
+        project,
+        node_key,
+        ARTIFACT_PROMPTS,
+        {
+            "сцены": reports,
+            "кадров": shots_total,
+            "обрезано": trimmed_total,
+            "стиль": {"имя": style_name, "символов": len(style_text)},
+            "панели": panels_payload["фоны"],
+            "unresolved": unresolved_all,
+        },
+    )
+    return NodeResult(
+        reply_text=(
+            f"промты картинок: сцен {len(reports)}, кадров {shots_total}, "
+            f"стиль {style_name} ({len(style_text)} симв), обрезано {trimmed_total}, "
+            f"unresolved {len(unresolved_all)}"
+        ),
+        output_paths=[Path(path)],
+    )
+
+
 _HANDLERS = {
     "scenes": _run_scenes,
     "cast": _run_cast,
@@ -2731,8 +5062,11 @@ _HANDLERS = {
     "shots": _run_shots,
     "backgrounds": _run_backgrounds,
     "qc": _run_qc,
+    "fix": _run_fix,
+    "check": _run_check,
     "style": _run_style,
     "report": _run_report,
+    "prompts": _run_prompts,
 }
 
 
@@ -2833,6 +5167,10 @@ async def run_plan_cinema_node(
 
 
 __all__ = [
+    "ARTIFACT_CHECK",
+    "ARTIFACT_DIALOGUES",
+    "ARTIFACT_FIX",
+    "ARTIFACT_PROMPTS",
     "ARTIFACT_QC",
     "ARTIFACT_REPORT",
     "ARTIFACT_SCENES",

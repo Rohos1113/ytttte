@@ -23,26 +23,46 @@ from pathlib import Path
 
 MANIFEST_NAME = "_vp_aside_manifest.json"
 
+# git может не ответить: заблокированный пайп в ограниченном окружении,
+# индексация большого репозитория, ожидание lock. Старт студии вызывает этот
+# хелпер до подъёма веб-сервера, поэтому ждать «вечно» нельзя: по таймауту
+# возвращаем неуспешный результат, и обслуживание идёт дальше.
+GIT_TIMEOUT_SECONDS = 20
+
+
+def _git_command(repo: Path, args: tuple[str, ...]) -> list[str]:
+    return ["git", "-C", str(repo), "-c", "core.quotepath=false", *args]
+
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     # Windows: default text mode uses cp1251 and dies on UTF-8 stash messages
     # («автосохранение…») → stdout=None → AttributeError on .splitlines().
-    return subprocess.run(
-        ["git", "-C", str(repo), "-c", "core.quotepath=false", *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    command = _git_command(repo, args)
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(command, 124, "", str(exc))
 
 
 def _git_bytes(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["git", "-C", str(repo), "-c", "core.quotepath=false", *args],
-        capture_output=True,
-        check=False,
-    )
+    command = _git_command(repo, args)
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(command, 124, b"", str(exc).encode("utf-8", "replace"))
 
 
 def _stdout_lines(proc: subprocess.CompletedProcess[str]) -> list[str]:

@@ -1092,7 +1092,7 @@ function PosterTile({
             onMouseEnter={showFly}
             onMouseLeave={hideFly}
           >
-            <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
+            <span className="pointer-events-none absolute right-0 top-0 z-[60] h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
                 {[
                   { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", fn: () => onFlyDelete?.(), show: !!onFlyDelete },
                   { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },

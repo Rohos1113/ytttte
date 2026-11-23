@@ -21,11 +21,11 @@ def test_merge_refuses_null_wipe_of_gpt_operator_results() -> None:
         },
         "storage_nodes": {"n_storage_1": {"autoSync": True}},
     }
-    # UI canvas autosave со старым кэшем: results = null / пусто + урезанный граф
+    # UI canvas autosave со старым кэшем: results = null / пусто
     patched = merge_project_meta(
         existing,
         {
-            "canvas_graph": {"nodes": [{"id": "n1"}], "edges": []},
+            "canvas_graph": {"nodes": [{"id": f"n{i}"} for i in range(10)], "edges": []},
             "gpt_operator_results": {"n_excel_gpt_6": None},
             "storage_nodes": {},
         },
@@ -36,7 +36,8 @@ def test_merge_refuses_null_wipe_of_gpt_operator_results() -> None:
     assert patched["storage_nodes"]["n_storage_1"]["autoSync"] is True
 
 
-def test_merge_refuses_empty_canvas_graph_wipe() -> None:
+def test_merge_accepts_empty_canvas_graph_removal() -> None:
+    """Удаление всех нод человеком должно сохраняться, а не откатываться."""
     existing = {
         "canvas_graph": {
             "nodes": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
@@ -45,11 +46,37 @@ def test_merge_refuses_empty_canvas_graph_wipe() -> None:
     }
     patched = merge_project_meta(
         existing,
-        {"canvas_graph": {"nodes": [], "edges": []}},
+        {"canvas_graph": {"nodes": [], "edges": [], "saved_at": "2026-01-01T00:00:00Z"}},
         source="test",
     )
-    assert len(patched["canvas_graph"]["nodes"]) == 3
-    assert patched["canvas_graph"]["edges"][0]["id"] == "e1"
+    assert patched["canvas_graph"]["nodes"] == []
+    assert patched["canvas_graph"]["edges"] == []
+
+
+def test_merge_accepts_partial_node_removal() -> None:
+    existing = {
+        "canvas_graph": {
+            "nodes": [{"id": f"n{i}"} for i in range(10)],
+            "edges": [],
+        }
+    }
+    patched = merge_project_meta(
+        existing,
+        {"canvas_graph": {"nodes": [{"id": "n0"}, {"id": "n3"}], "edges": []}},
+        source="test",
+    )
+    assert [n["id"] for n in patched["canvas_graph"]["nodes"]] == ["n0", "n3"]
+
+
+def test_merge_accepts_graph_where_nodes_came_and_went() -> None:
+    """Удалил старые, добавил новую: канвас — источник истины, патч применяем."""
+    existing = {"canvas_graph": {"nodes": [{"id": "a"}, {"id": "b"}, {"id": "c"}], "edges": []}}
+    patched = merge_project_meta(
+        existing,
+        {"canvas_graph": {"nodes": [{"id": "n_new"}], "edges": []}},
+        source="test",
+    )
+    assert [n["id"] for n in patched["canvas_graph"]["nodes"]] == ["n_new"]
 
 
 def test_merge_keeps_bucket_when_patch_omits_null_entry() -> None:

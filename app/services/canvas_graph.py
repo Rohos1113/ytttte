@@ -22,7 +22,12 @@ def canvas_graph_from_meta(meta: dict[str, Any] | None) -> dict[str, Any] | None
     if not isinstance(raw, dict):
         return None
     nodes = raw.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
+    if not isinstance(nodes, list):
+        return None
+    # Пустой граф — не «графа нет», если он сохранён из UI (saved_at): человек
+    # мог удалить все ноды, и канвас обязан остаться пустым, а не откатиться
+    # на дефолтный шаблон.
+    if not nodes and not raw.get("saved_at"):
         return None
     edges = raw.get("edges")
     if not isinstance(edges, list):

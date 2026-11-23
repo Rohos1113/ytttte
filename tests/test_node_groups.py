@@ -597,7 +597,7 @@ async def test_insert_plan_cinema_after_plan_with_model(mem_db) -> None:
         res = await insert_node_group(session, project, "plan_cinema")
 
     assert res["after"] == "n_plan"
-    assert len(res["nodes"]) == 9
+    assert len(res["nodes"]) == 12
     cg = project.meta["canvas_graph"]
     by_id = {n["id"]: n for n in cg["nodes"]}
     for suffix in (
@@ -610,10 +610,16 @@ async def test_insert_plan_cinema_after_plan_with_model(mem_db) -> None:
         "qc",
         "style",
         "report",
+        "fix",
+        "prompts",
     ):
         data = by_id[f"n_excel_gpt_pk_{suffix}"]["data"]
         assert data["modelId"] == "gpt-6.1-sol-52pay"
         assert data["reasoningEffort"] == "medium"
+    # «Проверка» стоит на Claude (решение владельца), мышление — high.
+    check = by_id["n_excel_gpt_pk_check"]["data"]
+    assert check["modelId"] == "claude-opus-5-5"
+    assert check["reasoningEffort"] == "high"
     assert project.meta.get("source_mode") == "plan"
     # Цепочка начинается с «Сцены по плану» и упирается в отчёт.
     assert by_id["n_excel_gpt_pk_report"]["data"]["label"] == "Отчёт"

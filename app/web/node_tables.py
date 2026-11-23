@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -134,18 +135,18 @@ def _last_segment(key: str) -> str:
     return str(key).rsplit(".", 1)[-1].casefold()
 
 
-def _param_value(value: Any) -> str:
+def _param_value(value: Any, *, full: bool = False) -> str:
     if isinstance(value, list):
         text = "; ".join(_scalar_text(item) for item in value)
     else:
         text = _scalar_text(value)
-    if len(text) > PARAM_VALUE_LIMIT:
+    if not full and len(text) > PARAM_VALUE_LIMIT:
         return text[: PARAM_VALUE_LIMIT - 1] + "…"
     return text
 
 
-def _param(key: str, value: Any) -> dict[str, Any]:
-    return {"key": str(key), "label": str(key), "value": _param_value(value)}
+def _param(key: str, value: Any, *, full: bool = False) -> dict[str, Any]:
+    return {"key": str(key), "label": str(key), "value": _param_value(value, full=full)}
 
 
 def _result(ctx: _Ctx, *, kind: str) -> dict[str, Any]:
@@ -288,6 +289,8 @@ def _collect(
     path: tuple[str, ...],
     collections: list[dict[str, Any]],
     ctx: _Ctx,
+    *,
+    full: bool = False,
 ) -> None:
     """Собрать массивы объектов (глубина до 2) и параметры корневого объекта."""
     for key, value in node.items():
@@ -301,16 +304,16 @@ def _collect(
                 if len(key_path) <= MAX_COLLECT_DEPTH:
                     collections.append({"name": name, "rows": value, "path": key_path})
                 else:
-                    ctx.params.append(_param(name, _json_compact(value)))
+                    ctx.params.append(_param(name, _json_compact(value), full=full))
             else:
-                ctx.params.append(_param(name, value))
+                ctx.params.append(_param(name, value, full=full))
         elif isinstance(value, dict):
             if len(key_path) < MAX_COLLECT_DEPTH:
-                _collect(value, key_path, collections, ctx)
+                _collect(value, key_path, collections, ctx, full=full)
             else:
-                ctx.params.append(_param(name, _json_compact(value)))
+                ctx.params.append(_param(name, _json_compact(value), full=full))
         else:
-            ctx.params.append(_param(name, value))
+            ctx.params.append(_param(name, value, full=full))
 
 
 def _join_key(a: dict[str, Any], b: dict[str, Any]) -> str | None:
@@ -570,6 +573,72 @@ def _trim_tables(tables: list[dict[str, Any]]) -> bool:
     return trimmed
 
 
+#: Коды опорных точек в сцене («P1», «P2, P3» или JSON-список).
+_POINT_CODE_RE = re.compile(r"P\d+")
+
+
+def _merge_plan_scene_tables(
+    tables: list[dict[str, Any]], refs: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """«пункты» + «сцены» → одна большая таблица (владелец, 22.11.2026).
+
+    У «Сцен по плану» артефакт состоит из двух массивов, и нормализатор честно
+    делал две таблицы. Владельцу нужна одна таблица со всеми переменными ноды:
+    строки — сцены, а тексты опорных точек, на которые сцена ссылается, едут в
+    колонке ``пункты``. Привязки ``refs`` к сценам остаются рабочими (правка
+    ячеек xlsx), у синтетической колонки привязки нет — она только для чтения.
+    """
+    if len(tables) < 2:
+        return tables, refs
+    points_pos = next((i for i, t in enumerate(tables) if str(t.get("id")) == "пункты"), None)
+    scenes_pos = next((i for i, t in enumerate(tables) if str(t.get("id")) == "сцены"), None)
+    if points_pos is None or scenes_pos is None:
+        return tables, refs
+    points, scenes = tables[points_pos], tables[scenes_pos]
+    point_keys = {str(col.get("key")) for col in points.get("columns") or []}
+    if not {"код", "текст"} <= point_keys:
+        return tables, refs
+
+    texts: dict[str, str] = {}
+    for row in points.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("код") or "").strip().upper()
+        if code:
+            texts[code] = str(row.get("текст") or "").strip()
+
+    columns = [dict(col) for col in scenes.get("columns") or []]
+    anchor = next((i for i, col in enumerate(columns) if col.get("key") == "id_плана"), 0)
+    columns.insert(anchor + 1, {"key": "пункты", "label": "пункты", "type": "long_text"})
+
+    rows: list[dict[str, Any]] = []
+    for row in scenes.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        raw_refs = row.get("id_плана")
+        codes = _POINT_CODE_RE.findall(str(raw_refs if raw_refs is not None else ""))
+        parts = [f"{code} — {texts[code]}" for code in codes if code in texts]
+        merged_row = dict(row)
+        merged_row["пункты"] = "\n".join(parts)
+        rows.append(merged_row)
+
+    merged_table = dict(scenes)
+    merged_table["columns"] = columns
+    merged_table["rows"] = rows
+    merged_tables = [
+        merged_table if i == scenes_pos else t for i, t in enumerate(tables) if i != points_pos
+    ]
+
+    merged_refs: list[dict[str, Any]] = []
+    for i, ref in enumerate(refs):
+        if i == points_pos:
+            continue
+        merged_refs.append(ref)
+    if len(merged_refs) != len(merged_tables):  # неожиданная форма — не склеиваем
+        return tables, refs
+    return merged_tables, merged_refs
+
+
 def normalize_json(
     value: Any,
     *,
@@ -591,12 +660,13 @@ def normalize_json(
         else:
             ctx.params.append(_param(name or "items", value))
     elif isinstance(value, dict):
-        _collect(value, (), collections, ctx)
+        _collect(value, (), collections, ctx, full=full)
     else:
-        ctx.params.append(_param(name or "value", value))
+        ctx.params.append(_param(name or "value", value, full=full))
     ctx.tables.extend(_build_tables(collections, ctx))
     if not full and _trim_tables(ctx.tables):
         ctx.warn(_TRIM_WARNING)
+    ctx.tables, ctx.refs = _merge_plan_scene_tables(ctx.tables, ctx.refs)
     result = _result(ctx, kind="json")
     if with_refs:
         result["refs"] = ctx.refs

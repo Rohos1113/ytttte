@@ -266,6 +266,7 @@ _TOKEN_PATHS = [
         r".*publish.*",
         r"^/projects/[^/]+/finish/",
         r"^/projects/[^/]+/montage-board/(queue|montage|recover-outsee)$",
+        r"^/projects/[^/]+/montage-board/check/(run|settings|apply-image|cancel)$",
         r"^/projects/[^/]+/montage-board/frames/[^/]+/scene-(action-generate|generate-with-images|variants|improve)$",
         r"^/projects/[^/]+/observations/(launch|auto)?$",
         r"^/projects/[^/]+/observations/[^/]+/actions/(start|retry)$",

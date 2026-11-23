@@ -856,7 +856,11 @@ async def _startup_maintenance() -> None:
             if _spec and _spec.loader:
                 _mod = importlib.util.module_from_spec(_spec)
                 _spec.loader.exec_module(_mod)
-                stash_report = _mod.recover_prompts_on_startup()
+                # Хелпер дёргает git синхронно (subprocess.run). В event loop
+                # это держит весь старт: процесс жив, а порт не открыт и
+                # /api/health молчит. Уводим в поток — обслуживание не мешает
+                # веб-серверу подняться.
+                stash_report = await asyncio.to_thread(_mod.recover_prompts_on_startup)
                 n = len(stash_report.get("restored") or [])
                 if n:
                     logger.warning("prompts recovered on startup: {} file(s)", n)

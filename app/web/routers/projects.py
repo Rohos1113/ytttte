@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from loguru import logger
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -705,6 +705,7 @@ async def run_project_step(
     run_tag: Annotated[str | None, Query(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")] = None,
     action_operator: Annotated[str | None, Header(alias="X-Action-Layer-Operator")] = None,
     action_plan: Annotated[str | None, Header(alias="X-Action-Layer-Plan")] = None,
+    request: Request = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),
 ) -> Project:
     """Запустить шаг: статус → running, воркер выполнит advance_project.
@@ -717,6 +718,34 @@ async def run_project_step(
     p = await session.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
+    # Кто просит запуск: без этого не понять, нода стартовала «сама» или её
+    # дёрнули из браузера/агента. Пишем клиента, UA, referer и заголовки слоя действий.
+    try:
+        _client = "?"
+        _ua = _ref = ""
+        if request is not None:
+            _client = request.client.host if request.client else "?"
+            _ua = request.headers.get("user-agent", "")[:140]
+            _ref = request.headers.get("referer", "")[:140]
+        logger.info(
+            "[#{}] steps/{}/run: node={} mode={} only_node={} force_wipe={} dry_run={} "
+            "auto_mode={} client={} ua={!r} ref={!r} act_operator={!r} act_plan={!r}",
+            project_id,
+            step_code,
+            node_key,
+            mode,
+            only_node,
+            force_wipe,
+            dry_run,
+            bool(p.auto_mode),
+            _client,
+            _ua,
+            _ref,
+            action_operator,
+            action_plan,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("run_project_step: caller log failed", exc_info=True)
     if dry_run:
         from app.web.studio_dry_run import validate_project_step_dry_run
 

@@ -412,6 +412,47 @@ def _choice_path(cfg: Settings) -> Path:
     return Path(cfg.data_dir) / _CHOICE_NAME
 
 
+#: Двойники текстовых моделей на 52pay. Ноды и шаблоны графов хранят короткие
+#: имена («gpt-6.1-sol»), а алиасы уводят их в `-vibecode`. Когда контур целиком
+#: на 52pay, такие имена обязаны идти на 52pay — иначе запрос улетает на vibecode
+#: с пустым балансом и шаг встаёт по 402 (владелец 23.11.2026).
+_PAY52_TWINS: dict[str, str] = {
+    "gpt-6.1-sol-vibecode": "gpt-6.1-sol-pay52",
+    "gpt-6-sol-vibecode": "gpt-6.1-sol-pay52",
+    "gpt-5.6-sol-vibecode": "gpt-6.1-sol-pay52",
+    "gpt-6-astra-vibecode": "gpt-6-astra-pay52",
+    "gpt-6-luna-vibecode": "gpt-6-luna-pay52",
+    "claude-opus-5-5-vibecode": "claude-opus-5-5-pay52",
+    "claude-sonnet-5-5-vibecode": "claude-sonnet-5-pay52",
+    "claude-haiku-4-5-vibecode": "claude-haiku-5-5-pay52",
+    "claude-fable-5-1-vibecode": "claude-fable-5-1-pay52",
+    "glm-5.3-flash-vibecode": "glm-5.3-flash-pay52",
+    "gemini-3.8-flash-vibecode": "gemini-3.8-flash-pay52",
+    "gemini-3-flash-vibecode": "gemini-3.8-flash-pay52",
+}
+
+
+def prefer_active_text_provider(model_id: str | None) -> str | None:
+    """Модель → её двойник на активном текстовом провайдере.
+
+    Активен 52pay — vibecode-имя меняем на 52pay-модель. Активен vibecode —
+    отдаём как есть.
+    """
+    mid = str(model_id or "").strip()
+    if not mid:
+        return model_id
+    try:
+        active = str(resolve_active_provider() or "").strip().lower()
+    except Exception:  # noqa: BLE001
+        return model_id
+    if active not in ("pay52", "52pay"):
+        return model_id
+    twin = _PAY52_TWINS.get(mid)
+    if twin and catalog_item(twin):
+        return twin
+    return model_id
+
+
 def catalog_item(model_id: str | None) -> dict[str, str] | None:
     cid = _MODEL_ALIASES.get((model_id or "").strip())
     if not cid:

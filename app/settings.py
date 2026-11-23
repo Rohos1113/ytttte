@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # kie лежит (сеть, 5xx, 429 после всех повторов, открытый предохранитель): тот же
     # запрос той же моделью уходит в 52pay, если для модели есть ключ 52pay.
     text_llm_fallback_52pay: bool = Field(True, alias="TEXT_LLM_FALLBACK_52PAY")
+    # Текстовые ноды группы «Кино по плану» отдельным маршрутом: 52pay режет
+    # валидацию промта (HTTP 400 «提示词包含违规内容», сцены с оружием/войной)
+    # и таймаутит. `kie` гоняет их через kie (gpt-5-6-sol) в обход 52pay.
+    # Пусто — прежнее поведение (модель из выбора ноды, обычно 52pay).
+    plan_cinema_text_provider: str = Field("", alias="PLAN_CINEMA_TEXT_PROVIDER")
 
     # vibecode.moe — chat/completions для GPT, /v1/messages для Claude.
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
