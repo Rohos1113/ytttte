@@ -1474,8 +1474,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const handleKieValueChange = (name: string, value: unknown) => {
     setKieValues((prev) => ({ ...prev, [name]: value }));
     if (name === "resolution") {
+      setVideoResolution(String(value));
       // Пресет — зеркало разрешения: 480p = Fast, остальное = Quality.
       setSeedancePreset(String(value) === "480p" ? "fast" : "quality");
+    }
+    if (name === "aspect_ratio" || name === "aspect") {
+      setAspect(String(value));
     }
   };
 
@@ -2651,7 +2655,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               f.name.toLowerCase().includes("aspect"),
           );
           if (aspectField) {
-            const aspectToSet = !retry ? targetAspect : (vals[aspectField.name] || targetAspect);
+            const aspectToSet = (vals[aspectField.name] as string | undefined) || (!retry ? targetAspect : undefined);
             if (aspectToSet) {
               const strVal = String(aspectToSet);
               if (!aspectField.options || aspectField.options.includes(strVal)) {
@@ -2686,7 +2690,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             (f) => f.name === "resolution" || f.name === "target_resolution",
           );
           if (resField && resField.options) {
-            const resToSet = !retry ? targetResolution : (vals[resField.name] || targetResolution);
+            const resToSet = (vals[resField.name] as string | undefined) || (!retry ? targetResolution : undefined);
             if (resToSet) {
               const strRes = String(resToSet);
               const match = resField.options.find(
@@ -3602,8 +3606,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center w-full">
                   {selected.kind === "video" ? (
                     <video
+                      key={selected.preview_url || selected.id}
                       src={selected.preview_url}
                       controls
+                      playsInline
+                      preload="metadata"
                       className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
                     />
                   ) : selected.kind === "audio" ? (
@@ -3746,9 +3753,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           </div>
 
           {/* prompt dock + vertical type toggle */}
-          <div className="absolute bottom-0 left-0 right-0 z-10 pb-3 pl-1.5 pr-3 lg:pb-4 lg:pl-2.5 lg:pr-5">
+          <div className="absolute bottom-0 left-0 right-0 z-10 pb-3 pl-1.5 pr-3 lg:pb-4 lg:pl-2.5 lg:pr-5 pointer-events-none">
             {/* Зазор слева и справа от колонки кнопок одинаковый: pl-1.5/lg:pl-2.5 = gap-1.5/lg:gap-2.5. */}
-            <div className="flex items-end gap-1.5 lg:gap-2.5">
+            <div className="flex items-end gap-1.5 lg:gap-2.5 pointer-events-auto">
               {/* cs-typetoggle */}
               <div className="flex shrink-0 flex-col gap-2">
                 {/* Вдохновение — каталог стилей, тот же, что в помощнике над промптом */}

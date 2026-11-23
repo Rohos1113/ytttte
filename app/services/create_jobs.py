@@ -588,6 +588,11 @@ async def _run_job(
                         old_side.replace(final_path.with_suffix(".json"))
 
             job.path = final_path
+            if job.media == "video" or job.path.suffix.lower() == ".mp4":
+                from app.services.video_faststart import optimize_mp4_faststart
+
+                optimize_mp4_faststart(job.path)
+
             job.history_id = f"gen-{final_path.name}"
             job.raw_url = getattr(result, "raw_url", None)
             job.preview_url = f"/api/files?path={job.path.resolve()}"
