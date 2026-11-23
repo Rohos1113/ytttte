@@ -174,3 +174,111 @@ async def test_pay52_text_retry_on_502(monkeypatch: pytest.MonkeyPatch) -> None:
         res = await gpt_api.chat(prompt="hello", model="gpt-6.1-sol")
         assert res.text == "success-after-retry"
         assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_kie_create_fallbacks_to_kie_when_pay52_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если 52pay падает, генерация автоматически уходит на KIE."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.bots.outsee import GenerationResult
+    from app.web.routers import kie_create
+    from app.services import create_jobs as cj
+    from app.services import generation_storage as gs
+
+    monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: True)
+    monkeypatch.setattr(kie_create.kie_http, "kie_configured", lambda: True)
+
+    cj._JOBS.clear()
+    cj._SEMS.clear()
+    cj._SEM_SIZES.clear()
+    cj._RECENT_FP.clear()
+
+    async def fake_pay52_fail(spec, payload, out_path):
+        raise Pay52VideoError("52pay server error 500")
+
+    called_kie = False
+
+    async def fake_kie_ok(spec, payload, out_path):
+        nonlocal called_kie
+        called_kie = True
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"\x00" * 32)
+        return GenerationResult(file_path=out_path, gen_id="kie-fallback-1", raw_url=None)
+
+    monkeypatch.setattr(kie_create.pay52_video, "run_generation", fake_pay52_fail)
+    monkeypatch.setattr(kie_create.kie_http, "run_generation", fake_kie_ok)
+
+    app = FastAPI()
+    app.include_router(kie_create.router, prefix="/api")
+    c = TestClient(app)
+
+    r = c.post(
+        "/api/kie-create/generate",
+        json={
+            "model_id": "seedance-2-0",
+            "mode": "mini",
+            "values": {"prompt": "тестовое видео", "duration": 5},
+        },
+    )
+    assert r.status_code == 200
+    assert called_kie is True
+
+
+@pytest.mark.asyncio
+async def test_kie_create_fallbacks_to_pay52_when_kie_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если KIE выдает ошибку (например 402 нет кредитов), генерация уходит в 52pay."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.bots.kie_http import KieHttpError
+    from app.bots.outsee import GenerationResult
+    from app.web.routers import kie_create
+    from app.services import create_jobs as cj
+    from app.services import generation_storage as gs
+
+    monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: True)
+    monkeypatch.setattr(kie_create.kie_http, "kie_configured", lambda: True)
+
+    cj._JOBS.clear()
+    cj._SEMS.clear()
+    cj._SEM_SIZES.clear()
+    cj._RECENT_FP.clear()
+
+    called_pay52 = False
+
+    async def fake_kie_fail(spec, payload, out_path):
+        raise KieHttpError("kie 402 credits insufficient")
+
+    async def fake_pay52_ok(spec, payload, out_path):
+        nonlocal called_pay52
+        called_pay52 = True
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"\x00" * 32)
+        return GenerationResult(file_path=out_path, gen_id="pay52-fallback-1", raw_url=None)
+
+    monkeypatch.setattr(kie_create.kie_http, "run_generation", fake_kie_fail)
+    monkeypatch.setattr(kie_create.pay52_video, "run_generation", fake_pay52_ok)
+
+    # Запускаем через KIE (например is_pay52=False)
+    monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: False)
+
+    app = FastAPI()
+    app.include_router(kie_create.router, prefix="/api")
+    c = TestClient(app)
+
+    # При генерации включаем pay52_video_configured внутри
+    monkeypatch.setattr(kie_create.pay52_video, "pay52_video_configured", lambda spec: True)
+
+    r = c.post(
+        "/api/kie-create/generate",
+        json={
+            "model_id": "seedance-2-0",
+            "mode": "mini",
+            "values": {"prompt": "тестовое видео", "duration": 5},
+        },
+    )
+    assert r.status_code == 200
+    assert called_pay52 is True
+

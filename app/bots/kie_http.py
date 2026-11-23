@@ -667,9 +667,35 @@ async def generate_kie_video(
         project_id=project_id,
     ) as call:
         if is_pay52:
-            result = await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
+            try:
+                result = await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
+                call.provider = "pay52"
+            except Exception as e_pay52:
+                if kie_configured():
+                    logger.warning(
+                        "kie_http: 52pay generation failed ({}), falling back to KIE: {}",
+                        type(e_pay52).__name__,
+                        e_pay52,
+                    )
+                    call.provider = "kie"
+                    result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                else:
+                    raise
         else:
-            result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+            try:
+                result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                call.provider = "kie"
+            except Exception as e_kie:
+                if pay52_video.pay52_video_configured(spec):
+                    logger.warning(
+                        "kie_http: KIE generation failed ({}), falling back to 52pay: {}",
+                        type(e_kie).__name__,
+                        e_kie,
+                    )
+                    call.provider = "pay52"
+                    result = await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
+                else:
+                    raise
         gid = getattr(result, "gen_id", None)
         if gid:
             call.external_id = str(gid)

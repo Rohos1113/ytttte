@@ -57,6 +57,8 @@ def normalize_pay52_video_model(raw: str) -> str:
         return "kling-4.0-k1"
     if "veo" in s:
         return "veo-3.1-fast-generate-preview"
+    if "seedance" in s:
+        return "seedance-2.0-fast"
     clean = (raw or "").strip()
     if clean and not any("\u4e00" <= c <= "\u9fff" for c in clean):
         return clean
