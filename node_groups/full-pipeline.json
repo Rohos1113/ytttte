@@ -1,0 +1,402 @@
+{
+  "version": 1,
+  "group_id": "full-pipeline",
+  "title": "Полный пайплайн: сценарий → публикация",
+  "description": "Все 25 нод проекта pavypvya: сценарий, plan_cinema (сцены/персонажи/каркас/диалоги/шоты/фоны/стиль/правки/промты картинок/отчёт/проверка), предметы/герои/фоны, картинки/видео/озвучка/музыка/звуки/сборка/публикация. Без результатов работ.",
+  "category": "planning",
+  "default_after_type": "",
+  "nodes": [
+    {
+      "local_key": "n_topic",
+      "node_type": "topic",
+      "label": "Тема",
+      "description": "Тема ролика",
+      "preferred_id": "n_topic",
+      "dx": 380.0,
+      "dy": -280.75
+    },
+    {
+      "local_key": "n_hero",
+      "node_type": "hero",
+      "label": "Персонажи",
+      "description": "Генерация референсов героев",
+      "preferred_id": "n_hero",
+      "dx": 2320.0,
+      "dy": 277.7,
+      "prompt_variant": "avatar_sheet_vertical_story"
+    },
+    {
+      "local_key": "n_images",
+      "node_type": "images",
+      "label": "Картинки",
+      "description": "Генерация изображений",
+      "preferred_id": "n_images",
+      "dx": 3880.0,
+      "dy": 275.15
+    },
+    {
+      "local_key": "n_videos",
+      "node_type": "videos",
+      "label": "Видео",
+      "description": "Генерация клипов (Veo 8с; fallback Kling 5с)",
+      "preferred_id": "n_videos",
+      "dx": 4260.0,
+      "dy": 275.03
+    },
+    {
+      "local_key": "n_audio",
+      "node_type": "audio",
+      "label": "Озвучка",
+      "description": "ElevenLabs TTS + Whisper",
+      "preferred_id": "n_audio",
+      "dx": 4640.0,
+      "dy": 275.03
+    },
+    {
+      "local_key": "n_music",
+      "node_type": "music",
+      "label": "Музыка",
+      "description": "GPT + Suno (Outsee)",
+      "preferred_id": "n_music",
+      "dx": 5020.0,
+      "dy": 278.46
+    },
+    {
+      "local_key": "n_sfx_plan",
+      "node_type": "sfx_plan",
+      "label": "План звуков",
+      "description": "GPT: метки звуков сопровождения по таймлайну",
+      "preferred_id": "n_sfx_plan",
+      "dx": 5020.0,
+      "dy": 828.3
+    },
+    {
+      "local_key": "n_sfx_gen",
+      "node_type": "sfx_gen",
+      "label": "Звуки",
+      "description": "Создание SFX (11Labs API / локальный синтез)",
+      "preferred_id": "n_sfx_gen",
+      "dx": 5400.0,
+      "dy": 281.16
+    },
+    {
+      "local_key": "n_assemble",
+      "node_type": "assemble",
+      "label": "Сборка",
+      "description": "FFmpeg финальный mp4",
+      "preferred_id": "n_assemble",
+      "dx": 5780.0,
+      "dy": 281.16
+    },
+    {
+      "local_key": "n_publish",
+      "node_type": "publish",
+      "label": "Публикация",
+      "description": "Публикация на 5 площадок",
+      "preferred_id": "n_publish",
+      "dx": 6160.0,
+      "dy": 281.16
+    },
+    {
+      "local_key": "n_excel_gpt_pk_scenes",
+      "node_type": "excel_gpt",
+      "label": "Сцены по плану",
+      "description": "План, размеченный кодом на P1..Pn (plan_scenes.num_plan_points) → сцены: номер, id_плана, место, событие, примечание. Промт plan_to_scenes. Код проверяет покрытие гейтом R-PLAN-COVER (один повтор), артефакт plan_scenes.json.",
+      "preferred_id": "n_excel_gpt_pk_scenes",
+      "dx": 760.0,
+      "dy": -285.1,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_cast",
+      "node_type": "excel_gpt",
+      "label": "Персонажи",
+      "description": "План + сцены → единый реестр людей c01..: имя с ролью, внешность, одежда, характер, правила вариаций, voice_prompt. Пишется в Entity(character). Промт plan_cast. Код проверяет дубли гейтом R-CAST-DUP.",
+      "preferred_id": "n_excel_gpt_pk_cast",
+      "dx": 1930.0,
+      "dy": -64.02,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_dialogues",
+      "node_type": "excel_gpt",
+      "label": "Диалоги",
+      "description": "Сцена + реестр → речь сцены attrs[\"речь\"]: тип нет/монолог/диалог, реплики {кто, текст, эмоция}; реплики только из персонажей сцены и реестра. Промт plan_dialogues. Гейты R-DLG-FORM, R-DLG-SPEAKER.",
+      "preferred_id": "n_excel_gpt_pk_dialogues",
+      "dx": 1150.0,
+      "dy": -287.44,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_backgrounds",
+      "node_type": "excel_gpt",
+      "label": "Фоны",
+      "description": "Нормализованные места всех сцен → Entity(type=background, code=f0N): место, описание, свет, время, промт; у каждой сцены attrs[\"фон\"] = f0N. Один фон на локацию. Промт plan_backgrounds. Гейт R-BG-REF.",
+      "preferred_id": "n_excel_gpt_pk_backgrounds",
+      "dx": 1930.0,
+      "dy": -285.58,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_shots",
+      "node_type": "excel_gpt",
+      "label": "Шоты",
+      "description": "Сцена + речь + место/фон → apply-ops {\"frame_uuid\": \"<uuid сцены>\", \"fields\": {\"кадры\": [...]}}, 1–6 кадров; реплики раскладываются по кадрам (говорит/реплика), поля «закадр» нет. Промт scenes_to_frames_plan_ru. Код проверяет диалоги через shots_dialogue_problems.",
+      "preferred_id": "n_excel_gpt_pk_shots",
+      "dx": 1540.0,
+      "dy": -285.53,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_style",
+      "node_type": "excel_gpt",
+      "label": "Стиль",
+      "description": "Без GPT: выбранный styles/style_*.md дописывается после сцены к промту главного кадра (K1) и в image_prompt. Лимит 4877: режется сцена по предложению, стиль не режется никогда. Спецификация — templates/node_groups/plan_cinema/style_plan.md.",
+      "preferred_id": "n_excel_gpt_pk_style",
+      "dx": 3100.0,
+      "dy": -53.42,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_report",
+      "node_type": "excel_gpt",
+      "label": "Отчёт",
+      "description": "После цепочки: HTML-отчёт сцен, кадров, речи и фонов. Без GPT, промта не берёт.",
+      "preferred_id": "n_excel_gpt_pk_report",
+      "dx": 2710.0,
+      "dy": -266.34,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "artifact",
+        "transport": "code"
+      }
+    },
+    {
+      "local_key": "n_backgrounds",
+      "node_type": "backgrounds",
+      "label": "Фоны",
+      "description": "PNG локаций по карточкам «Фоны» — до генерации кадров",
+      "preferred_id": "n_backgrounds",
+      "dx": 2710.0,
+      "dy": 276.49
+    },
+    {
+      "local_key": "n_items_1795037706106",
+      "node_type": "items",
+      "label": "Предметы",
+      "description": "Reference-картинки повторяющихся предметов.",
+      "preferred_id": "n_items_1795037706106",
+      "dx": 1930.0,
+      "dy": -491.26
+    },
+    {
+      "local_key": "n_plan",
+      "node_type": "plan",
+      "label": "Сценарий",
+      "description": "Сценарий ролика",
+      "preferred_id": "n_plan",
+      "dx": 0.0,
+      "dy": -309.69
+    },
+    {
+      "local_key": "n_excel_gpt_pk_skeleton",
+      "node_type": "excel_gpt",
+      "label": "Каркас",
+      "description": "Сцены из шага 1 + реестр → ячейки Frame сцены: attrs источник=\"pk\", id_плана, место, персонажи, предметы, событие, сцена (50–80 слов); voiceover_text=\"\". Промт scene_skeleton_plan.",
+      "preferred_id": "n_excel_gpt_pk_skeleton",
+      "dx": 760.0,
+      "dy": 121.58,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_pk_fix",
+      "node_type": "excel_gpt",
+      "label": "Правки кадров",
+      "description": "После «Отчёта»: проверяет и правит промт_картинки всех кадров сцены через apply-ops — мизансцена (кто где и кто перед кем), инварианты единого исходного фона сцены, камера и взгляд, запрет повторять исходный кадр фона, логика последовательности, планировка и движение. Кадры правятся последовательно 1→N. Меняет только промт_картинки. Промт shots_fix_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_fix",
+      "dx": 3490.0,
+      "dy": -264.24,
+      "slot_overflow": true
+    },
+    {
+      "local_key": "n_excel_gpt_pk_prompts",
+      "node_type": "excel_gpt",
+      "label": "Промты картинок",
+      "description": "После «Правок кадров»: собирает финальный промт кадра из переменных — линза/план/ракурс/высота, действие с персонажами по кодам, положение на экране из ракурса и высоты, фон с номером панели листа 2×2, блок референсов, стиль последним блоком. Пишет кадры[].промт_картинки, кадры[].панель_фона и image_prompt мастер-кадра. Промт image_prompts_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_prompts",
+      "dx": 5452.810694954143,
+      "dy": -219.2731791938582,
+      "slot_overflow": true,
+      "operator_config": {
+        "outputMode": "project_file",
+        "transport": "api"
+      }
+    },
+    {
+      "local_key": "n_excel_gpt_1795212218894",
+      "node_type": "excel_gpt",
+      "label": "ИИ-редактор сцен",
+      "description": "ИИ-редактор сцен: роли, файлы со стрелок, сверка с диском. API без браузера. Пульт — меню V.",
+      "preferred_id": "n_excel_gpt_1795212218894",
+      "dx": 2710.0,
+      "dy": -482.62
+    },
+    {
+      "local_key": "n_excel_gpt_pk_check",
+      "node_type": "excel_gpt",
+      "label": "Проверка",
+      "description": "После «Фонов»: проверяет и правит позиционирование и геометрию кадров — состав персонажей в кадре (вписывает/выписывает), где стоят и что делают, сторона экрана по ракурсу относительно точки обзора фона, непрерывность с предыдущим кадром, помещается ли персонаж при крупности (деталь/крупный). Меняет только кто/где/позы/фон/промт_картинки. Промт shots_check_plan_ru.",
+      "preferred_id": "n_excel_gpt_pk_check",
+      "dx": 2368.75,
+      "dy": -95.22,
+      "slot_overflow": true
+    }
+  ],
+  "internal_edges": [
+    [
+      "n_videos",
+      "n_audio",
+      "after"
+    ],
+    [
+      "n_audio",
+      "n_music",
+      "after"
+    ],
+    [
+      "n_music",
+      "n_sfx_plan",
+      "after"
+    ],
+    [
+      "n_sfx_plan",
+      "n_sfx_gen",
+      "after"
+    ],
+    [
+      "n_sfx_gen",
+      "n_assemble",
+      "after"
+    ],
+    [
+      "n_assemble",
+      "n_publish",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_style",
+      "n_excel_gpt_pk_report",
+      "after"
+    ],
+    [
+      "n_images",
+      "n_videos",
+      "after"
+    ],
+    [
+      "n_hero",
+      "n_backgrounds",
+      "after"
+    ],
+    [
+      "n_backgrounds",
+      "n_images",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_dialogues",
+      "n_excel_gpt_pk_shots",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_shots",
+      "n_excel_gpt_pk_backgrounds",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_shots",
+      "n_items_1795037706106",
+      "after"
+    ],
+    [
+      "n_topic",
+      "n_excel_gpt_pk_scenes",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_shots",
+      "n_excel_gpt_pk_cast",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_scenes",
+      "n_excel_gpt_pk_dialogues",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_report",
+      "n_excel_gpt_pk_fix",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_backgrounds",
+      "n_excel_gpt_pk_check",
+      "after"
+    ],
+    [
+      "n_items_1795037706106",
+      "n_excel_gpt_pk_check",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_check",
+      "n_excel_gpt_pk_style",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_fix",
+      "n_excel_gpt_pk_prompts",
+      "after"
+    ],
+    [
+      "n_excel_gpt_pk_prompts",
+      "n_hero",
+      "after"
+    ]
+  ],
+  "entry_keys": [
+    "n_plan"
+  ],
+  "exit_key": "n_publish",
+  "project_meta": {},
+  "exit_edge_kind": "after",
+  "updated_at": "2026-11-23T05:26:46+00:00"
+}
