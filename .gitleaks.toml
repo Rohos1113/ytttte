@@ -15,6 +15,7 @@ paths = [
     '''web/out/''',
     '''evals/''',
     '''tests/routing/evals/fixtures/''',
+    '''docs/''',
 ]
 stopwords = [
     "claude-haiku-4-5-20251001",
@@ -27,6 +28,8 @@ stopwords = [
     "pay52_routes",
     "lease_until=now",
     "sk_test_key_1234567890",
+    "kling-2-5-turbo",
+    "PAY52_GLM_KEY",
 ]
 commits = [
     "8397a62de237683c39ecfa4fb66927b83dd6b7ed",
