@@ -797,12 +797,12 @@ async def generate_kie_image(
                         e_pay52,
                     )
                     call.provider = "kie"
-                    result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                    result = await run_generation(effective_spec, payload, out_path, timeout_s=timeout)
                 else:
                     raise
         else:
             try:
-                result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                result = await run_generation(effective_spec, payload, out_path, timeout_s=timeout)
                 call.provider = "kie"
             except Exception as e_kie:
                 if pay52_image.pay52_image_configured(effective_spec):
