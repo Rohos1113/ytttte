@@ -10587,6 +10587,187 @@
       "desc": "GPT Image 2.6 (Economy) Text to Image",
       "modes": [
         {
+          "id": "t2i-flare",
+          "label": "Flare: текст → картинка",
+          "kie_id": "gpt-image-2-6/flare-text-to-image",
+          "task_type": "Text to Image",
+          "api": "jobs",
+          "endpoint": "/api/v1/jobs/createTask",
+          "fields": [
+            {
+              "name": "prompt",
+              "label": "Промпт",
+              "kind": "textarea",
+              "required": true,
+              "default": null,
+              "hint": "Text description of the image to generate. Describe the subject, setting, composition, lighting and style. Put any text that should appear in the image in quotes. Required, 1 to 32,000 characters. (макс. 32000 симв.)"
+            },
+            {
+              "name": "aspect_ratio",
+              "label": "Соотношение сторон",
+              "kind": "select",
+              "required": false,
+              "default": "auto",
+              "options": [
+                "auto",
+                "1:1",
+                "3:2",
+                "2:3",
+                "4:3",
+                "3:4",
+                "5:4",
+                "4:5",
+                "16:9",
+                "9:16",
+                "2:1",
+                "1:2",
+                "21:9",
+                "9:21",
+                "3:1",
+                "1:3"
+              ],
+              "hint": "Aspect ratio. Optional, default `auto`. For static images (`png` / `jpeg` / `webp` / `svg`), pixel size is mapped from `aspect_ratio` + `resolution` (see the table on `resolution`). Do **not** use this as GIF frame size "
+            },
+            {
+              "name": "resolution",
+              "label": "Разрешение",
+              "kind": "select",
+              "required": false,
+              "default": "1K",
+              "options": [
+                "1K",
+                "2K",
+                "4K"
+              ],
+              "hint": "Resolution tier. Optional, default `1K`. GIF frame pixels do **not** use this table — use `size`. Static-image pixel sizes (width × height): | ratio | 1K | 2K | 4K | |---|---|---|---| | 1:1 / auto | 1024×1024 | 2048×2048"
+            },
+            {
+              "name": "quality",
+              "label": "Качество",
+              "kind": "select",
+              "required": false,
+              "default": "medium",
+              "options": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "hint": "Quality. Optional, default `medium`. Supported: `low`, `medium`, `high`, `xhigh`, `max`, `auto`."
+            },
+            {
+              "name": "output_format",
+              "label": "Формат файла",
+              "kind": "select",
+              "required": false,
+              "default": "png",
+              "options": [
+                "png",
+                "jpeg",
+                "webp"
+              ],
+              "hint": "Output format. Optional, default `png`. Passing `jpg` is treated as `jpeg`. Supported: `png`, `jpeg`, `webp`, `gif`, `svg`. - Transparent background is only supported with `png` / `webp` - For `gif`, use `size` / `frame_"
+            },
+            {
+              "name": "complexity",
+              "label": "Сложность",
+              "kind": "select",
+              "required": false,
+              "default": "high",
+              "options": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "hint": "Planning complexity. Optional, default `high`. Supported: `low`, `medium`, `high`."
+            },
+            {
+              "name": "moderation",
+              "label": "Модерация",
+              "kind": "select",
+              "required": false,
+              "default": "low",
+              "options": [
+                "auto",
+                "low"
+              ],
+              "hint": "Moderation strength. Optional, default `low`. Supported: `auto`, `low`."
+            }
+          ],
+          "pricing": {
+            "unit": "1m_tokens",
+            "rules": [
+              {
+                "when": {
+                  "token_kind": "text_input"
+                },
+                "credits": 900.0,
+                "usd_kie": 4.5,
+                "usd_client": 5.625
+              },
+              {
+                "when": {
+                  "token_kind": "cached_text_input"
+                },
+                "credits": 225.0,
+                "usd_kie": 1.125,
+                "usd_client": 1.4062
+              },
+              {
+                "when": {
+                  "token_kind": "image_input"
+                },
+                "credits": 1440.0,
+                "usd_kie": 7.2,
+                "usd_client": 9.0
+              },
+              {
+                "when": {
+                  "token_kind": "cached_image_input"
+                },
+                "credits": 360.0,
+                "usd_kie": 1.8,
+                "usd_client": 2.25
+              },
+              {
+                "when": {
+                  "token_kind": "image_output"
+                },
+                "credits": 5400.0,
+                "usd_kie": 27.0,
+                "usd_client": 33.75
+              },
+              {
+                "when": {
+                  "token_kind": "svg_image_output"
+                },
+                "credits": 5400.0,
+                "usd_kie": 27.0,
+                "usd_client": 33.75
+              }
+            ],
+            "default": 900.0,
+            "note": "по токенам; кредиты: 36, 900; прайс kie.ai: Text input 900 credits / 1M tokens ($4.50), cached text input 225 ($1.125), image input 1,440 ($7.20), cached image input 360 ($1.80), image output 5,400 ($27.00) — 10% below official pricing. SVG output: image tokens as above, plus the SVG author model's toke",
+            "credit_usd": 0.005,
+            "source_text": "Text input 900 credits / 1M tokens ($4.50), cached text input 225 ($1.125), image input 1,440 ($7.20), cached image input 360 ($1.80), image output 5,400 ($27.00) — 10% below official pricing. SVG output: image tokens as above, plus the SVG author model's tokens — gpt-5.6-luna (default): input 36 credits / 1M tokens ($0.18), output 216 ($1.08); gpt-6-sol: input 360 ($1.80), output 1,800 ($9.00); gpt-5.6-terra: input 360 ($1.80), output 2,160 ($10.80). High-tier top-ups (+10% bonus) bring effective pricing down to ~10% off the above rates.",
+            "affects_price": [
+              "tokens",
+              "resolution"
+            ],
+            "formula": "цена по токенам (за 1M токенов): текст на вход 900 кр, кэш 225, картинка на вход 1440, кэш 360, выход картинки 5400 кр; SVG добавляет токены автор-модели",
+            "pricing_source": "docs/kie-prices-usd.json"
+          },
+          "constraints": [
+            "обязательные поля: prompt",
+            "output_compression: 0–100",
+            "frame_count: 2–16",
+            "frame_duration_ms: 20–2000"
+          ],
+          "docs_url": "https://docs.kie.ai/market/gpt/gpt-image-2-6-flare-text-to-image.md",
+          "fields_source": "docs.kie.ai OpenAPI (input)",
+          "fields_known": true,
+          "in_live_api": true
+        },
+        {
           "id": "t2i-economy",
           "label": "Economy: текст → картинка",
           "kie_id": "gpt-image-2-6/economy-text-to-image",
@@ -10773,189 +10954,9 @@
           "fields_source": "docs.kie.ai OpenAPI (input)",
           "fields_known": true,
           "in_live_api": true
-        },
-        {
-          "id": "t2i-flare",
-          "label": "Flare: текст → картинка",
-          "kie_id": "gpt-image-2-6/flare-text-to-image",
-          "task_type": "Text to Image",
-          "api": "jobs",
-          "endpoint": "/api/v1/jobs/createTask",
-          "fields": [
-            {
-              "name": "prompt",
-              "label": "Промпт",
-              "kind": "textarea",
-              "required": true,
-              "default": null,
-              "hint": "Text description of the image to generate. Describe the subject, setting, composition, lighting and style. Put any text that should appear in the image in quotes. Required, 1 to 32,000 characters. (макс. 32000 симв.)"
-            },
-            {
-              "name": "aspect_ratio",
-              "label": "Соотношение сторон",
-              "kind": "select",
-              "required": false,
-              "default": "auto",
-              "options": [
-                "auto",
-                "1:1",
-                "3:2",
-                "2:3",
-                "4:3",
-                "3:4",
-                "5:4",
-                "4:5",
-                "16:9",
-                "9:16",
-                "2:1",
-                "1:2",
-                "21:9",
-                "9:21",
-                "3:1",
-                "1:3"
-              ],
-              "hint": "Aspect ratio. Optional, default `auto`. For static images (`png` / `jpeg` / `webp` / `svg`), pixel size is mapped from `aspect_ratio` + `resolution` (see the table on `resolution`). Do **not** use this as GIF frame size "
-            },
-            {
-              "name": "resolution",
-              "label": "Разрешение",
-              "kind": "select",
-              "required": false,
-              "default": "1K",
-              "options": [
-                "1K",
-                "2K",
-                "4K"
-              ],
-              "hint": "Resolution tier. Optional, default `1K`. GIF frame pixels do **not** use this table — use `size`. Static-image pixel sizes (width × height): | ratio | 1K | 2K | 4K | |---|---|---|---| | 1:1 / auto | 1024×1024 | 2048×2048"
-            },
-            {
-              "name": "quality",
-              "label": "Качество",
-              "kind": "select",
-              "required": false,
-              "default": "medium",
-              "options": [
-                "low",
-                "medium",
-                "high"
-              ],
-              "hint": "Quality. Optional, default `medium`. Supported: `low`, `medium`, `high`, `xhigh`, `max`, `auto`."
-            },
-            {
-              "name": "output_format",
-              "label": "Формат файла",
-              "kind": "select",
-              "required": false,
-              "default": "png",
-              "options": [
-                "png",
-                "jpeg",
-                "webp"
-              ],
-              "hint": "Output format. Optional, default `png`. Passing `jpg` is treated as `jpeg`. Supported: `png`, `jpeg`, `webp`, `gif`, `svg`. - Transparent background is only supported with `png` / `webp` - For `gif`, use `size` / `frame_"
-            },
-            {
-              "name": "complexity",
-              "label": "Сложность",
-              "kind": "select",
-              "required": false,
-              "default": "high",
-              "options": [
-                "low",
-                "medium",
-                "high"
-              ],
-              "hint": "Planning complexity. Optional, default `high`. Supported: `low`, `medium`, `high`."
-            },
-            {
-              "name": "moderation",
-              "label": "Модерация",
-              "kind": "select",
-              "required": false,
-              "default": "low",
-              "options": [
-                "auto",
-                "low"
-              ],
-              "hint": "Moderation strength. Optional, default `low`. Supported: `auto`, `low`."
-            }
-          ],
-          "pricing": {
-            "unit": "1m_tokens",
-            "rules": [
-              {
-                "when": {
-                  "token_kind": "text_input"
-                },
-                "credits": 900.0,
-                "usd_kie": 4.5,
-                "usd_client": 5.625
-              },
-              {
-                "when": {
-                  "token_kind": "cached_text_input"
-                },
-                "credits": 225.0,
-                "usd_kie": 1.125,
-                "usd_client": 1.4062
-              },
-              {
-                "when": {
-                  "token_kind": "image_input"
-                },
-                "credits": 1440.0,
-                "usd_kie": 7.2,
-                "usd_client": 9.0
-              },
-              {
-                "when": {
-                  "token_kind": "cached_image_input"
-                },
-                "credits": 360.0,
-                "usd_kie": 1.8,
-                "usd_client": 2.25
-              },
-              {
-                "when": {
-                  "token_kind": "image_output"
-                },
-                "credits": 5400.0,
-                "usd_kie": 27.0,
-                "usd_client": 33.75
-              },
-              {
-                "when": {
-                  "token_kind": "svg_image_output"
-                },
-                "credits": 5400.0,
-                "usd_kie": 27.0,
-                "usd_client": 33.75
-              }
-            ],
-            "default": 900.0,
-            "note": "по токенам; кредиты: 36, 900; прайс kie.ai: Text input 900 credits / 1M tokens ($4.50), cached text input 225 ($1.125), image input 1,440 ($7.20), cached image input 360 ($1.80), image output 5,400 ($27.00) — 10% below official pricing. SVG output: image tokens as above, plus the SVG author model's toke",
-            "credit_usd": 0.005,
-            "source_text": "Text input 900 credits / 1M tokens ($4.50), cached text input 225 ($1.125), image input 1,440 ($7.20), cached image input 360 ($1.80), image output 5,400 ($27.00) — 10% below official pricing. SVG output: image tokens as above, plus the SVG author model's tokens — gpt-5.6-luna (default): input 36 credits / 1M tokens ($0.18), output 216 ($1.08); gpt-6-sol: input 360 ($1.80), output 1,800 ($9.00); gpt-5.6-terra: input 360 ($1.80), output 2,160 ($10.80). High-tier top-ups (+10% bonus) bring effective pricing down to ~10% off the above rates.",
-            "affects_price": [
-              "tokens",
-              "resolution"
-            ],
-            "formula": "цена по токенам (за 1M токенов): текст на вход 900 кр, кэш 225, картинка на вход 1440, кэш 360, выход картинки 5400 кр; SVG добавляет токены автор-модели",
-            "pricing_source": "docs/kie-prices-usd.json"
-          },
-          "constraints": [
-            "обязательные поля: prompt",
-            "output_compression: 0–100",
-            "frame_count: 2–16",
-            "frame_duration_ms: 20–2000"
-          ],
-          "docs_url": "https://docs.kie.ai/market/gpt/gpt-image-2-6-flare-text-to-image.md",
-          "fields_source": "docs.kie.ai OpenAPI (input)",
-          "fields_known": true,
-          "in_live_api": true
         }
-      ]
+      ],
+      "default_mode": "t2i-flare"
     },
     {
       "id": "qwen3-image",

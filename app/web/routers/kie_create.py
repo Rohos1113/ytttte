@@ -486,9 +486,14 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
 
     job_provider = provider_name
     client_id = request.headers.get("x-client-id") or request.query_params.get("client_id")
+    job_model_display = (
+        str(family.get("label") or family.get("name") or family.get("id") or spec.get("label") or "")
+        if family
+        else str(spec.get("label") or "")
+    )
     job = await enqueue_generation(
         media=media,
-        model=spec["label"],
+        model=job_model_display,
         provider=job_provider,
         prompt=prompt,
         ext=ext,

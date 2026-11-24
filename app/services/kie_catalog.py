@@ -1577,11 +1577,15 @@ def mode_spec(
         legacy = _LEGACY_BY_KIE.get(kie_id)
         if legacy and legacy.get("fields"):
             fields = legacy["fields"]
+    fam_label = str(fam.get("label") or fam.get("name") or fam.get("id") or "")
+    mode_label = str(md.get("label") or md.get("id") or "")
     spec: dict[str, Any] = {
         "id": kie_id or str(md.get("id") or ""),
         "family_id": fam.get("id"),
+        "family_label": fam_label,
         "mode_id": md.get("id"),
-        "label": str(md.get("label") or fam.get("label") or ""),
+        "mode_label": mode_label,
+        "label": fam_label or mode_label,
         "brand": str(fam.get("brand") or ""),
         "category": media,
         "media": media,

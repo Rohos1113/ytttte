@@ -195,7 +195,9 @@ test("kieSettingDescriptors: range-поля получают границы 0..1
 
 test("kieOptionMeta: подписи quality и vocalGender как в прежних чипах", () => {
   assert.deepEqual(kieOptionMeta("quality", "basic"), { label: "1K" });
-  assert.deepEqual(kieOptionMeta("quality", "high"), { label: "2K" });
+  assert.deepEqual(kieOptionMeta("quality", "high"), { label: "High" });
+  assert.deepEqual(kieOptionMeta("quality", "low"), { label: "Low" });
+  assert.deepEqual(kieOptionMeta("quality", "medium"), { label: "Medium" });
   assert.deepEqual(kieOptionMeta("quality", "std"), { label: "Standard", hint: "720p" });
   assert.deepEqual(kieOptionMeta("quality", "pro"), { label: "Pro", hint: "1080p" });
   assert.deepEqual(kieOptionMeta("vocalGender", "m"), {
@@ -308,7 +310,7 @@ test("formatSettingChip: toggle/duration/select и дефолты", () => {
   const quality = kieSettingDescriptors([
     field("quality", "select", { options: ["basic", "high"], default: "high" }),
   ])[0]!;
-  assert.equal(formatSettingChip(quality, {}), "2K");
+  assert.equal(formatSettingChip(quality, {}), "High");
   assert.equal(formatSettingChip(quality, { quality: "basic" }), "1K");
 });
 

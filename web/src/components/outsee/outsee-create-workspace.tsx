@@ -917,6 +917,43 @@ function CreateImageViewer({
   );
 }
 
+function displayJobModelName(
+  item:
+    | HistoryItem
+    | { model?: string | null; label?: string | null; params?: Record<string, unknown> | null }
+    | null
+    | undefined,
+  kieModels?: KieModelSpec[],
+): string {
+  if (!item) return "";
+  const params = ((item as HistoryItem).params ?? {}) as Record<string, unknown>;
+  const modelId = typeof params.model_id === "string" ? params.model_id : "";
+  if (modelId && kieModels?.length) {
+    const found = kieModels.find((m) => m.id === modelId);
+    if (found?.label) return found.label;
+  }
+  const raw = String(item.model || item.label || "");
+  if (
+    raw.includes(":") &&
+    (raw.includes("Flare") ||
+      raw.includes("Sunburst") ||
+      raw.includes("текст →") ||
+      raw.includes("картинка →") ||
+      raw.includes("text-to-image") ||
+      raw.includes("image-to-image"))
+  ) {
+    if (modelId) {
+      if (modelId === "gpt-image-2") return "GPT Image 2";
+      if (modelId === "gpt-image-2-5") return "GPT Image 2.5";
+      if (modelId === "gpt-image-2-6") return "GPT Image 2.6";
+      if (modelId.startsWith("seedream")) return "Seedream 5.0";
+    }
+    const parts = raw.split(":");
+    if (parts[0] && parts[0].trim()) return parts[0].trim();
+  }
+  return raw;
+}
+
 export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) {
   const qc = useQueryClient();
   const [mediaType, setMediaType] = useState<OutseeMediaType>("image");
@@ -3291,7 +3328,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <div className="truncate font-mono text-[10px] font-semibold text-white/90">
-                            {j.model || j.media}
+                            {displayJobModelName(j, kieModels) || j.media}
                           </div>
                           <span className="shrink-0 font-mono text-[9px] font-semibold text-[#2dd4bf]">
                             {getLiveElapsed(j)}
@@ -3329,7 +3366,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <div className="truncate font-mono text-[10px] font-semibold text-white/80">
-                            {j.model || j.media}
+                            {displayJobModelName(j, kieModels) || j.media}
                           </div>
                           <span className="shrink-0 font-mono text-[9px] font-medium text-white/50">
                             {getLiveElapsed(j)}
@@ -3591,7 +3628,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 {selected.model && (
                   <div className="text-white/45">
                     Модель:{" "}
-                    <span className="font-mono font-semibold text-white/75">{selected.model}</span>
+                    <span className="font-mono font-semibold text-white/75">{displayJobModelName(selected, kieModels)}</span>
                   </div>
                 )}
               </div>
@@ -3689,7 +3726,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   <span>{getLiveElapsed(selected)}</span>
                 </div>
                 <div className="text-[12px] text-white/50">
-                  {selected.model || selected.label}
+                  {displayJobModelName(selected, kieModels) || selected.label}
                   {queueCount > 1 ? ` · очередь ${queueCount}` : ""}
                 </div>
                 {selected.prompt && (
@@ -4906,7 +4943,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </span>
                 {selected.model && (
                   <span className="shrink-0 rounded-md border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#2dd4bf]">
-                    {selected.model}
+                    {displayJobModelName(selected, kieModels)}
                   </span>
                 )}
               </div>
@@ -5013,7 +5050,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   </div>
                   {selected.model && (
                     <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
-                      {selected.model}
+                      {displayJobModelName(selected, kieModels)}
                     </span>
                   )}
                 </div>

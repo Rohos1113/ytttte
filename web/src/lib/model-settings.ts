@@ -236,13 +236,14 @@ export function kieOptionMeta(
   const name = fieldName.toLowerCase();
   const opt = option.toLowerCase();
   if (name === "quality") {
-    if (opt === "basic" || opt === "1k") return { label: "1K" };
-    if (opt === "high" || opt === "2k") return { label: "2K" };
-    if (opt === "ultra") return { label: "2K" };
-    if (opt === "std" || opt === "standard") return { label: "Standard", hint: "720p" };
-    if (opt === "pro") return { label: "Pro", hint: "1080p" };
     if (opt === "low") return { label: "Low" };
     if (opt === "medium") return { label: "Medium" };
+    if (opt === "high") return { label: "High" };
+    if (opt === "basic" || opt === "1k") return { label: "1K" };
+    if (opt === "2k" || opt === "ultra") return { label: "2K" };
+    if (opt === "1.5k") return { label: "1.5K" };
+    if (opt === "std" || opt === "standard") return { label: "Standard", hint: "720p" };
+    if (opt === "pro") return { label: "Pro", hint: "1080p" };
     if (opt === "xhigh") return { label: "X-High" };
     if (opt === "max") return { label: "Max" };
   }
