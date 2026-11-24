@@ -90,6 +90,18 @@ def _infer_node_type(node_key: str) -> str:
         return "script"
     if key.endswith("_plan") or key == "plan":
         return "plan"
+    if "split" in key or "razbivka" in key:
+        return "split"
+    if "hero" in key:
+        return "hero"
+    if "item" in key:
+        return "items"
+    if "image" in key or key.endswith("_img") or key.startswith("img"):
+        return "images"
+    if "video" in key or key.endswith("_vid"):
+        return "videos"
+    if "music" in key:
+        return "music"
     return ""
 
 
@@ -103,14 +115,21 @@ def _node_info(project: Project, node_key: str) -> tuple[str, str]:
         graph = canvas_graph_from_meta(meta) or {}
     except Exception:  # noqa: BLE001 — тип можно вывести по ключу
         graph = {}
+    k = str(node_key or "").strip()
+    k_bare = k.removeprefix("n_")
     for node in graph.get("nodes") or []:
         if not isinstance(node, dict):
             continue
-        if str(node.get("id") or "") != str(node_key):
-            continue
-        raw_data = node.get("data")
-        data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
-        return str(node.get("type") or ""), str(data.get("label") or "").strip()
+        nid = str(node.get("id") or "")
+        ntyp = str(node.get("type") or "")
+        if (
+            nid in (k, f"n_{k}")
+            or nid.removeprefix("n_") == k_bare
+            or ntyp in (k, k_bare)
+        ):
+            raw_data = node.get("data")
+            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+            return str(node.get("type") or _infer_node_type(k)), str(data.get("label") or "").strip()
     return _infer_node_type(node_key), ""
 
 
@@ -598,10 +617,24 @@ def _node_in_graph(project: Project, node_key: str) -> bool:
         graph = canvas_graph_from_meta(meta) or {}
     except Exception:  # noqa: BLE001 — граф не прочитался: не отказываем сгоряча
         return True
-    for node in graph.get("nodes") or []:
-        if isinstance(node, dict) and str(node.get("id") or "") == str(node_key):
+    nodes = graph.get("nodes")
+    k = str(node_key or "").strip()
+    k_bare = k.removeprefix("n_")
+    if not nodes:
+        return bool(_infer_node_type(k))
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("id") or "")
+        ntyp = str(node.get("type") or "")
+        if (
+            nid in (k, f"n_{k}")
+            or nid.removeprefix("n_") == k_bare
+            or ntyp in (k, k_bare)
+        ):
             return True
-    return False
+    return bool(_infer_node_type(k))
 
 
 def _doc_stem(name: str) -> str:

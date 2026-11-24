@@ -497,6 +497,14 @@ def test_api_node_without_documents_is_200(studio: Any) -> None:
     assert data["warnings"] == ["нет документов ответа ЛЛМ для ноды n_images"]
 
 
+def test_api_split_or_bare_node_without_documents_is_200(studio: Any) -> None:
+    """Нода split или ключ без префикса n_ отдаёт 200 с пустыми таблицами, а не 404."""
+    response = studio.client.get(f"/api/projects/{studio.project_id}/node-llm/split/table")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tables"] == []
+
+
 def test_api_empty_document_is_200(studio: Any) -> None:
     _write(studio.upload("n_excel_gpt_pk_cast"), "gpt_reply.txt", "")
     response = studio.client.get(
