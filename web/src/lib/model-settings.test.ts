@@ -740,7 +740,7 @@ test("нулевая цена — «бесплатно», неизвестная
 });
 
 test("kieSettingDescriptors скрывает complexity и moderation (GPT Image 2.6)", () => {
-  const fields = [
+  const fields: KieField[] = [
     { name: "prompt", label: "Промпт", kind: "textarea" },
     { name: "aspect_ratio", label: "Соотношение сторон", kind: "select", options: ["1:1", "16:9"] },
     { name: "resolution", label: "Разрешение", kind: "select", options: ["1K", "2K"] },

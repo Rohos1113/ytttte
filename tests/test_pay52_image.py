@@ -2,11 +2,10 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import pytest
 import httpx
+import pytest
 
 from app.bots.pay52_image import (
-    Pay52ImageError,
     build_pay52_image_payload,
     normalize_pay52_image_model,
     pay52_image_candidate_keys,
@@ -181,7 +180,8 @@ async def test_run_generation_key_fallback(monkeypatch, tmp_path: Path) -> None:
         mock_post.side_effect = [resp_401, resp_200]
         spec = {"model": "doubao-seedream-5.0-flash"}
         values = {"prompt": "test fallback"}
-        res = await run_generation(spec, values, out_file, cfg=s)
+        result = await run_generation(spec, values, out_file, cfg=s)
 
         assert mock_post.call_count == 2
+        assert result.file_path == out_file
         assert out_file.read_bytes() == b"FALLBACK_IMAGE_DATA"

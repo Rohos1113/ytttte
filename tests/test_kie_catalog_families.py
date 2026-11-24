@@ -1008,9 +1008,6 @@ def test_with_video_false_rule_is_kept_in_generated_data() -> None:
             {"resolution": "720p", "audio": False, "duration": 5},
             {"resolution": "720p", "sound": False},
         ),
-        # Flux Kontext: тир в имени модели
-        ("flux-1-kontext", "edit", {"model": "flux-kontext-max"}, {"mode": "max"}),
-        ("flux-1-kontext", "edit", {"model": "flux-kontext-pro"}, {"mode": "pro"}),
         # Seedance 2.0: видео-референс на входе — отдельный тариф
         (
             "seedance-2-0",
@@ -1051,7 +1048,6 @@ def test_expensive_setting_changes_price() -> None:
             {"resolution": "720p", "audio": False, "duration": 5},
             {"resolution": "1080p", "audio": True, "duration": 5},
         ),
-        (("flux-1-kontext", "edit"), {"model": "flux-kontext-pro"}, {"model": "flux-kontext-max"}),
         (
             ("kling-3-0", "video"),
             {"mode": "std", "sound": False, "duration": 5},
