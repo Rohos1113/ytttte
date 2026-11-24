@@ -533,13 +533,49 @@
       "unit": "item",
       "usd_per_unit": 0.0527
     },
+    "pay52:gemini-3.1-flash-image": {
+      "unit": "item",
+      "usd_per_unit": 0.0527
+    },
     "pay52:nano-banana-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.0608
+    },
+    "pay52:gemini-3-pro-image-preview": {
       "unit": "item",
       "usd_per_unit": 0.0608
     },
     "pay52:nano-banana-2.1": {
       "unit": "item",
       "usd_per_unit": 0.0648
+    },
+    "pay52:gemini-nano-banana-2.1": {
+      "unit": "item",
+      "usd_per_unit": 0.0648
+    },
+    "pay52:seedream-5-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.0408
+    },
+    "pay52:seedream-5": {
+      "unit": "item",
+      "usd_per_unit": 0.0408
+    },
+    "pay52:seedream/5-pro-text-to-image": {
+      "unit": "item",
+      "usd_per_unit": 0.0408
+    },
+    "pay52:seedream/5-flash-text-to-image": {
+      "unit": "item",
+      "usd_per_unit": 0.017
+    },
+    "pay52:gpt-image-2-5-flare-text-to-image": {
+      "unit": "item",
+      "usd_per_unit": 0.085
+    },
+    "pay52:gpt-image-2-6/flare-text-to-image": {
+      "unit": "item",
+      "usd_per_unit": 0.085
     },
     "pay52:wan3.0-video": {
       "unit": "item",

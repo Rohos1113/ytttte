@@ -94,6 +94,12 @@ def _key(settings, field: str) -> str:
         return str(getattr(settings, "pay52_claude_low_key", "") or getattr(settings, "pay52_claude_high_key", "") or "").strip()
     if "seedance" in field:
         return str(getattr(settings, "seedance_fast_key", "") or getattr(settings, "seedance_mini_key", "") or getattr(settings, "seedance_overseas_key", "") or "").strip()
+    if "seedream" in field:
+        return str(getattr(settings, "pay52_seedream_key", "") or "").strip()
+    if "banana" in field:
+        return str(getattr(settings, "pay52_banana_key", "") or getattr(settings, "pay52_gemini_key", "") or "").strip()
+    if "gpt_image" in field:
+        return str(getattr(settings, "pay52_gpt_image_key", "") or getattr(settings, "pay52_gpt_key", "") or "").strip()
     # Fallback на любой настроенный 52pay ключ
     return str(
         getattr(settings, "pay52_gpt_key", "")

@@ -279,11 +279,17 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         errors = kie_catalog.validate_values(spec, values)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors[:6]))
+    result_kind = str(spec.get("result") or "video")
     is_elevenlabs = spec.get("api") == "elevenlabs" or spec.get("id") == "elevenlabs-v4"
-    is_pay52 = spec.get("api") == "pay52" or (
+    from app.bots import pay52_image
+    is_pay52_image = bool(
+        result_kind == "image" and pay52_image.pay52_image_configured(spec)
+    )
+    is_pay52_video = bool(
         "seedance" in str(spec.get("id", "")).lower()
         and pay52_video.pay52_video_configured(spec)
     )
+    is_pay52 = spec.get("api") == "pay52" or is_pay52_video or is_pay52_image
     if is_elevenlabs:
         from app.bots.elevenlabs_api import elevenlabs_api_configured
         if not elevenlabs_api_configured():
@@ -291,12 +297,13 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                 status_code=503,
                 detail="ElevenLabs API не настроен (задайте ELEVENLABS_API_KEY)",
             )
-    elif not is_pay52 and not kie_http.kie_configured() and pay52_video.pay52_video_configured(spec):
-        is_pay52 = True
-    elif is_pay52 and not pay52_video.pay52_video_configured(spec) and kie_http.kie_configured():
-        is_pay52 = False
     elif not is_pay52 and not kie_http.kie_configured():
-        raise HTTPException(status_code=503, detail="API не настроен (KIE_API_KEY / SEEDANCE_*_KEY)")
+        if is_pay52_video or is_pay52_image:
+            is_pay52 = True
+        else:
+            raise HTTPException(status_code=503, detail="API не настроен (KIE_API_KEY / PAY52_*_KEY)")
+    elif is_pay52 and not is_pay52_video and not is_pay52_image and not kie_http.kie_configured():
+        raise HTTPException(status_code=503, detail="API не настроен (KIE_API_KEY / PAY52_*_KEY)")
 
     payload = kie_catalog.build_payload(spec, values)
     if family is not None and mode is not None:
@@ -424,7 +431,10 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                         )
                     elif is_pay52:
                         try:
-                            res = await pay52_video.run_generation(spec, payload, out_path)
+                            if result_kind == "image":
+                                res = await pay52_image.run_generation(spec, values, out_path)
+                            else:
+                                res = await pay52_video.run_generation(spec, payload, out_path)
                         except Exception as e_pay52:
                             if kie_http.kie_configured():
                                 logger.warning(
@@ -451,7 +461,15 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                         try:
                             res = await kie_http.run_generation(spec, payload, out_path)
                         except Exception as e_kie:
-                            if pay52_video.pay52_video_configured(spec):
+                            if result_kind == "image" and pay52_image.pay52_image_configured(spec):
+                                logger.warning(
+                                    "kie_create: KIE generation failed ({}), falling back to 52pay: {}",
+                                    type(e_kie).__name__,
+                                    e_kie,
+                                )
+                                call.provider = "pay52"
+                                res = await pay52_image.run_generation(spec, values, out_path)
+                            elif result_kind != "image" and pay52_video.pay52_video_configured(spec):
                                 logger.warning(
                                     "kie_create: KIE generation failed ({}), falling back to 52pay: {}",
                                     type(e_kie).__name__,

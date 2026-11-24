@@ -713,19 +713,24 @@ async def generate_kie_image(
     project_id: int | None = None,
     gen_id: str | None = None,
 ) -> GenerationResult:
-    """Генерация изображения через KIE."""
+    """Генерация изображения через KIE / 52pay."""
+    from app.bots import pay52_image
     from app.bots.kie_kling import _frame_to_public_url
     from app.services import kie_catalog
 
-    if not kie_configured():
-        raise KieHttpError(
-            f"kie {model_slug}: API не настроен (KIE_API_KEY / GPT_API_KEY)",
-            context={"provider_code": 401, "error_kind": "no_key"},
-        )
-
     kie_id = IMAGE_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
     spec = kie_catalog.get_model(kie_id)
-    if not spec:
+    is_pay52 = bool(
+        (spec and spec.get("api") == "pay52")
+        or pay52_image.pay52_image_configured(spec or kie_id)
+    )
+
+    if not kie_configured() and not is_pay52:
+        raise KieHttpError(
+            f"kie {model_slug}: API не настроен (KIE_API_KEY / GPT_API_KEY / PAY52_*_KEY)",
+            context={"provider_code": 401, "error_kind": "no_key"},
+        )
+    if not spec and not is_pay52:
         raise KieHttpError(
             f"kie {model_slug}: спецификация модели {kie_id} не найдена в каталоге",
             context={"provider_code": 404, "error_kind": "model_not_found"},
@@ -746,36 +751,70 @@ async def generate_kie_image(
         values["resolution"] = resolution.upper() if resolution.lower().endswith("k") else resolution
 
     if ref_urls:
-        field_names = {f["name"] for f in spec.get("fields") or []}
-        if "image_urls" in field_names:
+        if spec:
+            field_names = {f["name"] for f in spec.get("fields") or []}
+            if "image_urls" in field_names:
+                values["image_urls"] = ref_urls
+            elif "image_url" in field_names:
+                values["image_url"] = ref_urls[0]
+            elif "imageUrls" in field_names:
+                values["imageUrls"] = ref_urls
+        else:
             values["image_urls"] = ref_urls
-        elif "image_url" in field_names:
-            values["image_url"] = ref_urls[0]
-        elif "imageUrls" in field_names:
-            values["imageUrls"] = ref_urls
 
-    payload = kie_catalog.build_payload(spec, values)
+    payload = kie_catalog.build_payload(spec, values) if spec else {"model": kie_id, "input": values}
     # Отдельные i2i-эндпоинты хотят другое имя поля (flux: input_urls).
-    alt_field = spec.get("i2i_input_field")
+    alt_field = spec.get("i2i_input_field") if spec else None
     inp = payload.get("input")
     if alt_field and isinstance(inp, dict) and "image_urls" in inp:
         inp[alt_field] = inp.pop("image_urls")
     logger.info(
-        "kie_http: generate image {} (model={}) aspect={} refs={} project={}",
+        "kie_http: generate image {} (model={}) aspect={} refs={} project={} provider={}",
         kie_id,
-        spec.get("model"),
+        spec.get("model") if spec else kie_id,
         values.get("aspect_ratio"),
         len(ref_urls),
         project_id,
+        "pay52" if is_pay52 else "kie",
     )
     from app.services.media_ledger import media_call
 
     # Факт пишется здесь, а не у вызывающего: картинку заказывают и
     # outsee_retry, и вкладка «Генерация», и регенерации в студии.
+    effective_spec = spec or {"model": kie_id, "id": kie_id}
     async with media_call(
-        "kie", "image", model=kie_id, units=1.0, unit="item", project_id=project_id
+        "pay52" if is_pay52 else "kie", "image", model=kie_id, units=1.0, unit="item", project_id=project_id
     ) as call:
-        result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+        if is_pay52:
+            try:
+                result = await pay52_image.run_generation(effective_spec, values, out_path, timeout_s=timeout)
+                call.provider = "pay52"
+            except Exception as e_pay52:
+                if kie_configured() and spec:
+                    logger.warning(
+                        "kie_http: 52pay image generation failed ({}), falling back to KIE: {}",
+                        type(e_pay52).__name__,
+                        e_pay52,
+                    )
+                    call.provider = "kie"
+                    result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                else:
+                    raise
+        else:
+            try:
+                result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+                call.provider = "kie"
+            except Exception as e_kie:
+                if pay52_image.pay52_image_configured(effective_spec):
+                    logger.warning(
+                        "kie_http: KIE image generation failed ({}), falling back to 52pay: {}",
+                        type(e_kie).__name__,
+                        e_kie,
+                    )
+                    call.provider = "pay52"
+                    result = await pay52_image.run_generation(effective_spec, values, out_path, timeout_s=timeout)
+                else:
+                    raise
         call.external_id = str(getattr(result, "gen_id", "") or "")
         return result
 
