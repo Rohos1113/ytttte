@@ -310,12 +310,9 @@ def test_extra_charges_for_input_images() -> None:
     assert eight["usd_client"] > five["usd_client"]
 
 
-@needs_data
 def test_note_orientirovochno_when_rule_not_matched() -> None:
     """Если правило не разрешилось и взята цена по умолчанию — note помечает это."""
-    family = kc.get_family("nano-banana-2-lite")
-    assert family is not None
-    est = kc.estimate_usd(family, "generate", kc.defaults_for_mode(family, "generate"))
+    est = kc.estimate_usd(FAMILY, "t2v", {"resolution": "1080p"})
     assert est["known"] is True
     assert est["breakdown"]["matched_rule"] is None
     assert "ориентировочно" in est["note"]
@@ -1071,15 +1068,12 @@ def test_expensive_setting_changes_price() -> None:
         assert "ориентировочно" not in (cheap["note"] or "") + (pricey["note"] or "")
 
 
-@needs_data
 def test_unresolvable_rule_falls_back_to_default_with_note() -> None:
     """Правило не включить настройками формы — берём default и помечаем «ориентировочно»."""
-    family = kc.get_family("nano-banana-2-lite")
-    assert family is not None
-    mode = kc.get_mode(family, "generate")
+    mode = kc.get_mode(FAMILY, "t2v")
     assert mode is not None
     assert (mode["pricing"].get("usd_rules") or []), "у режима должны быть правила"
-    est = kc.estimate_usd(family, "generate", kc.defaults_for_mode(family, "generate"))
+    est = kc.estimate_usd(FAMILY, "t2v", {"resolution": "1080p"})
     assert est["known"] is True
     assert est["breakdown"]["matched_rule"] is None
     assert "ориентировочно" in est["note"]

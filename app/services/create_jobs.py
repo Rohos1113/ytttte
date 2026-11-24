@@ -136,7 +136,7 @@ def _job_fingerprint(
 def max_parallel(provider: str | None = None) -> int:
     """Лимит одновременных Create-jobs для провайдера (outsee=5)."""
     p = (provider or "").strip().lower()
-    fallback = int(getattr(settings, "create_max_parallel", 5) or 5)
+    fallback = int(getattr(settings, "create_max_parallel", 4) or 4)
     if p == "outsee":
         n = int(getattr(settings, "create_max_parallel_outsee", fallback) or fallback)
     else:

@@ -73,7 +73,7 @@ test("kieSettingDescriptors: kind поля превращается в kind ко
     field("aspect_ratio", "select", { options: ["16:9", "9:16"], default: "16:9" }),
     field("resolution", "select", { options: ["480p", "720p"], default: "720p" }),
     field("generate_audio", "toggle", { default: true }),
-    field("seed", "number", { min: 0, max: 100, step: 1 }),
+    field("steps", "number", { min: 0, max: 100, step: 1 }),
     field("style", "text"),
     field("voice_id", "text", { default: "abc" }),
     field("stability", "number", {}),
@@ -83,7 +83,7 @@ test("kieSettingDescriptors: kind поля превращается в kind ко
   assert.equal(byName(descriptors, "aspect_ratio")?.kind, "select");
   assert.equal(byName(descriptors, "resolution")?.kind, "select");
   assert.equal(byName(descriptors, "generate_audio")?.kind, "toggle");
-  assert.equal(byName(descriptors, "seed")?.kind, "number");
+  assert.equal(byName(descriptors, "steps")?.kind, "number");
   assert.equal(byName(descriptors, "style")?.kind, "text");
   assert.equal(byName(descriptors, "voice_id")?.kind, "voice");
   assert.equal(byName(descriptors, "stability")?.kind, "range");
@@ -194,8 +194,8 @@ test("kieSettingDescriptors: range-поля получают границы 0..1
 });
 
 test("kieOptionMeta: подписи quality и vocalGender как в прежних чипах", () => {
-  assert.deepEqual(kieOptionMeta("quality", "basic"), { label: "1K", hint: "Базовое" });
-  assert.deepEqual(kieOptionMeta("quality", "high"), { label: "2K", hint: "Высокое" });
+  assert.deepEqual(kieOptionMeta("quality", "basic"), { label: "1K" });
+  assert.deepEqual(kieOptionMeta("quality", "high"), { label: "2K" });
   assert.deepEqual(kieOptionMeta("quality", "std"), { label: "Standard", hint: "720p" });
   assert.deepEqual(kieOptionMeta("quality", "pro"), { label: "Pro", hint: "1080p" });
   assert.deepEqual(kieOptionMeta("vocalGender", "m"), {
@@ -316,8 +316,8 @@ test("modelSettingValue и settingIsOn: false/0 не заменяются деф
   const toggle = kieSettingDescriptors([field("generate_audio", "toggle", { default: true })])[0]!;
   assert.equal(modelSettingValue(toggle, { generate_audio: false }), false);
   assert.equal(modelSettingValue(toggle, {}), true);
-  const seed = kieSettingDescriptors([field("seed", "number", { default: 7 })])[0]!;
-  assert.equal(modelSettingValue(seed, { seed: 0 }), 0);
+  const steps = kieSettingDescriptors([field("steps", "number", { default: 7 })])[0]!;
+  assert.equal(modelSettingValue(steps, { steps: 0 }), 0);
   assert.equal(settingIsOn("TRUE"), true);
   assert.equal(settingIsOn(0), false);
   assert.equal(settingIsOn(1), true);
@@ -326,7 +326,7 @@ test("modelSettingValue и settingIsOn: false/0 не заменяются деф
 test("settingDefaultPairs: только поля с дефолтом", () => {
   const descriptors = kieSettingDescriptors([
     field("aspect_ratio", "select", { options: ["16:9"], default: "16:9" }),
-    field("seed", "number", {}),
+    field("steps", "number", {}),
     field("generate_audio", "toggle", { default: true }),
   ]);
   assert.deepEqual(settingDefaultPairs(descriptors), [

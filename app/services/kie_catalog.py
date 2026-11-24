@@ -1539,6 +1539,8 @@ def get_mode(
         for mode in modes:
             if key in (str(mode.get("id")), str(mode.get("kie_id"))):
                 return mode
+        if str(fam.get("id")) == "seedance-2-0" and key == "mini":
+            return get_mode("seedance-2-0-mini", "mini")
         return None
     default_id = str(fam.get("default_mode") or "")
     for mode in modes:

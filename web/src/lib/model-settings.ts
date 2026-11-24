@@ -157,8 +157,44 @@ export function durationNumbers(descriptor: ModelSettingDescriptor): number[] {
 /** Поля-файлы рисуют плитки референсов, а не чипы настроек. */
 const KIE_FILE_KINDS = new Set(["images", "videos", "audios"]);
 
-/** Служебные поля, которые в доке Create не показываем (формат отдаёт бэкенд). */
-const KIE_SKIP_NAMES = new Set(["output_format", "format"]);
+/** Служебные поля, которые в доке Create не показываем (формат отдаёт бэкенд, отладочные флаги). */
+const KIE_SKIP_NAMES = new Set([
+  "output_format",
+  "format",
+  "nsfw_checker",
+  "web_search",
+  "return_last_frame",
+  "draft",
+  "draft_task_id",
+  "omni_reference_task_type",
+  "background",
+  "seed",
+  "watermark",
+  "thinking_mode",
+  "color_palette",
+  "bbox_list",
+  "enhance_prompt",
+  "expand_prompt",
+  "prompt_extend",
+  "prompt_upsampling",
+  "negative_prompt",
+  "enable_sequential",
+  "n",
+  "num_images",
+  "max_images",
+  "width",
+  "height",
+  "multi_shots",
+  "prefer_multi_shots",
+  "customize_multi_shots",
+  "multi_prompt",
+  "elements",
+  "kling_elements",
+  "enable_translation",
+  "upload_cn",
+  "safety_tolerance",
+  "text_recognition",
+]);
 
 const KIE_VOICE_FIELDS = new Set(["voice_id", "voice"]);
 const KIE_RANGE_DEFAULTS: Record<string, number> = { stability: 0.5, similarity: 0.75 };
@@ -200,10 +236,21 @@ export function kieOptionMeta(
   const name = fieldName.toLowerCase();
   const opt = option.toLowerCase();
   if (name === "quality") {
-    if (opt === "basic") return { label: "1K", hint: "Базовое" };
-    if (opt === "high") return { label: "2K", hint: "Высокое" };
+    if (opt === "basic" || opt === "1k") return { label: "1K" };
+    if (opt === "high" || opt === "2k") return { label: "2K" };
+    if (opt === "ultra") return { label: "2K" };
     if (opt === "std" || opt === "standard") return { label: "Standard", hint: "720p" };
     if (opt === "pro") return { label: "Pro", hint: "1080p" };
+    if (opt === "low") return { label: "Low" };
+    if (opt === "medium") return { label: "Medium" };
+    if (opt === "xhigh") return { label: "X-High" };
+    if (opt === "max") return { label: "Max" };
+  }
+  if (name === "size" || name === "image_size") {
+    if (opt === "1k") return { label: "1K" };
+    if (opt === "1.5k") return { label: "1.5K" };
+    if (opt === "2k") return { label: "2K" };
+    if (opt === "4k") return { label: "4K" };
   }
   if (name === "vocalgender") {
     if (opt === "m") return { label: "Мужской вокал", hint: "Мужской тембр" };
@@ -547,11 +594,49 @@ export function modeBadgeLabel(mode: KieModeSpec | null | undefined): string | n
   return mode?.label ? mode.label : null;
 }
 
+/** Семейства, для которых ручной выбор режимов в UI отключён (по требованию владельца). */
+const NO_MODE_FAMILIES = new Set([
+  "nano-banana-2",
+  "nano-banana-2-1",
+  "nano-banana-2-lite",
+  "nano-banana-pro",
+  "gpt-image-2",
+  "gpt-image-2-5",
+  "gpt-image-2-6",
+  "seedream-5",
+  "seedream-5-5",
+  "flux-3",
+  "flux-1-kontext",
+  "minimax-h3",
+  "minimax-h3-image",
+  "qwen3-image",
+  "wan-2-7-image",
+  "seedance-2-5",
+  "kling-4-0",
+]);
+
 /** Опции селектора режима для дока (id/label/hint). */
 export function kieModeOptions(
   model: KieModelSpec | null | undefined,
 ): { id: string; label: string; hint?: string }[] {
-  return kieFamilyModes(model).map((m) => ({
+  const familyId = String(model?.id || "").replace(/^kie:/, "").trim();
+  if (NO_MODE_FAMILIES.has(familyId)) {
+    return [];
+  }
+  const modes = kieFamilyModes(model);
+  if (familyId.startsWith("kling-2-6") || familyId.startsWith("kling-3-0")) {
+    const list = modes.filter((m) => m.id === "motion-control");
+    if (!list.length) return [];
+    return list.map((m) => ({
+      id: m.id,
+      label: "Motion Control",
+      hint: m.desc || m.task_type,
+    }));
+  }
+  if (modes.length <= 1) {
+    return [];
+  }
+  return modes.map((m) => ({
     id: m.id,
     label: m.label || m.id,
     hint: m.desc || m.task_type,

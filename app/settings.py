@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     outsee_http_api: bool = Field(True, alias="OUTSEE_HTTP_API")
     # Create: параллель по провайдерам (остальные ждут status=queued).
     # CREATE_MAX_PARALLEL — legacy fallback, если provider-specific не задан.
-    create_max_parallel: int = Field(5, alias="CREATE_MAX_PARALLEL")
+    create_max_parallel: int = Field(4, alias="CREATE_MAX_PARALLEL")
     # Outsee API concurrency_limit=4 — не ставить выше 4.
     create_max_parallel_outsee: int = Field(4, alias="CREATE_MAX_PARALLEL_OUTSEE")
     # Пайплайн img: параллельные кадры 0..4 (0=не генерить; дефолт для проектов).

@@ -680,7 +680,7 @@ function SettingControl({
         data-setting-option={on ? "on" : "off"}
         className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2"
       >
-        <span className="text-[11px] leading-tight text-white/75">{d.hint || d.label}</span>
+        <span className="text-[11px] font-medium leading-tight text-white/80" title={d.hint || undefined}>{d.label}</span>
         <ToggleSwitch on={on} label={d.label} onToggle={() => onChange(d.name, !on)} />
       </div>
     );
@@ -934,7 +934,7 @@ export function ModelSettingsDock({
   }
 
   const showModeBadge = modes.length > 1 && Boolean(onModeChange);
-  const showModeSection = modes.length > 0 && Boolean(onModeChange);
+  const showModeSection = modes.length > 1 && Boolean(onModeChange);
   const activeMode = modes.find((m) => m.id === modeId) ?? modes[0] ?? null;
 
   /**

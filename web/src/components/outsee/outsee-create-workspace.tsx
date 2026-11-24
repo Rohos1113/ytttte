@@ -2079,8 +2079,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const maxParallel =
     autoProvider === "outsee"
-      ? (createQueueQ.data?.max_parallel_outsee ?? 5)
-      : (createQueueQ.data?.max_parallel ?? 5);
+      ? (createQueueQ.data?.max_parallel_outsee ?? 4)
+      : (createQueueQ.data?.max_parallel ?? 4);
 
   const canApiDirect = kieActive ? kieConfigured : autoProvider != null;
   const currentIcon = kieActive && kieModel
