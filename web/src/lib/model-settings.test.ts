@@ -738,3 +738,18 @@ test("нулевая цена — «бесплатно», неизвестная
   // Пикер: семья с бесплатным режимом/ценой — «бесплатно», не null.
   assert.equal(familyPriceFromUsd({ model: free }), 0);
 });
+
+test("kieSettingDescriptors скрывает complexity и moderation (GPT Image 2.6)", () => {
+  const fields = [
+    { name: "prompt", label: "Промпт", kind: "textarea" },
+    { name: "aspect_ratio", label: "Соотношение сторон", kind: "select", options: ["1:1", "16:9"] },
+    { name: "resolution", label: "Разрешение", kind: "select", options: ["1K", "2K"] },
+    { name: "quality", label: "Качество", kind: "select", options: ["low", "medium", "high"] },
+    { name: "complexity", label: "Сложность", kind: "select", options: ["low", "medium", "high"] },
+    { name: "moderation", label: "Модерация", kind: "select", options: ["auto", "low"] },
+  ];
+  const descriptors = kieSettingDescriptors(fields, { mainTextField: "prompt" });
+  const names = descriptors.map((d) => d.name);
+  assert.deepEqual(names, ["aspect_ratio", "resolution", "quality"]);
+});
+

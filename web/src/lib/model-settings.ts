@@ -194,6 +194,8 @@ const KIE_SKIP_NAMES = new Set([
   "upload_cn",
   "safety_tolerance",
   "text_recognition",
+  "complexity",
+  "moderation",
 ]);
 
 const KIE_VOICE_FIELDS = new Set(["voice_id", "voice"]);
