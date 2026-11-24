@@ -34,6 +34,8 @@ const HIDDEN_FAMILY_IDS = new Set([
   "happyhorse",
   "happyhorse-1-1",
   "nano-banana-pro",
+  "nano-banana-2-lite",
+  "flux-1-kontext",
 ]);
 
 /** Семейство скрыто из меню выбора модели. */
