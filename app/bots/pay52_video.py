@@ -65,7 +65,18 @@ def normalize_pay52_video_model(raw: str) -> str:
     return "seedance-2.0-fast"
 
 
+def pay52_video_supports_model(model_name: str) -> bool:
+    name_low = (model_name or "").lower()
+    return (
+        "seedance" in name_low
+        or "kling-4" in name_low
+        or "veo-3.1-fast" in name_low
+    )
+
+
 def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
+    if not pay52_video_supports_model(model_name):
+        return ""
     s = cfg or settings
     name_low = (model_name or "").lower()
     if "fast" in name_low:
@@ -74,7 +85,9 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         return (s.seedance_overseas_key or s.seedance_fast_key or s.seedance_mini_key or "").strip()
     if "mini" in name_low or "ref" in name_low:
         return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
-    return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
+    if "seedance" in name_low:
+        return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
+    return ""
 
 
 def pay52_video_candidate_keys(model_name: str, cfg: Any | None = None) -> list[str]:
