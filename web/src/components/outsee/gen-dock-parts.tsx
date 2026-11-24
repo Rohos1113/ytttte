@@ -529,12 +529,22 @@ export function PlusGlyph({ className = "h-3.5 w-3.5" }: { className?: string })
 }
 
 /** Раздел панели «Параметры»: подпись + содержимое. */
-function PaneSection({ title, children }: { title: string; children: ReactNode }) {
+function PaneSection({
+  title,
+  children,
+  hideTitle,
+}: {
+  title: string;
+  children: ReactNode;
+  hideTitle?: boolean;
+}) {
   return (
     <div className="mt-3 first:mt-0">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40">
-        {title}
-      </p>
+      {!hideTitle && (
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40">
+          {title}
+        </p>
+      )}
       {children}
     </div>
   );
@@ -1089,27 +1099,32 @@ export function ModelSettingsDock({
             </div>
           )}
 
-            {sections.map((section) => (
-              <PaneSection key={section.title} title={section.title}>
-                <div className="space-y-1.5">
-                  {section.items.map((d) => (
-                    <div key={d.name} data-setting-name={d.name} data-setting-kind={d.kind}>
-                      {d.kind === "voice" && renderVoice ? (
-                        renderVoice(d)
-                      ) : (
-                        <SettingControl
-                          descriptor={d}
-                          value={modelSettingValue(d, values)}
-                          onChange={onChange}
-                          onOpenVoiceModal={onOpenVoiceModal}
-                          formatVoice={formatVoice}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </PaneSection>
-            ))}
+            {sections.map((section) => {
+              const isSingleToggle = section.items.length === 1 && section.items[0]?.kind === "toggle";
+              const isSoundSection = section.title.toLowerCase() === "звук" || section.title.toLowerCase() === "sound";
+              const hideTitle = isSingleToggle || isSoundSection;
+              return (
+                <PaneSection key={section.title} title={section.title} hideTitle={hideTitle}>
+                  <div className="space-y-1.5">
+                    {section.items.map((d) => (
+                      <div key={d.name} data-setting-name={d.name} data-setting-kind={d.kind}>
+                        {d.kind === "voice" && renderVoice ? (
+                          renderVoice(d)
+                        ) : (
+                          <SettingControl
+                            descriptor={d}
+                            value={modelSettingValue(d, values)}
+                            onChange={onChange}
+                            onOpenVoiceModal={onOpenVoiceModal}
+                            formatVoice={formatVoice}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </PaneSection>
+              );
+            })}
 
             {!sections.length && (
               <p

@@ -932,22 +932,46 @@ function displayJobModelName(
     const found = kieModels.find((m) => m.id === modelId);
     if (found?.label) return found.label;
   }
+  if (modelId) {
+    if (modelId === "gpt-image-2") return "GPT Image 2";
+    if (modelId === "gpt-image-2-5") return "GPT Image 2.5";
+    if (modelId === "gpt-image-2-6") return "GPT Image 2.6";
+    if (modelId === "seedream-5-pro") return "Seedream 5 Pro";
+    if (modelId === "seedream-5-flash") return "Seedream 5 Flash";
+    if (modelId === "seedream-5-lite") return "Seedream 5 Lite";
+    if (modelId.startsWith("seedream")) return "Seedream 5";
+    if (modelId === "seedance-2-0") return "Seedance 2.0";
+    if (modelId === "seedance-2-0-fast") return "Seedance 2.0 Fast";
+    if (modelId === "seedance-2-5") return "Seedance 2.5";
+  }
   const raw = String(item.model || item.label || "");
+  const rawLow = raw.toLowerCase();
+  if (rawLow.includes("flare") || rawLow.includes("sunburst")) {
+    if (rawLow.includes("2.6") || rawLow.includes("2-6")) return "GPT Image 2.6";
+    return "GPT Image 2.5";
+  }
+  if (rawLow.includes("economy")) return "GPT Image 2.6";
+  if (rawLow.includes("seedream")) {
+    if (rawLow.includes("flash")) return "Seedream 5 Flash";
+    if (rawLow.includes("lite")) return "Seedream 5 Lite";
+    if (rawLow.includes("pro")) return "Seedream 5 Pro";
+    if (rawLow.includes("5.5") || rawLow.includes("5-5")) return "Seedream 5.5";
+    return "Seedream 5 Pro";
+  }
+  if (rawLow.includes("seedance")) {
+    if (rawLow.includes("fast")) return "Seedance 2.0 Fast";
+    if (rawLow.includes("2.5") || rawLow.includes("2-5")) return "Seedance 2.5";
+    return "Seedance 2.0";
+  }
   if (
     raw.includes(":") &&
-    (raw.includes("Flare") ||
-      raw.includes("Sunburst") ||
-      raw.includes("текст →") ||
-      raw.includes("картинка →") ||
+    (raw.includes("текст") ||
+      raw.includes("картинка") ||
       raw.includes("text-to-image") ||
-      raw.includes("image-to-image"))
+      raw.includes("image-to-image") ||
+      raw.includes("text-to-video") ||
+      raw.includes("image-to-video"))
   ) {
-    if (modelId) {
-      if (modelId === "gpt-image-2") return "GPT Image 2";
-      if (modelId === "gpt-image-2-5") return "GPT Image 2.5";
-      if (modelId === "gpt-image-2-6") return "GPT Image 2.6";
-      if (modelId.startsWith("seedream")) return "Seedream 5.0";
-    }
     const parts = raw.split(":");
     if (parts[0] && parts[0].trim()) return parts[0].trim();
   }
@@ -1642,6 +1666,33 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setSeedancePreset(prevRes === "480p" ? "fast" : "quality");
     }
     if (kieModel) setActiveSlug(kieRowSlug(kieModel.id, modeId));
+  };
+
+  const isKling3 = mediaType === "video" && kieActive && Boolean(kieModel?.id?.startsWith("kling-3-0"));
+  const isKling4 = mediaType === "video" && kieActive && Boolean(kieModel?.id?.startsWith("kling-4-0"));
+
+  const kling3Variant: "standard" | "omni" | "turbo" = useMemo(() => {
+    const m = kieMode?.id || "";
+    if (m.startsWith("omni")) return "omni";
+    if (m.startsWith("turbo")) return "turbo";
+    return "standard";
+  }, [kieMode?.id]);
+
+  const kling4Variant: "standard" | "flash" = useMemo(() => {
+    const m = kieMode?.id || "";
+    if (m.includes("flash")) return "flash";
+    return "standard";
+  }, [kieMode?.id]);
+
+  const applyKling3Variant = (v: "standard" | "omni" | "turbo") => {
+    if (v === "omni") switchKieMode("omni-t2v");
+    else if (v === "turbo") switchKieMode("turbo-t2v");
+    else switchKieMode("video");
+  };
+
+  const applyKling4Variant = (v: "standard" | "flash") => {
+    if (v === "flash") switchKieMode("keyframe-flash");
+    else switchKieMode("keyframe");
   };
 
   /** Клик по строке пикера: строка = семейство + режим. */
@@ -3150,6 +3201,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         started_at: j.started_at,
         elapsed_sec: (j as any).elapsed_sec,
         elapsed_label: (j as any).elapsed_label,
+        model: j.model,
+        params: (j as any).params,
       });
     }
 
@@ -3181,6 +3234,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             started_at: activeJob.started_at,
             elapsed_sec: (activeJob as any).elapsed_sec,
             elapsed_label: (activeJob as any).elapsed_label,
+            model: activeJob.model,
+            params: (activeJob as any).params,
           };
         }
       }
@@ -3202,6 +3257,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         started_at: activeJob.started_at || item.started_at,
         elapsed_sec: (activeJob as any).elapsed_sec ?? item.elapsed_sec,
         elapsed_label: (activeJob as any).elapsed_label ?? item.elapsed_label,
+        model: activeJob.model || item.model,
+        params: (activeJob as any).params || item.params,
       };
     }
     return item;
@@ -4742,41 +4799,27 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       onModeChange={kieModeOptionList.length > 0 ? switchKieMode : undefined}
                       fieldsKnown={kieModeFieldsKnown}
                       extras={
-                        seedanceIsKie ? (
-                          <>
-                            <SegmentedPills<"omni" | "frames">
-                              ariaLabel="Режим Seedance"
-                              options={[
-                                { id: "omni", label: "Omni", title: "Ссылки: фото, видео, аудио" },
-                                {
-                                  id: "frames",
-                                  label: "Первый+Последний",
-                                  title: "Только первый и последний кадр",
-                                },
-                              ]}
-                              value={seedanceMode}
-                              onChange={switchSeedanceMode}
-                            />
-                            <SegmentedPills<"fast" | "quality">
-                              ariaLabel="Пресет качества"
-                              options={[
-                                {
-                                  id: "fast",
-                                  label: "Fast",
-                                  icon: <Zap className="h-2.5 w-2.5" />,
-                                  title: "Fast: 480p — дешевле и быстрее",
-                                },
-                                {
-                                  id: "quality",
-                                  label: "Quality",
-                                  icon: <Zap className="h-2.5 w-2.5" />,
-                                  title: "Quality: 720p и выше — дороже",
-                                },
-                              ]}
-                              value={seedancePreset}
-                              onChange={applySeedancePreset}
-                            />
-                          </>
+                        isKling3 ? (
+                          <SegmentedPills<"standard" | "omni" | "turbo">
+                            ariaLabel="Версия Kling 3.0"
+                            options={[
+                              { id: "standard", label: "Standard", title: "Kling 3.0 Standard" },
+                              { id: "omni", label: "Omni", title: "Kling 3.0 Omni" },
+                              { id: "turbo", label: "Turbo", title: "Kling 3.0 Turbo" },
+                            ]}
+                            value={kling3Variant}
+                            onChange={applyKling3Variant}
+                          />
+                        ) : isKling4 ? (
+                          <SegmentedPills<"standard" | "flash">
+                            ariaLabel="Версия Kling 4.0"
+                            options={[
+                              { id: "standard", label: "Standard", title: "Kling 4.0 Standard" },
+                              { id: "flash", label: "Flash", title: "Kling 4.0 Flash" },
+                            ]}
+                            value={kling4Variant}
+                            onChange={applyKling4Variant}
+                          />
                         ) : undefined
                       }
                     />

@@ -1514,6 +1514,8 @@ def get_family(family_id: str | dict[str, Any] | None) -> dict[str, Any] | None:
     if not family_id:
         return None
     key = str(family_id)
+    if key == "seedream-5":
+        key = "seedream-5-pro"
     fam = _FAMILY_BY_ID.get(key) or _FAMILY_BY_LEGACY_ID.get(key) or _FAMILY_BY_KIE.get(key)
     if fam is not None:
         return fam

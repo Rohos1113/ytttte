@@ -2951,11 +2951,12 @@
       "label": "Seedance 2.0",
       "brand": "ByteDance",
       "media": "video",
-      "desc": "описания в источниках нет",
+      "desc": "ByteDance Seedance 2.0 Video (Standard)",
+      "default_mode": "standard",
       "modes": [
         {
           "id": "standard",
-          "label": "Стандарт (текст / картинка / видео)",
+          "label": "Seedance 2.0",
           "kie_id": "bytedance/seedance-2",
           "task_type": "Image to Video, Video to Video, Text to Video",
           "api": "jobs",
@@ -3161,10 +3162,20 @@
           "fields_source": "docs.kie.ai OpenAPI (input)",
           "fields_known": true,
           "in_live_api": true
-        },
+        }
+      ]
+    },
+    {
+      "id": "seedance-2-0-fast",
+      "label": "Seedance 2.0 Fast",
+      "brand": "ByteDance",
+      "media": "video",
+      "desc": "ByteDance Seedance 2.0 Fast Video",
+      "default_mode": "fast",
+      "modes": [
         {
           "id": "fast",
-          "label": "Fast",
+          "label": "Seedance 2.0 Fast",
           "kie_id": "bytedance/seedance-2-fast",
           "task_type": "Text to Video, Image to Video, Video to Video",
           "api": "jobs",
@@ -3357,24 +3368,6 @@
               "required": false,
               "default": null,
               "hint": "The text prompt used to generate the video.. ( Max length: 20480 characters) (макс. 20480 симв.)"
-            },
-            {
-              "name": "first_frame_url",
-              "label": "Первый кадр",
-              "kind": "images",
-              "required": false,
-              "default": null,
-              "max_items": 1,
-              "hint": "First frame image url or asset://{assetId} (for example: asset://asset-20260404242101-76djj) Cannot be used simultaneously with reference_image_urls, reference_video_urls, or reference_audio_urls."
-            },
-            {
-              "name": "last_frame_url",
-              "label": "Последний кадр",
-              "kind": "images",
-              "required": false,
-              "default": null,
-              "max_items": 1,
-              "hint": "End frame image url or asset://{assetId} (for example: asset://asset-20260404242101-76djj) last_frame_url cannot be passed alone; first_frame_url must be provided together with it."
             },
             {
               "name": "reference_image_urls",
@@ -5173,7 +5166,7 @@
             },
             {
               "name": "mode",
-              "label": "Режим",
+              "label": "Качество",
               "kind": "select",
               "required": true,
               "default": "std",
@@ -7650,15 +7643,16 @@
       ]
     },
     {
-      "id": "seedream-5",
-      "label": "Seedream 5",
+      "id": "seedream-5-pro",
+      "label": "Seedream 5 Pro",
       "brand": "ByteDance",
       "media": "image",
-      "desc": "Seedream 5 Pro Text to Image",
+      "desc": "ByteDance Seedream 5 Pro Text to Image",
+      "default_mode": "t2i-pro",
       "modes": [
         {
           "id": "t2i-pro",
-          "label": "Pro: текст → картинка",
+          "label": "Seedream 5 Pro",
           "kie_id": "seedream/5-pro-text-to-image",
           "task_type": "Text to Image",
           "api": "jobs",
@@ -7963,10 +7957,20 @@
           "fields_source": "docs.kie.ai OpenAPI (input)",
           "fields_known": true,
           "in_live_api": true
-        },
+        }
+      ]
+    },
+    {
+      "id": "seedream-5-flash",
+      "label": "Seedream 5 Flash",
+      "brand": "ByteDance",
+      "media": "image",
+      "desc": "ByteDance Seedream 5 Flash Text to Image",
+      "default_mode": "t2i-flash",
+      "modes": [
         {
           "id": "t2i-flash",
-          "label": "Flash: текст → картинка",
+          "label": "Seedream 5 Flash",
           "kie_id": "seedream/5-flash-text-to-image",
           "task_type": "Text to Image",
           "api": "jobs",
@@ -8284,10 +8288,20 @@
           "fields_source": "docs.kie.ai OpenAPI (input)",
           "fields_known": true,
           "in_live_api": true
-        },
+        }
+      ]
+    },
+    {
+      "id": "seedream-5-lite",
+      "label": "Seedream 5 Lite",
+      "brand": "ByteDance",
+      "media": "image",
+      "desc": "ByteDance Seedream 5 Lite Text to Image",
+      "default_mode": "t2i-lite",
+      "modes": [
         {
           "id": "t2i-lite",
-          "label": "Lite: текст → картинка",
+          "label": "Seedream 5 Lite",
           "kie_id": "seedream/5-lite-text-to-image",
           "task_type": "Text to Image",
           "api": "jobs",
