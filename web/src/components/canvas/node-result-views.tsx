@@ -43,6 +43,7 @@ import {
   SHEET_PLAN_V8,
 } from "@/lib/xlsx-sheets";
 import { NodeAudioMiniPlayer, ResultAudioCard } from "./custom-audio-player";
+import { NodeResultTable } from "./node-result-table";
 
 export function NodeResultViewBody({
   projectId,
@@ -2424,25 +2425,21 @@ function ExcelGptResultView({
   projectId,
   nodeKey,
   nodeType,
-  snapshot,
+  snapshot: _snapshot,
 }: {
   projectId: number;
   nodeKey?: string | null;
   nodeType?: string | null;
   snapshot: NodeResultSnapshot;
 }) {
-  const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
-
   return (
-    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
-      <XlsxUploadBar
+    <div className="flex min-h-[420px] flex-1 flex-col">
+      <NodeResultTable
         projectId={projectId}
         nodeKey={nodeKey}
         nodeType={nodeType}
+        active={true}
       />
-      {xlsxItem ? (
-        <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
-      ) : null}
     </div>
   );
 }

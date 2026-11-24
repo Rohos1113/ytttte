@@ -119,6 +119,8 @@ export function NodeResultTable({
   };
   const tables = useMemo(() => (data?.tables ?? []).filter((t) => t.columns.length > 0), [data]);
   const shownTables = useMemo(() => tables.filter((t) => t.rows.length > 0), [tables]);
+  const [selectedTableIdx, setSelectedTableIdx] = useState(0);
+  const currentTable = shownTables[selectedTableIdx] ?? shownTables[0];
   const isEmpty = !hasNodeTableContent(data);
 
   // Сообщаем панели, можно ли показать таблицу вместо прежнего вида результата.
@@ -182,35 +184,60 @@ export function NodeResultTable({
 
   return (
     <div className="nodrag flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-end gap-1.5 pb-1.5">
-        <button
-          type="button"
-          onClick={() => void onDownloadXlsx()}
-          disabled={downloading}
-          title="Скачать текущую таблицу в xlsx"
-          className="flex h-7 items-center gap-1.5 rounded border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-white/85 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {downloading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-          Скачать xlsx
-        </button>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          title="Загрузить xlsx/json/csv с правками"
-          className="flex h-7 items-center gap-1.5 rounded border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-white/85 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {uploading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Upload className="h-3.5 w-3.5" />
-          )}
-          Загрузить
-        </button>
+      <div className="flex shrink-0 items-center justify-between gap-2 pb-1.5">
+        {shownTables.length > 1 ? (
+          <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+            {shownTables.map((t, idx) => {
+              const active = idx === selectedTableIdx;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedTableIdx(idx)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium transition",
+                    active
+                      ? "border-primary/50 bg-primary/20 text-white"
+                      : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/20 hover:text-white",
+                  )}
+                >
+                  <span>{t.title || t.id}</span>
+                  <span className="text-[10px] opacity-60">({t.total})</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : <div />}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => void onDownloadXlsx()}
+            disabled={downloading}
+            title="Скачать текущую таблицу в xlsx"
+            className="flex h-7 items-center gap-1.5 rounded border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-white/85 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {downloading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            Скачать xlsx
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            title="Загрузить xlsx/json/csv с правками"
+            className="flex h-7 items-center gap-1.5 rounded border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-white/85 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            Загрузить
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -224,11 +251,9 @@ export function NodeResultTable({
         />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5 [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
-        {/* Только основная таблица. Спутниковые коллекции и второй документ
-            в «Результат» не выводим — иначе в окне появляется лишняя таблица. */}
-        {shownTables.slice(0, 1).map((table) => (
-          <TableView key={table.id} table={table} />
-        ))}
+        {currentTable ? (
+          <TableView key={currentTable.id} table={currentTable} />
+        ) : null}
       </div>
     </div>
   );

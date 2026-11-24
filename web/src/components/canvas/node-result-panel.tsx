@@ -46,7 +46,8 @@ export function NodeResultPanel({
   const qc = useQueryClient();
   const { t, locale } = useTranslation();
   const spec = getNodeSpec(nodeType, locale);
-  const wide = WIDE_MODES.has(snapshot.viewMode);
+  const isExcelGpt = nodeType === "excel_gpt" || Boolean(nodeType?.startsWith("enrich_"));
+  const wide = WIDE_MODES.has(snapshot.viewMode) || isExcelGpt;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,7 +80,7 @@ export function NodeResultPanel({
           ) : null}
         </DialogHeader>
 
-        {!snapshot.hasResult && snapshot.viewMode === "default" ? (
+        {!snapshot.hasResult && snapshot.viewMode === "default" && !isExcelGpt ? (
           <p className="py-4 text-sm text-muted-foreground">
             {t("canvas.nodeResult.notReady")}
           </p>
@@ -89,7 +90,9 @@ export function NodeResultPanel({
               "flex min-h-0 flex-1 flex-col",
               snapshot.viewMode === "html_report"
                 ? "overflow-hidden bg-black"
-                : "overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent",
+                : isExcelGpt
+                  ? "overflow-hidden"
+                  : "overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent",
             )}
           >
             <NodeResultViewBody

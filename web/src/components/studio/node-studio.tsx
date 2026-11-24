@@ -18,6 +18,7 @@ import {
   Upload,
   X,
   Braces,
+  Table,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -1048,7 +1049,7 @@ export function NodeStudio({
                 <button
                   type="button"
                   onClick={() => setShowJson((prev) => !prev)}
-                  title="Показать полный JSON ответа"
+                  title={showJson ? "Вернуться к таблице результатов" : "Показать полный JSON ответа"}
                   className={cn(
                     "flex h-7 items-center gap-1.5 rounded border px-2.5 text-[11px] font-medium transition",
                     showJson
@@ -1056,8 +1057,17 @@ export function NodeStudio({
                       : "border-white/15 bg-white/[0.04] text-white/85 hover:border-white/50 hover:text-white",
                   )}
                 >
-                  <Braces className="h-3.5 w-3.5" />
-                  JSON
+                  {showJson ? (
+                    <>
+                      <Table className="h-3.5 w-3.5" />
+                      Таблица
+                    </>
+                  ) : (
+                    <>
+                      <Braces className="h-3.5 w-3.5" />
+                      JSON
+                    </>
+                  )}
                 </button>
               </div>
             ) : null}
