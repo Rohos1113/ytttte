@@ -132,21 +132,16 @@ export function MetaPromptDialog({
         className="z-[210] w-[94vw] max-w-4xl max-h-[88vh] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-[#0e0e12]/95 backdrop-blur-xl p-6 shadow-2xl [contain:paint]"
       >
         <DialogHeader className="space-y-1">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#2dd4bf]/35 bg-[#2dd4bf]/15 text-[#2dd4bf] shadow-[0_0_15px_rgba(45,212,191,0.2)]">
-              <Wand2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base font-semibold leading-tight text-white flex items-center gap-2">
-                <span>Конструктор мастер-промптов ИИ-Агентом</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#2dd4bf]/15 text-[#2dd4bf] border border-[#2dd4bf]/30">
-                  ИИ-Агент
-                </span>
-              </DialogTitle>
-              <DialogDescription className="text-xs text-zinc-400 break-words mt-1">
-                Шаг: <span className="font-mono text-[#2dd4bf] font-semibold px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/10">{stepCode}</span> — напишите задачу своими словами или загрузите текст из файла, агент скомпилирует системный .md промпт под этот шаг.
-              </DialogDescription>
-            </div>
+          <div>
+            <DialogTitle className="text-base font-semibold leading-tight text-white flex items-center gap-2">
+              <span>Конструктор мастер-промптов ИИ-Агентом</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                ИИ-Агент
+              </span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-zinc-400 break-words mt-1">
+              Шаг: <span className="font-mono text-emerald-400 font-semibold px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/10">{stepCode}</span> — напишите задачу своими словами или загрузите текст из файла, агент скомпилирует системный .md промпт под этот шаг.
+            </DialogDescription>
           </div>
         </DialogHeader>
 
@@ -162,7 +157,7 @@ export function MetaPromptDialog({
                   placeholder="авто-генерация или имя"
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
-                  className="h-9 bg-black/40 border-white/10 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus-visible:border-white/20 focus-visible:ring-0 focus-visible:outline-none focus-visible:shadow-none"
+                  className="h-9 bg-black/40 border border-white/10 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 !outline-none !ring-0 focus:!outline-none focus:!ring-0 focus:border-white/20 focus-visible:!outline-none focus-visible:!ring-0 focus-visible:border-white/20 focus-visible:shadow-none shadow-none transition-colors"
                 />
               </div>
               <span className="text-[11px] text-zinc-500 leading-tight">
@@ -178,7 +173,7 @@ export function MetaPromptDialog({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-6 gap-1.5 px-2 text-[11px] font-medium text-zinc-400 hover:text-[#2dd4bf] hover:bg-[#2dd4bf]/10 border border-transparent hover:border-[#2dd4bf]/20 rounded-lg transition-all"
+                  className="h-6 gap-1.5 px-2 text-[11px] font-medium text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/20 rounded-lg transition-all"
                   onClick={() => fileInputRef.current?.click()}
                   title="Загрузить текст из файла (.txt, .md)"
                 >
@@ -217,7 +212,7 @@ export function MetaPromptDialog({
                 placeholder="Опишите желаемую логику, стиль, правила или вставьте свой черновик промпта..."
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                className="min-h-[100px] bg-black/40 border-white/10 text-xs text-zinc-100 placeholder:text-zinc-500 focus-visible:border-white/20 focus-visible:ring-0 focus-visible:outline-none focus-visible:shadow-none resize-none leading-relaxed rounded-xl"
+                className="min-h-[100px] bg-black/40 border border-white/10 text-xs text-zinc-100 placeholder:text-zinc-500 !outline-none !ring-0 focus:!outline-none focus:!ring-0 focus:border-white/20 focus-visible:!outline-none focus-visible:!ring-0 focus-visible:border-white/20 focus-visible:shadow-none shadow-none transition-colors resize-none leading-relaxed rounded-xl"
               />
             </div>
           </div>
@@ -229,7 +224,7 @@ export function MetaPromptDialog({
               "w-full gap-2 text-xs font-extrabold uppercase tracking-wider h-11 rounded-xl transition-all duration-200",
               compileMutation.isPending || !intent.trim()
                 ? "bg-zinc-800 text-zinc-500 border border-white/5 cursor-not-allowed"
-                : "bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black shadow-[0_0_20px_rgba(45,212,191,0.35)] hover:brightness-110 active:scale-[0.99] cursor-pointer"
+                : "bg-gradient-to-r from-emerald-500 to-emerald-600 text-black shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:brightness-110 active:scale-[0.99] cursor-pointer"
             )}
             disabled={compileMutation.isPending || !intent.trim()}
             onClick={() => compileMutation.mutate()}
@@ -249,10 +244,10 @@ export function MetaPromptDialog({
 
           {/* Результат компиляции */}
           {compiledPrompt && (
-            <div className="space-y-2.5 rounded-xl border border-[#2dd4bf]/30 bg-[#2dd4bf]/10 p-4">
+            <div className="space-y-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[#2dd4bf]">
-                  <CheckCircle2 className="h-4 w-4 text-[#2dd4bf]" />
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                   <span>Готовый результат компиляции</span>
                 </div>
                 {stats && (
@@ -261,8 +256,8 @@ export function MetaPromptDialog({
                     <span>·</span>
                     <span className="font-mono text-zinc-300">{stats.length_chars} символов</span>
                     {stats.has_guards && (
-                      <span className="flex items-center gap-1 rounded bg-[#2dd4bf]/15 border border-[#2dd4bf]/30 px-1.5 py-0.5 text-[#2dd4bf] font-medium text-[10px]">
-                        <ShieldCheck className="h-3 w-3 text-[#2dd4bf]" /> No-Chat Guard
+                      <span className="flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-emerald-400 font-medium text-[10px]">
+                        <ShieldCheck className="h-3 w-3 text-emerald-400" /> No-Chat Guard
                       </span>
                     )}
                   </div>
@@ -272,7 +267,7 @@ export function MetaPromptDialog({
               <Textarea
                 value={compiledPrompt}
                 onChange={(e) => setCompiledPrompt(e.target.value)}
-                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/60 border-white/10 rounded-xl text-zinc-100 whitespace-pre-wrap break-words resize-y focus-visible:border-white/20 focus-visible:ring-0 focus-visible:outline-none focus-visible:shadow-none p-3"
+                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/60 border border-white/10 rounded-xl text-zinc-100 whitespace-pre-wrap break-words resize-y !outline-none !ring-0 focus:!outline-none focus:!ring-0 focus:border-white/20 focus-visible:!outline-none focus-visible:!ring-0 focus-visible:border-white/20 focus-visible:shadow-none shadow-none transition-colors p-3"
               />
             </div>
           )}
@@ -293,7 +288,7 @@ export function MetaPromptDialog({
             <Button
               type="button"
               size="sm"
-              className="w-36 h-9 rounded-xl bg-gradient-to-r from-[#2dd4bf] to-[#0d9488] text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_15px_rgba(45,212,191,0.3)] hover:brightness-110"
+              className="w-36 h-9 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:brightness-110"
               disabled={saveMutation.isPending}
               onClick={() => saveMutation.mutate()}
             >

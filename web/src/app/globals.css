@@ -68,7 +68,7 @@ html body, html body.font-sans { font-family: "Rubik", var(--font-inter), system
   --destructive-foreground: 0 0% 100%;
   --border: 240 6% 90%;
   --input: 240 6% 90%;
-  --ring: 188 86% 53%;
+  --ring: 160 84% 39%;
 
   --success: 142 70% 45%;
   --warning: 38 92% 50%;
@@ -98,7 +98,7 @@ html body, html body.font-sans { font-family: "Rubik", var(--font-inter), system
   --destructive-foreground: 0 0% 100%;
   --border: 0 0% 100% / 0.08;
   --input: 0 0% 100% / 0.06;
-  --ring: 188 86% 53%;
+  --ring: 160 84% 39%;
 
   --success: 142 55% 48%;
   --warning: 38 92% 58%;
