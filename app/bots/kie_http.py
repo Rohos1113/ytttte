@@ -519,6 +519,16 @@ VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "topaz-video-upscale": "topaz-video-upscale",
     "kling_2_6": "kling-2-6",
     "kling-2-6": "kling-2-6",
+    "kling_4_0": "kling-4-0",
+    "kling-4-0": "kling-4-0",
+    "veo_3_1": "veo-3-1",
+    "veo-3-1": "veo-3-1",
+    "seedance_2_0": "seedance-2-0",
+    "seedance-2-0": "seedance-2-0",
+    "minimax_h3_t2v": "minimax-h3-t2v",
+    "minimax-h3-t2v": "minimax-h3-t2v",
+    "wan_3_0": "wan-3-0",
+    "wan-3-0": "wan-3-0",
 }
 
 # Маппинг генераторов картинок на ID модели / семейства в kie_catalog
@@ -634,6 +644,40 @@ def _normalize_image_quality(raw: str | None) -> str | None:
     return s
 
 
+def _resolve_kie_video_spec(kie_id: str, *, has_start_frame: bool) -> dict[str, Any] | None:
+    """Найти спецификацию видео-модели/режима в семейном или плоском каталоге KIE."""
+    from app.services import kie_catalog
+
+    family = kie_catalog.get_family(kie_id)
+    if family:
+        mode = None
+        modes = family.get("modes") or []
+        bad_modes = ("motion-control", "upscale", "extend", "r2v", "omni-transformation")
+        if has_start_frame:
+            for m in modes:
+                mid = str(m.get("id") or "")
+                if any(bad in mid for bad in bad_modes):
+                    continue
+                if ("i2v" in mid or "keyframe" in mid) and any(
+                    f.get("kind") == "images" for f in (m.get("fields") or [])
+                ):
+                    mode = m
+                    break
+            if mode is None:
+                for m in modes:
+                    mid = str(m.get("id") or "")
+                    if any(bad in mid for bad in bad_modes):
+                        continue
+                    if any(f.get("kind") == "images" for f in (m.get("fields") or [])):
+                        mode = m
+                        break
+        if mode is None:
+            mode = kie_catalog.get_mode(family)
+        if mode is not None:
+            return kie_catalog.mode_spec(family, mode)
+    return kie_catalog.get_model(kie_id)
+
+
 async def generate_kie_video(
     prompt: str,
     out_path: Path,
@@ -654,7 +698,7 @@ async def generate_kie_video(
     from app.services import kie_catalog
 
     kie_id = VIDEO_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
-    spec = kie_catalog.get_model(kie_id)
+    spec = _resolve_kie_video_spec(kie_id, has_start_frame=bool(start_frame))
     is_pay52 = bool(
         (spec and spec.get("api") == "pay52")
         or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec))
@@ -696,6 +740,8 @@ async def generate_kie_video(
             return result
 
     image_url = await _frame_to_public_url(start_frame)
+    if start_frame and not image_url:
+        spec = _resolve_kie_video_spec(kie_id, has_start_frame=False) or spec
     ar = (aspect_ratio or "9:16").replace("_", ":")
     # ByteDance Seedance first-frame I2V требует aspect_ratio='adaptive'
     if "seedance" in str(kie_id).lower() and image_url:
@@ -704,12 +750,22 @@ async def generate_kie_video(
     field_names = {f["name"] for f in spec.get("fields") or []}
     field_by_name = {f["name"]: f for f in spec.get("fields") or []}
 
+    ar_f = field_by_name.get("aspect_ratio")
+    ar_opts = [str(o) for o in (ar_f.get("options") or [])] if ar_f else []
+    if ar_opts:
+        ar_match = next((o for o in ar_opts if o.lower() == ar.lower()), None)
+        ar = ar_match or ar_opts[0]
+
     values: dict[str, Any] = {
         "prompt": prompt,
         "aspect_ratio": ar,
         "duration": int(duration) if duration else 5,
         "generate_audio": bool(generate_audio),
     }
+    if "sound" in field_names:
+        values["sound"] = bool(generate_audio)
+    if "audio" in field_names:
+        values["audio"] = bool(generate_audio)
     if "ratio" in field_names and "aspect_ratio" not in field_names:
         values["ratio"] = ar
 
@@ -740,6 +796,8 @@ async def generate_kie_video(
             values["image_url"] = image_url
         elif "image_urls" in field_names:
             values["image_urls"] = [image_url]
+        elif "reference_image_urls" in field_names:
+            values["reference_image_urls"] = [image_url]
         elif "imageUrls" in field_names:
             values["imageUrls"] = [image_url]
         elif "input_image_url" in field_names:

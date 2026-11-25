@@ -230,22 +230,73 @@ def clamp_image_resolution_id(
 VIDEO_GENERATORS: list[OptionChoice] = [
     OptionChoice(
         "veo_3_1_lite",
-        "+ Veo 3.1 Lite",
+        "Veo 3.1 Lite",
         "veo-3-1-lite",
         "Outsee · Veo 3.1 Lite",
     ),
     OptionChoice(
-        "kling_2_6",
-        "Kling 2.6",
-        "kling-2-6",
-        "Kie · Kling 2.6 (KIE_API_KEY)",
+        "veo_3_1",
+        "Veo 3.1",
+        "veo-3-1",
+        "Google · Veo 3.1 (KIE)",
+    ),
+    OptionChoice(
+        "seedance_2_0",
+        "Seedance 2.0",
+        "seedance-2-0",
+        "ByteDance · Seedance 2.0 (52pay / KIE)",
     ),
     OptionChoice(
         "seedance_2_0_fast",
         "Seedance 2.0 Fast",
         "seedance-2-0-fast",
-        "Kie · Seedance 2.0 Fast (KIE_API_KEY)",
+        "ByteDance · Seedance 2.0 Fast (52pay / KIE)",
     ),
+    OptionChoice(
+        "seedance_2_5",
+        "Seedance 2.5",
+        "seedance-2-5",
+        "ByteDance · Seedance 2.5 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "kling_2_6",
+        "Kling 2.6",
+        "kling-2-6",
+        "Kling · Kling 2.6 (KIE)",
+    ),
+    OptionChoice(
+        "kling_3_0",
+        "Kling 3.0",
+        "kling-3-0",
+        "Kling · Kling 3.0 (KIE)",
+    ),
+    OptionChoice(
+        "kling_4_0",
+        "Kling 4.0",
+        "kling-4-0",
+        "Kling · Kling 4.0 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "hailuo_2_3_i2v",
+        "Hailuo 2.3",
+        "hailuo-2-3-i2v",
+        "Hailuo · Hailuo 2.3 (KIE)",
+    ),
+    OptionChoice(
+        "minimax_h3_t2v",
+        "MiniMax H3 (видео)",
+        "minimax-h3-t2v",
+        "Hailuo · MiniMax H3 Video (KIE)",
+    ),
+    OptionChoice(
+        "wan_3_0",
+        "WAN 3.0",
+        "wan-3-0",
+        "Wan · WAN 3.0 (KIE)",
+    ),
+]
+
+_LEGACY_VIDEO_GENERATORS: list[OptionChoice] = [
     OptionChoice(
         "seedance_2_0_mini",
         "Seedance 2.0 Mini",
@@ -253,22 +304,10 @@ VIDEO_GENERATORS: list[OptionChoice] = [
         "Kie · Seedance 2.0 Mini (KIE_API_KEY)",
     ),
     OptionChoice(
-        "seedance_2_5",
-        "Seedance 2.5",
-        "seedance-2-5",
-        "Kie · Seedance 2.5 (KIE_API_KEY)",
-    ),
-    OptionChoice(
         "kling_v3_turbo_i2v",
         "Kling 3.0 Turbo (I2V)",
         "kling-v3-turbo-i2v",
         "Kie · Kling 3.0 Turbo (KIE_API_KEY)",
-    ),
-    OptionChoice(
-        "hailuo_2_3_i2v",
-        "MiniMax Hailuo 2.3",
-        "hailuo-2-3-i2v",
-        "Kie · MiniMax Hailuo 2.3 (KIE_API_KEY)",
     ),
     OptionChoice(
         "wan_2_7_i2v",
@@ -282,9 +321,10 @@ VIDEO_GENERATORS: list[OptionChoice] = [
 # ---- 5. Разрешение видео ---------------------------------------------------
 
 VIDEO_RESOLUTIONS: list[OptionChoice] = [
+    OptionChoice("480p", "480p", "480p", "480p — SD"),
     OptionChoice("720p", "720p", "720p", "720p — HD"),
     OptionChoice("1080p", "1080p", "1080p", "1080p — Full HD"),
-    OptionChoice("480p", "480p", "480p", "480p — SD"),
+    OptionChoice("4k", "4K", "4k", "4K — Ultra HD"),
 ]
 
 
@@ -328,7 +368,7 @@ IMAGE_GENERATORS_BY_ID = _by_id(IMAGE_GENERATORS)
 ASPECT_RATIOS_BY_ID = _by_id(ASPECT_RATIOS)
 IMAGE_RESOLUTIONS_BY_ID = _by_id(IMAGE_RESOLUTIONS)
 IMAGE_QUALITIES_BY_ID = _by_id(IMAGE_QUALITIES)
-VIDEO_GENERATORS_BY_ID = _by_id(VIDEO_GENERATORS)
+VIDEO_GENERATORS_BY_ID = _by_id([*_LEGACY_VIDEO_GENERATORS, *VIDEO_GENERATORS])
 VIDEO_RESOLUTIONS_BY_ID = _by_id(VIDEO_RESOLUTIONS)
 
 

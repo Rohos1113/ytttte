@@ -136,6 +136,7 @@ function vendorNote(m: CatalogModel): string {
     return `${formatUsdPrice(m.pricing.input_usd_per_m)} вход · ${formatUsdPrice(m.pricing.output_usd_per_m)} выход / 1M`;
   }
   if (m.kind === "image") return `${formatUsdPrice(m.pricing.usd_per_image)} за изображение`;
+  if (m.pricing.usd_per_video != null) return `${formatUsdPrice(m.pricing.usd_per_video)} за ролик`;
   return m.provider === "kie" ? "видео · Kie" : "видео · VIA";
 }
 

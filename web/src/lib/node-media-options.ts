@@ -176,11 +176,22 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
     };
   }
 
-  if (id === "kling-2-6") {
+  if (id === "veo-3-1") {
+    return {
+      resolutions: ["720p", "1080p", "4k"],
+      qualities: [],
+      aspects: ["16:9", "9:16"],
+      defaultResolution: "720p",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "kling-4-0") {
     return {
       resolutions: ["720p", "1080p"],
       qualities: [],
-      aspects: ["16:9", "9:16", "1:1"],
+      aspects: ["16:9", "9:16", "1:1", "21:9"],
       defaultResolution: "1080p",
       defaultQuality: "medium",
       defaultAspect: "16:9",
@@ -198,23 +209,67 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
     };
   }
 
-  if (id.startsWith("seedance")) {
+  if (id === "seedance-2-0-fast") {
     return {
-      resolutions: ["720p", "1080p"],
+      resolutions: ["480p", "720p"],
       qualities: [],
-      aspects: ["16:9", "9:16", "1:1", "21:9"],
-      defaultResolution: "1080p",
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+      defaultResolution: "720p",
       defaultQuality: "medium",
       defaultAspect: "16:9",
     };
   }
 
-  if (id.startsWith("wan") || id.startsWith("hailuo") || id.startsWith("pixverse")) {
+  if (id === "seedance-2-0") {
     return {
-      resolutions: ["720p", "1080p"],
+      resolutions: ["480p", "720p", "1080p", "4k"],
+      qualities: [],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+      defaultResolution: "720p",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id.startsWith("seedance")) {
+    return {
+      resolutions: ["480p", "720p", "1080p"],
+      qualities: [],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+      defaultResolution: "720p",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "wan-3-0" || id.startsWith("wan")) {
+    return {
+      resolutions: ["480p", "720p", "1080p"],
+      qualities: [],
+      aspects: ["16:9", "4:3", "1:1", "3:4", "9:16"],
+      defaultResolution: "720p",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "minimax-h3-t2v") {
+    return {
+      resolutions: ["768p", "2k"],
+      qualities: [],
+      aspects: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+      defaultResolution: "768p",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id.startsWith("hailuo") || id.startsWith("pixverse")) {
+    return {
+      resolutions: ["768p", "1080p"],
       qualities: [],
       aspects: ["16:9", "9:16", "1:1"],
-      defaultResolution: "720p",
+      defaultResolution: "768p",
       defaultQuality: "medium",
       defaultAspect: "16:9",
     };

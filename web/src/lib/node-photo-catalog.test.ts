@@ -57,3 +57,37 @@ test("mediaOptionsForModel supports all 13 curated photo models", () => {
   assert.equal(mediaOptionsForModel("nano-banana-2-1")?.qualities.length, 0);
   assert.deepEqual(mediaOptionsForModel("seedream-5-flash")?.resolutions, ["1K", "1.5K", "2K"]);
 });
+
+const EXPECTED_VIDEO_IDS = [
+  "veo-3-1-lite",
+  "veo-3-1",
+  "seedance-2-0",
+  "seedance-2-0-fast",
+  "seedance-2-5",
+  "kling-2-6",
+  "kling-3-0",
+  "kling-4-0",
+  "hailuo-2-3-i2v",
+  "minimax-h3-t2v",
+  "wan-3-0",
+];
+
+test("localCatalog video models match curated Create tab lineup across videos/hitl_videos nodes", () => {
+  const full = localCatalog();
+  for (const nodeType of ["videos", "hitl_videos"]) {
+    const filtered = catalogForNodeType(full, nodeType);
+    const ids = filtered.models.map((m) => m.id);
+    assert.deepEqual(ids, EXPECTED_VIDEO_IDS);
+  }
+});
+
+test("mediaOptionsForModel supports all 11 curated video models", () => {
+  for (const id of EXPECTED_VIDEO_IDS) {
+    const opts = mediaOptionsForModel(id);
+    assert.ok(opts, `missing media options for ${id}`);
+    assert.ok(opts.resolutions.length > 0, `empty resolutions for ${id}`);
+    assert.ok(opts.aspects.length > 0, `empty aspects for ${id}`);
+  }
+  assert.deepEqual(mediaOptionsForModel("seedance-2-0-fast")?.resolutions, ["480p", "720p"]);
+  assert.deepEqual(mediaOptionsForModel("veo-3-1")?.resolutions, ["720p", "1080p", "4k"]);
+});

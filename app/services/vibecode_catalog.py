@@ -96,12 +96,19 @@ IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
 }
 VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "veo-3-1-lite": "veo_3_1_lite",
-    "kling-2-6": "kling_2_6",
+    "veo-3-1": "veo_3_1",
+    "seedance-2-0": "seedance_2_0",
+    "seedance-2-0-fast": "seedance_2_0_fast",
     "seedance-2-0-mini": "seedance_2_0_mini",
     "seedance-2-5": "seedance_2_5",
+    "kling-2-6": "kling_2_6",
+    "kling-3-0": "kling_3_0",
+    "kling-4-0": "kling_4_0",
     "kling-v3-turbo-i2v": "kling_v3_turbo_i2v",
     "hailuo-2-3-i2v": "hailuo_2_3_i2v",
+    "minimax-h3-t2v": "minimax_h3_t2v",
     "wan-2-7-i2v": "wan_2_7_i2v",
+    "wan-3-0": "wan_3_0",
 }
 
 VENDOR_ORDER = ("anthropic", "openai", "glm", "gemini", "deepseek", "kimi", "xai", "moonshot", "images", "video")
@@ -119,82 +126,80 @@ VENDOR_META: dict[str, dict[str, str]] = {
 }
 
 
-def _kie_video_usd_per_video(model_id: str) -> float | None:
-    """Базовая цена видео kie.ai в USD за стандартный 5-6с ролик в 720p (без наценки студии).
-    1 кр = $0.005.
-    """
-    from app.services.kie_catalog import CREDIT_USD
+_VIDEO_DISPLAY_ORDER = (
+    "veo-3-1-lite",
+    "veo-3-1",
+    "seedance-2-0",
+    "seedance-2-0-fast",
+    "seedance-2-5",
+    "kling-2-6",
+    "kling-3-0",
+    "kling-4-0",
+    "hailuo-2-3-i2v",
+    "minimax-h3-t2v",
+    "wan-3-0",
+)
 
-    credits_map: dict[str, float] = {
-        "kling-2-6": 55.0,
-        "seedance-2-0-mini": 41.0,
-        "seedance-2-5": 315.0,
-        "kling-v3-turbo-i2v": 90.0,
-        "hailuo-2-3-i2v": 30.0,
-        "wan-2-7-i2v": 80.0,
+_HIDDEN_CREATE_VIDEO_FAMILIES = frozenset(
+    {
+        "kie-video-upscale",
+        "topaz-video-upscale",
+        "infinitalk",
+        "volcengine-lipsync",
+        "happyhorse",
+        "happyhorse-1-1",
+        "seedance-2-0-mini",
     }
-    cr = credits_map.get(model_id)
-    return round(cr * CREDIT_USD, 6) if cr is not None else None
+)
 
 
-VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
-    {
-        "id": "veo-3-1-lite",
-        "display_name": "Veo 3.1 Lite",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "outsee",
-        "pricing": {"currency": "usd", "usd_per_video": 0.15},
-    },
-    {
-        "id": "kling-2-6",
-        "display_name": "Kling 2.6",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("kling-2-6")},
-    },
-    {
-        "id": "seedance-2-0-mini",
-        "display_name": "Seedance 2.0 Mini",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("seedance-2-0-mini")},
-    },
-    {
-        "id": "seedance-2-5",
-        "display_name": "Seedance 2.5 (ByteDance)",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("seedance-2-5")},
-    },
-    {
-        "id": "kling-v3-turbo-i2v",
-        "display_name": "Kling 3.0 Turbo (фото)",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("kling-v3-turbo-i2v")},
-    },
-    {
-        "id": "hailuo-2-3-i2v",
-        "display_name": "MiniMax Hailuo 2.3 (фото)",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("hailuo-2-3-i2v")},
-    },
-    {
-        "id": "wan-2-7-i2v",
-        "display_name": "Alibaba WAN 2.7 (фото)",
-        "is_image": False,
-        "is_video": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("wan-2-7-i2v")},
-    },
-]
+@lru_cache(maxsize=1)
+def _build_kie_video_catalog_raw() -> list[dict[str, Any]]:
+    """Актуальные видео-модели для нод — из семейного каталога вкладки «Генерация» + Veo 3.1 Lite."""
+    from app.bots.pay52_video import pay52_video_supports_model
+    from app.services import kie_catalog
+
+    order_idx = {mid: i for i, mid in enumerate(_VIDEO_DISPLAY_ORDER)}
+    out: list[dict[str, Any]] = [
+        {
+            "id": "veo-3-1-lite",
+            "display_name": "Veo 3.1 Lite",
+            "is_image": False,
+            "is_video": True,
+            "owned_by": "outsee",
+            "provider": "outsee",
+            "pricing": {"currency": "usd", "usd_per_video": 0.15},
+        },
+    ]
+    cards = [
+        c
+        for c in kie_catalog.catalog_for_ui().get("models", [])
+        if c.get("media") == "video" and c.get("id") not in _HIDDEN_CREATE_VIDEO_FAMILIES
+    ]
+    for c in cards:
+        fid = str(c["id"])
+        price = c.get("price_from_usd")
+        supports_52pay = pay52_video_supports_model(fid)
+        out.append(
+            {
+                "id": fid,
+                "display_name": str(c.get("label") or fid),
+                "is_image": False,
+                "is_video": True,
+                "owned_by": "52pay / kie" if supports_52pay else "kie",
+                "provider": "52pay / kie" if supports_52pay else "kie",
+                "pricing": (
+                    {"currency": "usd", "usd_per_video": round(float(price), 6)}
+                    if isinstance(price, (int, float))
+                    else {"currency": "usd"}
+                ),
+            }
+        )
+    out.sort(key=lambda m: (order_idx.get(str(m.get("id")), 999), str(m.get("display_name") or "")))
+    return out
+
+
+VIDEO_CATALOG_RAW: list[dict[str, Any]] = _build_kie_video_catalog_raw()
 
 
 _HIDDEN_CREATE_IMAGE_FAMILIES = frozenset(
@@ -394,9 +399,12 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
         raw.get("pricing") if isinstance(raw.get("pricing"), dict) else {}, channel=channel
     )
     if is_video:
-        from app.services.media_route import video_provider_for
+        if raw.get("provider"):
+            provider = str(raw["provider"])
+        else:
+            from app.services.media_route import video_provider_for
 
-        provider = video_provider_for(mid)
+            provider = video_provider_for(mid)
     elif is_image:
         if raw.get("provider"):
             provider = str(raw["provider"])

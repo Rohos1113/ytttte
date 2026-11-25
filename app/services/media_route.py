@@ -52,16 +52,22 @@ OUTSEE_VIDEO_IDS = frozenset(
 )
 KIE_VIDEO_IDS = frozenset(
     {
+        "veo-3-1",
         "kling-2-6",
+        "seedance-2-0",
+        "seedance-2-0-fast",
         "seedance-2-0-mini",
         "seedance-2-5",
         "seedance-1-5-pro",
         "kling-3-0",
+        "kling-4-0",
         "kling-v3-turbo-i2v",
         "kling-v3-turbo-t2v",
         "hailuo-2-3-i2v",
+        "minimax-h3-t2v",
         "wan-2-7-i2v",
         "wan-2-7-t2v",
+        "wan-3-0",
     }
 )
 

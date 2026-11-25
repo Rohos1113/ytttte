@@ -107,3 +107,27 @@ def test_build_payload_seedance_overseas_1080p() -> None:
     assert payload["model"] == "seedance-2.0-fast"
     assert payload["duration"] == 10
     assert payload["resolution"] == "1080p"
+
+
+def test_kie_http_resolves_all_curated_video_families() -> None:
+    from app.bots.kie_http import _resolve_kie_video_spec
+
+    for fid in (
+        "veo-3-1",
+        "seedance-2-0",
+        "seedance-2-0-fast",
+        "seedance-2-5",
+        "kling-2-6",
+        "kling-3-0",
+        "kling-4-0",
+        "hailuo-2-3-i2v",
+        "minimax-h3-t2v",
+        "wan-3-0",
+    ):
+        spec_no_frame = _resolve_kie_video_spec(fid, has_start_frame=False)
+        spec_with_frame = _resolve_kie_video_spec(fid, has_start_frame=True)
+        assert spec_no_frame is not None and spec_no_frame.get("model"), fid
+        assert spec_with_frame is not None and spec_with_frame.get("model"), fid
+        assert any(
+            f.get("kind") == "images" for f in (spec_with_frame.get("fields") or [])
+        ), fid

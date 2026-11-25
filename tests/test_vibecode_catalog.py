@@ -77,7 +77,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["xai"] == 1
     assert "moonshot" not in counts
     assert counts["images"] == 14
-    assert counts["video"] == 7
+    assert counts["video"] == 11
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
     assert sonnet["kind"] == "text"
@@ -117,6 +117,29 @@ def test_kie_image_models_in_catalog() -> None:
     assert "nano-banana" not in by_id
     assert "nano-banana-pro" not in by_id
     assert "nano-banana-2-lite" not in by_id
+
+
+def test_kie_video_models_in_catalog() -> None:
+    cat = grouped_catalog()
+    by_id = {m["id"]: m for m in cat["models"]}
+    for mid in (
+        "veo-3-1-lite",
+        "veo-3-1",
+        "seedance-2-0",
+        "seedance-2-0-fast",
+        "seedance-2-5",
+        "kling-2-6",
+        "kling-3-0",
+        "kling-4-0",
+        "hailuo-2-3-i2v",
+        "minimax-h3-t2v",
+        "wan-3-0",
+    ):
+        m = by_id.get(mid)
+        assert m is not None, mid
+        assert m["kind"] == "video"
+        assert m["vendor"] == "video"
+        assert (m["pricing"] or {}).get("usd_per_video") is not None
 
 
 def test_default_model_by_node_type() -> None:
