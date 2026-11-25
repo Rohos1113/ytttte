@@ -136,6 +136,7 @@ def test_kie_http_resolves_all_curated_video_families() -> None:
 @pytest.mark.asyncio
 async def test_create_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
+
     from app.bots import pay52_video
 
     monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
@@ -182,6 +183,7 @@ async def test_create_task_rotates_on_400_invalid_token(monkeypatch: pytest.Monk
 @pytest.mark.asyncio
 async def test_poll_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
+
     from app.bots import pay52_video
 
     monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
