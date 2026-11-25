@@ -1049,6 +1049,38 @@ async def _apply_img_pr_ops_now(
     )
 
 
+async def _flush_img_pr_ops_to_db(project_id: int, ops: list[dict]) -> None:
+    """Промежуточная запись готового батча img_pr в DB, чтобы UI видел прогресс в реальном времени."""
+    if not ops:
+        return
+    try:
+        from app.db import SessionLocal
+        from app.generation_options import hollow_prompts_allowed
+        from app.services import db_apply
+        from app.services.node_write_contract import filter_ops_for_node
+
+        if hollow_prompts_allowed():
+            return
+
+        filtered = filter_ops_for_node(list(ops), node_kind="img_pr")
+        if not filtered:
+            return
+        async with SessionLocal() as flush_session:
+            proj = await flush_session.get(Project, project_id)
+            if proj is None:
+                return
+            await db_apply.apply_ops(
+                flush_session,
+                proj,
+                filtered,
+                export_xlsx=False,
+                node_kind="img_pr",
+            )
+            await flush_session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[#{}] img_pr_db: intermediate flush skipped ({})", project_id, exc)
+
+
 async def run_img_pr_xlsx(
     project: Project,
     *,
@@ -1429,6 +1461,7 @@ async def run_img_pr_xlsx(
             )
             bi_seq += len(wave)
             any_ok = False
+            wave_ops: list[dict] = []
             for item, (batch, level) in zip(gathered, wave, strict=False):
                 if isinstance(item, BaseException):
                     # Отмена шага — не «провал батча»: наверх как отмена,
@@ -1522,10 +1555,10 @@ async def run_img_pr_xlsx(
                         done_set.add(u)
                 kept_ops = [op for op in batch_ops if ipb.uuid_of_op(op) in got_uuids]
                 all_ops.extend(kept_ops)
+                wave_ops.extend(kept_ops)
                 missing_uuids = expected - got_uuids
                 logger.info(
-                    "img_pr_db: batch {} L{} ops=+{} total={} missing={} "
-                    "(checkpoint only, DB apply once at end)",
+                    "img_pr_db: batch {} L{} ops=+{} total={} missing={}",
                     bi,
                     level,
                     len(kept_ops),
@@ -1560,6 +1593,8 @@ async def run_img_pr_xlsx(
                 ops=all_ops,
                 input_hash=step_hash,
             )
+            if wave_ops:
+                await _flush_img_pr_ops_to_db(project.id, wave_ops)
             if not any_ok and not work and not all_ops and not no_source_frames:
                 raise RuntimeError("img_pr: все параллельные батчи провалились без ops")
 
