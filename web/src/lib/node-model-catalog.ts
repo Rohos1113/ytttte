@@ -82,16 +82,6 @@ export const MEDIA_NODE_TYPES = new Set([
   "hitl_images",
   "videos",
   "hitl_videos",
-  "audio",
-  "music",
-  "sfx_plan",
-  "sfx_gen",
-  "sfx",
-  "storage",
-  "topic",
-  "excel_feed",
-  "shot_menu",
-  "hitl_style",
 ]);
 export function isTextNodeType(nodeType: string): boolean {
   return !MEDIA_NODE_TYPES.has(nodeType);

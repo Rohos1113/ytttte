@@ -22,8 +22,10 @@ import {
   defaultModelIdForNodeType,
   findCatalogModel,
   formatUsdPrice,
+  IMAGE_NODE_TYPES,
   localCatalog,
   MEDIA_NODE_TYPES,
+  VIDEO_NODE_TYPES,
   type CatalogModel,
   type ModelCatalogPayload,
 } from "@/lib/node-model-catalog";
@@ -174,7 +176,10 @@ export function NodeModelPicker({
 
   const catalog = catalogForNodeType(catalogQuery.data?.catalog ?? localCatalog(), nodeType);
   const selected = findCatalogModel(catalog, selectedId) ?? findCatalogModel(localCatalog(), selectedId);
-  const isTextLlm = (selected?.kind ?? "text") === "text" && !MEDIA_NODE_TYPES.has(nodeType);
+  const isTextLlm =
+    (selected?.kind ?? "text") === "text" &&
+    !IMAGE_NODE_TYPES.has(nodeType) &&
+    !VIDEO_NODE_TYPES.has(nodeType);
   const effort = normalizeEffort(reasoningEffort);
   const media = mediaOptionsForModel(selectedId);
   const priceBit = selected?.pricing.usd_per_video
