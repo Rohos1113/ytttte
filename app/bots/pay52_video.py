@@ -25,19 +25,18 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from app.bots.outsee import GenerationResult
+from app.bots.outsee import GenerationResult, OutseeImageError
 from app.settings import settings
 
 _POLL_INTERVAL_S = 3.0
 _POLL_MAX_S = 900.0
 
 
-class Pay52VideoError(RuntimeError):
-    """Ошибка вызова 52pay Video API."""
+class Pay52VideoError(OutseeImageError):
+    """Ошибка вызова 52pay Video API (совместима с outsee_retry / classify_video_error)."""
 
     def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
-        super().__init__(message)
-        self.context = context or {}
+        super().__init__(message, context=context)
 
 
 def pay52_base_url() -> str:

@@ -1363,12 +1363,16 @@ async def generate_video_with_retries(
         outsee_api_configured,
         studio_id_to_outsee_video_slug,
     )
-    from app.services.media_route import video_provider_for
+    from app.services.media_route import canonical_media_id, video_provider_for
     from app.settings import settings as _settings
 
     primary_backend = video_provider_for(primary_slug)
     use_outsee_api_video = primary_backend == "outsee" and outsee_api_configured()
-    primary_is_kling = primary_backend == "kie"
+    primary_is_kling = canonical_media_id(primary_slug) in (
+        canonical_media_id(KIE_KLING_FALLBACK_SLUG),
+        "kling-2-6",
+        "kling_2_6",
+    )
     if primary_backend == "outsee" and not outsee_api_configured() and outsee is None:
         raise OutseeImageError(
             "OUTSEE_API_KEY пуст — генерация идёт через ключ Outsee",
@@ -1388,14 +1392,14 @@ async def generate_video_with_retries(
         fallback_started = True
         logger.info("outsee_retry: video primary Kling 2.6 via kie (KIE_API_KEY)")
 
-    async def _prepare_send(prompt_body: str, attempt_kwargs: dict[str, Any], *, kling: bool) -> str:
+    async def _prepare_send(prompt_body: str, attempt_kwargs: dict[str, Any], *, is_kie: bool) -> str:
         prefix = (
             attempt_kwargs.get("prompt_id_prefix")
             if isinstance(attempt_kwargs.get("prompt_id_prefix"), str)
             else None
         )
         send_prompt = ensure_silent_video_prompt(prompt_body)
-        if kling:
+        if is_kie:
             send_prompt = truncate_kling_prompt(send_prompt)
             return ensure_silent_video_prompt(send_prompt)
         api_full_cap = _OUTSEE_API_VIDEO_PROMPT_MAX if use_outsee_api_video else OUTSEE_PROMPT_MAX_CHARS
@@ -1423,12 +1427,14 @@ async def generate_video_with_retries(
         send_prompt: str,
         attempt_kwargs: dict[str, Any],
         *,
-        kling: bool,
+        is_kie: bool,
     ) -> GenerationResult:
         attempt_kwargs = dict(attempt_kwargs)
         attempt_kwargs["generate_audio"] = False
-        if kling:
-            raw_slug = attempt_kwargs.get("model_slug") or "kling-2-6"
+        if is_kie:
+            raw_slug = attempt_kwargs.get("model_slug") or (
+                KIE_KLING_FALLBACK_SLUG if phase == "fallback" else primary_slug
+            )
             from app.bots.kie_http import generate_kie_video
 
             result = await generate_kie_video(
@@ -1538,8 +1544,8 @@ async def generate_video_with_retries(
 
     while True:
         abort_if_cancelled(project_id)
-        use_kling = phase == "fallback"
-        if use_kling:
+        use_kling_fallback = phase == "fallback"
+        if use_kling_fallback:
             if fallback_burns >= VIDEO_FALLBACK_ATTEMPTS:
                 break
             attempt_n = fallback_burns + 1
@@ -1577,15 +1583,25 @@ async def generate_video_with_retries(
         if uniquify_prompt_id:
             attempt_kwargs["prompt_id_prefix"] = _uniquify_prompt_id(
                 base_prompt_id if isinstance(base_prompt_id, str) else None,
-                1 if use_kling else 0,
+                1 if use_kling_fallback else 0,
                 attempt_n,
             )
         else:
             attempt_kwargs["prompt_id_prefix"] = base_prompt_id
 
-        provider_label = (
-            "kie-kling" if use_kling else ("outsee-api" if use_outsee_api_video else "outsee-cdp")
-        )
+        current_slug = attempt_kwargs.get("model_slug") or primary_slug
+        current_backend = "kie" if use_kling_fallback else video_provider_for(current_slug)
+        is_kie = current_backend == "kie"
+
+        if use_kling_fallback:
+            provider_label = "kie-kling"
+        elif is_kie:
+            provider_label = "kie-http"
+        elif use_outsee_api_video:
+            provider_label = "outsee-api"
+        else:
+            provider_label = "outsee-cdp"
+
         logger.info(
             "outsee_retry: video [{}] попытка {}/{} model={} provider={} {}",
             phase,
@@ -1601,15 +1617,15 @@ async def generate_video_with_retries(
             ),
         )
         try:
-            send_prompt = await _prepare_send(current_prompt, attempt_kwargs, kling=use_kling)
-            return await _dispatch(send_prompt, attempt_kwargs, kling=use_kling)
+            send_prompt = await _prepare_send(current_prompt, attempt_kwargs, is_kie=is_kie)
+            return await _dispatch(send_prompt, attempt_kwargs, is_kie=is_kie)
         except StepCancelledError:
             raise
         except OutseeDownloadError as e:
             last_err = e
             video_url = e.context.get("video_url")
             gen_id = str(e.context.get("gen_id") or "")
-            if isinstance(video_url, str) and video_url and gen_id and not use_kling:
+            if isinstance(video_url, str) and video_url and gen_id and not is_kie:
                 for dl_try in range(1, _DOWNLOAD_ONLY_RETRIES + 1):
                     abort_if_cancelled(project_id)
                     try:
@@ -1660,7 +1676,9 @@ async def generate_video_with_retries(
         if action == VideoErrorAction.STOP_AUTH:
             raise last_err or OutseeImageError(classified.detail)
 
-        if action == VideoErrorAction.RETRY_SAME or (action == VideoErrorAction.DOWNLOAD_RETRY and use_kling):
+        if action == VideoErrorAction.RETRY_SAME or (
+            action == VideoErrorAction.DOWNLOAD_RETRY and is_kie
+        ):
             if _is_concurrency_limit_error(last_err or Exception()):
                 concurrency_waits += 1
                 if concurrency_waits > _CONCURRENCY_MAX_WAITS:

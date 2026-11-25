@@ -216,3 +216,82 @@ async def test_generate_video_sanitizes_triggers_during_primary_rewrites(
     # Kling-попытка — без триггеров (локальный пост-sanitize)
     assert "Асахар" not in prompts[-1]
     assert "зарин" not in prompts[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_seedance_primary_dispatches_with_user_opts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def _fake_generate_kie_video(prompt: str, out_path: Path, **kwargs):
+        calls.append({"prompt": prompt, "kwargs": dict(kwargs)})
+        out_path.write_bytes(b"seedance-video" * 100)
+        return GenerationResult(file_path=out_path, gen_id="sd-ok")
+
+    async def _no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(mod, "sleep_cancellable", _no_sleep)
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_video", _fake_generate_kie_video)
+
+    out = Path("/tmp/seedance_primary.mp4")
+    res = await mod.generate_video_with_retries(
+        None,
+        None,
+        prompt="A sailboat in a storm",
+        out_path=out,
+        gpt_rewrite=False,
+        model_slug="seedance-2-5",
+        resolution="480p",
+        aspect_ratio="16:9",
+        duration=5,
+    )
+
+    assert res.gen_id == "sd-ok"
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["kwargs"]["model_slug"] == "seedance-2-5"
+    assert call["kwargs"]["resolution"] == "480p"
+    assert call["kwargs"]["aspect_ratio"] == "16:9"
+
+
+@pytest.mark.asyncio
+async def test_seedance_primary_falls_back_to_kling_after_burns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def _fake_generate_kie_video(prompt: str, out_path: Path, **kwargs):
+        slug = kwargs.get("model_slug")
+        calls.append({"prompt": prompt, "model_slug": slug})
+        if slug == "seedance-2-5":
+            raise OutseeImageError("seedance failure", context={"kind": "generation"})
+        # Kling fallback
+        out_path.write_bytes(b"kling-fallback" * 100)
+        return GenerationResult(file_path=out_path, gen_id="kling-fallback-ok")
+
+    async def _no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(mod, "sleep_cancellable", _no_sleep)
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_video", _fake_generate_kie_video)
+
+    out = Path("/tmp/seedance_to_kling.mp4")
+    res = await mod.generate_video_with_retries(
+        None,
+        None,
+        prompt="A sailboat in a storm",
+        out_path=out,
+        gpt_rewrite=False,
+        model_slug="seedance-2-5",
+        resolution="480p",
+        aspect_ratio="16:9",
+        duration=5,
+    )
+
+    assert res.gen_id == "kling-fallback-ok"
+    seedance_calls = [c for c in calls if c["model_slug"] == "seedance-2-5"]
+    kling_calls = [c for c in calls if c["model_slug"] == "kling-2-6"]
+    assert len(seedance_calls) == VIDEO_PRIMARY_TOTAL_ATTEMPTS
+    assert len(kling_calls) == 1
