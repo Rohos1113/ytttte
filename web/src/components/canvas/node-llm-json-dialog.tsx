@@ -12,13 +12,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { Braces, Copy, Download, Loader2, RotateCcw, Save, Upload, X } from "lucide-react";
+import { Braces, Download, Loader2, RotateCcw, Save, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import {
   nodeLlmJson,
   prettyJsonOrRaw,
-  tryPrettyJson,
   type NodeLlmDocument,
 } from "@/lib/node-llm-json";
 import { cn } from "@/lib/utils";
@@ -185,24 +184,6 @@ export function NodeLlmJsonPanel({
     URL.revokeObjectURL(url);
   };
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("JSON скопирован");
-    } catch {
-      toast.error("Не удалось скопировать");
-    }
-  };
-
-  const formatJson = () => {
-    const pretty = tryPrettyJson(text);
-    if (pretty === null) {
-      toast.error("Это не JSON — форматировать нечего");
-      return;
-    }
-    setText(pretty);
-  };
-
   const onUploadFile = async (file: File) => {
     setBusyUpload(true);
     try {
@@ -277,28 +258,6 @@ export function NodeLlmJsonPanel({
         >
           <Download className="h-3.5 w-3.5" />
           Скачать
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 px-2.5 text-[11px]"
-          onClick={() => void copy()}
-          disabled={!text}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Копировать
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 px-2.5 text-[11px]"
-          onClick={formatJson}
-          disabled={!text}
-        >
-          <Braces className="h-3.5 w-3.5" />
-          Формат
         </Button>
         <span className="flex-1" />
         <Button

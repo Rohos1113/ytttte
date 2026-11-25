@@ -382,8 +382,17 @@ async def create_task(
                 context={"provider_code": r.status_code, "raw": str(resp_data)[:200]},
             )
 
-            # Вариант 2: ротация ключей при ошибках авторизации/лимитах/балансе
-            if r.status_code in (401, 402, 403, 429):
+            # Вариант 2: ротация ключей при ошибках авторизации/лимитах/балансе/недействительном ключе
+            # Примечание: 52pay при недействительном/истекшем токене возвращает HTTP 400 с сообщением "密钥无效" / "Invalid token"
+            err_low = (err_msg or "").lower()
+            is_key_err = (
+                r.status_code in (401, 402, 403, 429)
+                or (
+                    r.status_code == 400
+                    and any(m in err_low or m in err_msg for m in ("密钥", "token", "key", "auth", "invalid api key"))
+                )
+            )
+            if is_key_err:
                 if key_idx + 1 < len(candidate_keys):
                     logger.warning(
                         "pay52_video: ключ {}/{} вернул HTTP {} ({}), переключаемся на резервный ключ...",
@@ -457,8 +466,16 @@ async def poll_task(
                 await asyncio.sleep(_POLL_INTERVAL_S)
                 continue
 
-            # Ротация ключа если во время поллинга отвалилась авторизация/квота
-            if r.status_code in (401, 403, 429) and key_idx + 1 < len(candidate_keys):
+            # Ротация ключа если во время поллинга отвалилась авторизация/квота/недействительный ключ
+            poll_text_low = (r.text or "").lower()
+            is_poll_key_err = (
+                r.status_code in (401, 402, 403, 429)
+                or (
+                    r.status_code == 400
+                    and any(m in poll_text_low or m in (r.text or "") for m in ("密钥", "token", "key", "auth"))
+                )
+            )
+            if is_poll_key_err and key_idx + 1 < len(candidate_keys):
                 key_idx += 1
                 active_key = candidate_keys[key_idx]
                 headers["Authorization"] = f"Bearer {active_key}"

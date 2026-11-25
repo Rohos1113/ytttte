@@ -131,3 +131,97 @@ def test_kie_http_resolves_all_curated_video_families() -> None:
         assert any(
             f.get("kind") == "images" for f in (spec_with_frame.get("fields") or [])
         ), fid
+
+
+@pytest.mark.asyncio
+async def test_create_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    from app.bots import pay52_video
+
+    monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
+    monkeypatch.setattr(pay52_video.settings, "seedance_fast_key", "good-key")
+    monkeypatch.setattr(pay52_video.settings, "pay52_key_fallback_enabled", True)
+
+    calls: list[str] = []
+
+    class DummyResponse:
+        def __init__(self, status_code: int, json_data: dict) -> None:
+            self.status_code = status_code
+            self._json = json_data
+            self.text = str(json_data)
+
+        def json(self) -> dict:
+            return self._json
+
+    class DummyClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            pass
+
+        async def post(self, url: str, headers: dict | None = None, json: dict | None = None) -> DummyResponse:
+            auth = (headers or {}).get("Authorization", "")
+            calls.append(auth)
+            if "bad-key" in auth:
+                return DummyResponse(400, {"error": {"message": "密钥无效。请检查 API Key 是否复制完整，以及是否已禁用或过期。"}})
+            return DummyResponse(200, {"id": "task_12345"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", DummyClient)
+
+    task_id = await pay52_video.create_task({"model": "seedance-2.5", "prompt": "test"})
+    assert task_id == "task_12345"
+    assert len(calls) == 2
+    assert "bad-key" in calls[0]
+    assert "good-key" in calls[1]
+
+
+@pytest.mark.asyncio
+async def test_poll_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    from app.bots import pay52_video
+
+    monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
+    monkeypatch.setattr(pay52_video.settings, "seedance_fast_key", "good-key")
+    monkeypatch.setattr(pay52_video.settings, "pay52_key_fallback_enabled", True)
+
+    calls: list[str] = []
+
+    class DummyResponse:
+        def __init__(self, status_code: int, json_data: dict, text: str = "") -> None:
+            self.status_code = status_code
+            self._json = json_data
+            self.text = text or str(json_data)
+
+        def json(self) -> dict:
+            return self._json
+
+    class DummyClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            pass
+
+        async def get(self, url: str, headers: dict | None = None) -> DummyResponse:
+            auth = (headers or {}).get("Authorization", "")
+            calls.append(auth)
+            if "bad-key" in auth:
+                return DummyResponse(400, {"error": "Invalid token"}, text="Invalid token")
+            return DummyResponse(200, {"status": "SUCCESS", "video_url": "https://video.example/1.mp4"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", DummyClient)
+
+    url = await pay52_video.poll_task("task_abc", model_name="seedance-2.5", timeout_s=5.0)
+    assert url == "https://video.example/1.mp4"
+    assert len(calls) == 2
+    assert "bad-key" in calls[0]
+    assert "good-key" in calls[1]
+
+
