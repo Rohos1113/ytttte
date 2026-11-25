@@ -28,12 +28,21 @@ VIBECODE_IMAGE_IDS = frozenset(
         "gpt-image-2.5",
     }
 )
-# Модели картинок kie.ai Market (app/bots/kie_http.py generate_kie_image).
+# Модели картинок kie.ai Market / 52pay (app/bots/kie_http.py generate_kie_image).
 KIE_IMAGE_IDS = frozenset(
     {
         "flux-2-pro",
+        "flux-3",
         "seedream-5-pro",
+        "seedream-5-flash",
+        "seedream-5-lite",
+        "seedream-5-5",
+        "nano-banana-2-1",
+        "gpt-image-2-5",
+        "gpt-image-2-6",
         "qwen3-image",
+        "minimax-h3-image",
+        "wan-2-7-image",
     }
 )
 OUTSEE_VIDEO_IDS = frozenset(

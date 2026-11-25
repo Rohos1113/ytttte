@@ -211,7 +211,12 @@ def build_pay52_image_payload(
     }
 
     # Поддержка референсных изображений (i2i)
-    image_urls = values.get("image_urls") or values.get("imageUrls")
+    image_urls = (
+        values.get("image_urls")
+        or values.get("imageUrls")
+        or values.get("input_urls")
+        or values.get("image_input")
+    )
     if not image_urls and values.get("image_url"):
         image_urls = [values["image_url"]]
     if image_urls and isinstance(image_urls, list) and image_urls:

@@ -1,5 +1,5 @@
-import type { VibecodeSnapshotModel } from "./vibecode-models-snapshot";
-import { VIBECODE_MODELS_SNAPSHOT } from "./vibecode-models-snapshot";
+import type { VibecodeSnapshotModel } from "./vibecode-models-snapshot.ts";
+import { VIBECODE_MODELS_SNAPSHOT } from "./vibecode-models-snapshot.ts";
 
 export type ModelChannel = "stable";
 export type ModelKind = "text" | "image" | "video";
@@ -96,13 +96,19 @@ export const MEDIA_NODE_TYPES = new Set([
 export function isTextNodeType(nodeType: string): boolean {
   return !MEDIA_NODE_TYPES.has(nodeType);
 }
-export const IMAGE_MODEL_ALIASES: Record<string, string> = { "gpt-image-2-vip": "gpt-image-2" };
+export const IMAGE_MODEL_ALIASES: Record<string, string> = {
+  "gpt-image-2-vip": "gpt-image-2",
+  "gpt-image-2.5": "gpt-image-2-5",
+  "nano-banana-2-lite": "nano-banana-2",
+  "flux-2-pro": "flux-3",
+};
 export const HIDDEN_IMAGE_IDS = new Set([
   "nano-banana",
   "nano-banana-pro",
+  "nano-banana-2-lite",
   "seedream-4.5",
-  "seedream-5-lite",
   "gpt-image-1.5",
+  "flux-2-pro",
 ]);
 
 export const VENDOR_META: Record<
@@ -206,7 +212,6 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
 }
 
 const TOP_MODEL_IDS = new Set([
-  "flux-2-pro",
   "seedream-5-pro",
   "gpt-image-2-vip",
   "gpt-image-2",
@@ -223,48 +228,42 @@ const TOP_MODEL_IDS = new Set([
   "veo-3-1-lite",
 ]);
 
+function imgExtra(
+  id: string,
+  label: string,
+  usdPerImage: number,
+  options: { resolution: string; provider: string; isTop?: boolean },
+): CatalogModel {
+  return {
+    id,
+    label,
+    vendor: "images",
+    kind: "image",
+    online: true,
+    is_top: options.isTop,
+    resolution: options.resolution,
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: usdPerImage },
+    api_model: id,
+    provider: options.provider,
+    image_generator: id.replace(/-/g, "_"),
+    channel: "stable",
+  };
+}
+
 const IMAGE_EXTRA: CatalogModel[] = [
-  {
-    id: "flux-2-pro",
-    label: "Flux 2 Pro",
-    vendor: "images",
-    kind: "image",
-    online: true,
-    is_top: true,
-    resolution: "1K/2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 7.0 },
-    api_model: "flux-2-pro",
-    provider: "kie",
-    image_generator: "flux_2_pro",
-    channel: "stable",
-  },
-  {
-    id: "seedream-5-pro",
-    label: "ByteDance Seedream 5 Pro",
-    vendor: "images",
-    kind: "image",
-    online: true,
-    is_top: true,
-    resolution: "1K/2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 4.08 },
-    api_model: "seedream-5-pro",
-    provider: "kie",
-    image_generator: "seedream_5_pro",
-    channel: "stable",
-  },
-  {
-    id: "qwen3-image",
-    label: "Alibaba Qwen Image 3",
-    vendor: "images",
-    kind: "image",
-    online: true,
-    resolution: "2K",
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 4.8 },
-    api_model: "qwen3-image",
-    provider: "kie",
-    image_generator: "qwen3_image",
-    channel: "stable",
-  },
+  imgExtra("gpt-image-2", "GPT Image 2", 0.0375, { resolution: "1K/2K/4K", provider: "52pay / kie", isTop: true }),
+  imgExtra("gpt-image-2-5", "GPT Image 2.5", 0.0375, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
+  imgExtra("gpt-image-2-6", "GPT Image 2.6", 0.0312, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
+  imgExtra("nano-banana-2", "Nano Banana 2", 0.05, { resolution: "1K/2K/4K", provider: "52pay / kie", isTop: true }),
+  imgExtra("nano-banana-2-1", "Nano Banana 2.1", 0.025, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
+  imgExtra("seedream-5-pro", "Seedream 5 Pro", 0.0438, { resolution: "1K/1.5K/2K", provider: "52pay / kie", isTop: true }),
+  imgExtra("seedream-5-flash", "Seedream 5 Flash", 0.0202, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
+  imgExtra("seedream-5-lite", "Seedream 5 Lite", 0.0344, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
+  imgExtra("seedream-5-5", "Seedream 5.5", 0.0225, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
+  imgExtra("flux-3", "Flux 3", 0.01, { resolution: "1K/2K/4K", provider: "kie" }),
+  imgExtra("qwen3-image", "Qwen3 Image", 0.03, { resolution: "1K/2K", provider: "kie" }),
+  imgExtra("minimax-h3-image", "MiniMax H3 (картинки)", 0.0112, { resolution: "1K/2K/4K", provider: "kie" }),
+  imgExtra("wan-2-7-image", "WAN 2.7 Image", 0.03, { resolution: "1K/2K", provider: "kie" }),
 ];
 
 const VIDEO_EXTRA: CatalogModel[] = [
@@ -433,8 +432,8 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
 
 export function localCatalog(): ModelCatalogPayload {
   const models = [
-    ...VIBECODE_MODELS_SNAPSHOT.filter((row) => !HIDDEN_IMAGE_IDS.has(row.id)).map((row) =>
-      normalizeSnapshot(row),
+    ...VIBECODE_MODELS_SNAPSHOT.filter((row) => !row.is_image && !HIDDEN_IMAGE_IDS.has(row.id)).map(
+      (row) => normalizeSnapshot(row),
     ),
     ...IMAGE_EXTRA,
     ...VIDEO_EXTRA,

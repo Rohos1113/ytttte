@@ -76,7 +76,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["kimi"] == 1
     assert counts["xai"] == 1
     assert "moonshot" not in counts
-    assert counts["images"] == 6
+    assert counts["images"] == 13
     assert counts["video"] == 7
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
@@ -92,15 +92,31 @@ def test_grouped_vendors_match_ui_tabs() -> None:
 def test_kie_image_models_in_catalog() -> None:
     cat = grouped_catalog()
     by_id = {m["id"]: m for m in cat["models"]}
-    for mid in ("flux-2-pro", "seedream-5-pro", "qwen3-image"):
+    for mid in (
+        "gpt-image-2",
+        "gpt-image-2-5",
+        "gpt-image-2-6",
+        "nano-banana-2",
+        "nano-banana-2-1",
+        "seedream-5-pro",
+        "seedream-5-flash",
+        "seedream-5-lite",
+        "seedream-5-5",
+        "flux-3",
+        "qwen3-image",
+        "minimax-h3-image",
+        "wan-2-7-image",
+    ):
         m = by_id.get(mid)
         assert m is not None, mid
         assert m["kind"] == "image"
-        assert m["provider"] == "kie"
+        assert "kie" in m["provider"]
         assert m["vendor"] == "images"
         assert (m["pricing"] or {}).get("usd_per_image") is not None
     assert "nano-banana" not in by_id
     assert "nano-banana-pro" not in by_id
+    assert "nano-banana-2-lite" not in by_id
+    assert "flux-2-pro" not in by_id
 
 
 def test_default_model_by_node_type() -> None:

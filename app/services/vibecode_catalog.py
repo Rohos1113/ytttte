@@ -22,8 +22,21 @@ VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
 DEFAULT_TEXT_MODEL_ID = "gpt-6.1-sol"
 DEFAULT_IMAGE_MODEL_ID = "nano-banana-2"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
-HIDDEN_IMAGE_IDS = frozenset({"nano-banana", "nano-banana-pro"})
-IMAGE_MODEL_ALIASES: dict[str, str] = {}
+HIDDEN_IMAGE_IDS = frozenset(
+    {
+        "nano-banana",
+        "nano-banana-pro",
+        "nano-banana-2-lite",
+        "gpt-image-1.5",
+        "flux-2-pro",
+    }
+)
+IMAGE_MODEL_ALIASES: dict[str, str] = {
+    "gpt-image-2-vip": "gpt-image-2",
+    "gpt-image-2.5": "gpt-image-2-5",
+    "nano-banana-2-lite": "nano-banana-2",
+    "flux-2-pro": "flux-3",
+}
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
 TEXT_MODEL_ALIASES = {
     "gpt-5-5": "gpt-5.6-sol",
@@ -64,14 +77,24 @@ TEXT_MODEL_ALIASES = {
 
 IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
     "gpt-image-2": "gpt_image_2",
+    "gpt-image-2-vip": "gpt_image_2",
+    "gpt-image-2-5": "gpt_image_2_5",
     "gpt-image-2.5": "gpt_image_2_5",
+    "gpt-image-2-6": "gpt_image_2_6",
     "nano-banana": "nano_banana",
     "nano-banana-2": "nano_banana_2",
+    "nano-banana-2-1": "nano_banana_2_1",
     "nano-banana-pro": "nano_banana_pro",
-    "nano-banana-2-lite": "nano_banana_2_lite",
+    "nano-banana-2-lite": "nano_banana_2",
     "flux-2-pro": "flux_2_pro",
+    "flux-3": "flux_3",
     "seedream-5-pro": "seedream_5_pro",
+    "seedream-5-flash": "seedream_5_flash",
+    "seedream-5-lite": "seedream_5_lite",
+    "seedream-5-5": "seedream_5_5",
     "qwen3-image": "qwen3_image",
+    "minimax-h3-image": "minimax_h3_image",
+    "wan-2-7-image": "wan_2_7_image",
 }
 VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "veo-3-1-lite": "veo_3_1_lite",
@@ -176,47 +199,77 @@ VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
 ]
 
 
-def _kie_image_usd_per_image(model_id: str) -> float | None:
-    """Базовая цена картинки kie.ai в USD (без наценки студии).
-
-    Берём 2K-эквивалент из правил kie_catalog (ноды генерят 2K):
-    flux 7кр, seedream high 14кр, z-image 0.8кр, qwen 4.8кр; 1кр = $0.005.
-    """
-    from app.services.kie_catalog import CREDIT_USD
-
-    credits_2k: dict[str, float] = {
-        "flux-2-pro": 7.0,
-        "seedream-5-pro": 14.0,
-        "z-image": 0.8,
-        "qwen3-image": 4.8,
+_HIDDEN_CREATE_IMAGE_FAMILIES = frozenset(
+    {
+        "kie-image-upscale",
+        "topaz-image-upscale",
+        "suno-cover",
+        "recraft",
+        "omnihuman-1-5-image",
+        "ideogram-v3",
+        "nano-banana-pro",
+        "nano-banana-2-lite",
+        "flux-1-kontext",
     }
-    cr = credits_2k.get(model_id)
-    return round(cr * CREDIT_USD, 6) if cr is not None else None
+)
+
+_IMAGE_DISPLAY_ORDER = (
+    "gpt-image-2",
+    "gpt-image-2-5",
+    "gpt-image-2-6",
+    "nano-banana-2",
+    "nano-banana-2-1",
+    "seedream-5-pro",
+    "seedream-5-flash",
+    "seedream-5-lite",
+    "seedream-5-5",
+    "flux-3",
+    "qwen3-image",
+    "minimax-h3-image",
+    "wan-2-7-image",
+)
 
 
-KIE_IMAGE_CATALOG_RAW: list[dict[str, Any]] = [
-    {
-        "id": "flux-2-pro",
-        "display_name": "Flux 2 Pro",
-        "is_image": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("flux-2-pro")},
-    },
-    {
-        "id": "seedream-5-pro",
-        "display_name": "ByteDance Seedream 5 Pro",
-        "is_image": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("seedream-5-pro")},
-    },
-    {
-        "id": "qwen3-image",
-        "display_name": "Alibaba Qwen Image 3",
-        "is_image": True,
-        "owned_by": "kie",
-        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("qwen3-image")},
-    },
-]
+@lru_cache(maxsize=1)
+def _build_kie_image_catalog_raw() -> list[dict[str, Any]]:
+    """Актуальные фото-модели для нод — из семейного каталога вкладки «Генерация»."""
+    from app.bots.pay52_image import pay52_image_supports_model
+    from app.services import kie_catalog
+
+    order_idx = {mid: i for i, mid in enumerate(_IMAGE_DISPLAY_ORDER)}
+    cards = [
+        c
+        for c in kie_catalog.catalog_for_ui().get("models", [])
+        if c.get("media") == "image"
+        and c.get("id") not in _HIDDEN_CREATE_IMAGE_FAMILIES
+        and c.get("id") not in HIDDEN_IMAGE_IDS
+    ]
+    cards.sort(key=lambda c: (order_idx.get(str(c.get("id")), 999), str(c.get("label") or "")))
+
+    out: list[dict[str, Any]] = []
+    for c in cards:
+        fid = str(c["id"])
+        price = c.get("price_from_usd")
+        supports_52pay = pay52_image_supports_model(fid)
+        out.append(
+            {
+                "id": fid,
+                "display_name": str(c.get("label") or fid),
+                "is_image": True,
+                "is_top": bool(c.get("is_top")) or fid in {"gpt-image-2", "nano-banana-2", "seedream-5-pro"},
+                "owned_by": "52pay / kie" if supports_52pay else "kie",
+                "provider": "52pay / kie" if supports_52pay else "kie",
+                "pricing": (
+                    {"currency": "usd", "usd_per_image": round(float(price), 6)}
+                    if isinstance(price, (int, float))
+                    else {"currency": "usd"}
+                ),
+            }
+        )
+    return out
+
+
+KIE_IMAGE_CATALOG_RAW: list[dict[str, Any]] = _build_kie_image_catalog_raw()
 
 
 def _vendor_of(model_id: str, is_image: bool, is_video: bool = False) -> str:
@@ -242,8 +295,21 @@ def _vendor_of(model_id: str, is_image: bool, is_video: bool = False) -> str:
 
 def _resolution_badge(display_name: str, model_id: str) -> str | None:
     name = f"{display_name} {model_id}".lower()
-    if "1k/2k/4k" in name or model_id in {"nano-banana-2", "nano-banana-pro"}:
+    if "1k/2k/4k" in name or model_id in {
+        "nano-banana-2",
+        "nano-banana-2-1",
+        "nano-banana-pro",
+        "gpt-image-2",
+        "gpt-image-2-5",
+        "gpt-image-2-6",
+        "flux-3",
+        "minimax-h3-image",
+    }:
         return "1K/2K/4K"
+    if model_id.startswith("seedream-5"):
+        return "1K/1.5K/2K"
+    if model_id in {"qwen3-image", "wan-2-7-image"}:
+        return "1K/2K"
     return None
 
 
@@ -321,12 +387,15 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
 
         provider = video_provider_for(mid)
     elif is_image:
-        from app.services.media_route import image_provider_for
+        if raw.get("provider"):
+            provider = str(raw["provider"])
+        else:
+            from app.services.media_route import image_provider_for
 
-        provider = image_provider_for(mid)
+            provider = image_provider_for(mid)
     else:
         provider = "52pay"
-    return {
+    out = {
         "id": mid,
         "label": display,
         "vendor": vendor,
@@ -339,6 +408,9 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
         "image_generator": IMAGE_MODEL_TO_GENERATOR.get(mid),
         "video_generator": VIDEO_MODEL_TO_GENERATOR.get(mid),
     }
+    if raw.get("is_top"):
+        out["is_top"] = True
+    return out
 
 
 def models_for_channel(
@@ -346,9 +418,12 @@ def models_for_channel(
     *,
     channel: str | None = None,
 ) -> list[dict[str, Any]]:
-    src = list(raw_models if raw_models is not None else load_snapshot())
+    if raw_models is not None:
+        src = list(raw_models)
+    else:
+        src = [m for m in load_snapshot() if isinstance(m, dict) and not m.get("is_image")]
     src.extend(VIDEO_CATALOG_RAW)
-    src.extend(KIE_IMAGE_CATALOG_RAW)
+    src.extend(_build_kie_image_catalog_raw())
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in src:

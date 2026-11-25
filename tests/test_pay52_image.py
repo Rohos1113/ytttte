@@ -185,3 +185,44 @@ async def test_run_generation_key_fallback(monkeypatch, tmp_path: Path) -> None:
         assert mock_post.call_count == 2
         assert result.file_path == out_file
         assert out_file.read_bytes() == b"FALLBACK_IMAGE_DATA"
+
+
+def test_build_payload_accepts_input_urls_and_image_input() -> None:
+    p1 = build_pay52_image_payload(
+        {"model": "gpt-image-2.5"},
+        {"prompt": "cat", "input_urls": ["https://a/1.png"]},
+    )
+    assert p1["image_urls"] == ["https://a/1.png"]
+
+    p2 = build_pay52_image_payload(
+        {"model": "nano-banana-2-1"},
+        {"prompt": "cat", "image_input": ["https://a/2.png"]},
+    )
+    assert p2["image_urls"] == ["https://a/2.png"]
+
+
+def test_kie_http_resolves_all_curated_photo_families() -> None:
+    from app.bots.kie_http import _resolve_kie_image_spec
+
+    for fid in (
+        "gpt-image-2",
+        "gpt-image-2-5",
+        "gpt-image-2-6",
+        "nano-banana-2",
+        "nano-banana-2-1",
+        "seedream-5-pro",
+        "seedream-5-flash",
+        "seedream-5-lite",
+        "seedream-5-5",
+        "flux-3",
+        "qwen3-image",
+        "minimax-h3-image",
+        "wan-2-7-image",
+    ):
+        spec_no_ref = _resolve_kie_image_spec(fid, has_refs=False)
+        spec_with_ref = _resolve_kie_image_spec(fid, has_refs=True)
+        assert spec_no_ref is not None and spec_no_ref.get("model"), fid
+        assert spec_with_ref is not None and spec_with_ref.get("model"), fid
+        assert any(
+            f.get("kind") == "images" for f in (spec_with_ref.get("fields") or [])
+        ), fid

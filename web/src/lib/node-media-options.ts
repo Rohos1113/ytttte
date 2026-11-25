@@ -46,6 +46,9 @@ export type NodeMediaOptions = {
 function normalizeModelId(modelId: string): string {
   const id = (modelId || "").trim();
   if (id === "gpt-image-2-vip") return "gpt-image-2";
+  if (id === "gpt-image-2.5") return "gpt-image-2-5";
+  if (id === "nano-banana-2-lite") return "nano-banana-2";
+  if (id === "flux-2-pro") return "flux-3";
   return id;
 }
 
@@ -53,7 +56,7 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
   const id = normalizeModelId(modelId || "");
   if (!id) return null;
 
-  if (id === "gpt-image-2") {
+  if (id.startsWith("gpt-image-2")) {
     return {
       resolutions: ["1K", "2K", "4K"],
       qualities: NODE_IMAGE_QUALITY_OPTIONS,
@@ -64,11 +67,11 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
     };
   }
 
-  if (id === "flux-2-pro") {
+  if (id === "flux-3" || id === "flux-2-pro") {
     return {
-      resolutions: ["1K", "2K"],
+      resolutions: ["1K", "2K", "4K"],
       qualities: [],
-      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21"],
       defaultResolution: "2K",
       defaultQuality: "medium",
       defaultAspect: "16:9",
@@ -77,7 +80,29 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
 
   if (id === "qwen3-image") {
     return {
-      resolutions: ["2K"],
+      resolutions: ["1K", "2K"],
+      qualities: [],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
+      defaultResolution: "2K",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "minimax-h3-image") {
+    return {
+      resolutions: ["1K", "2K", "4K"],
+      qualities: [],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9"],
+      defaultResolution: "2K",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "wan-2-7-image") {
+    return {
+      resolutions: ["1K", "2K"],
       qualities: [],
       aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
       defaultResolution: "2K",
@@ -109,10 +134,9 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
   }
 
   if (id.startsWith("nano-banana")) {
-    const resolutions = ["1K", "2K", "4K"];
     return {
-      resolutions,
-      qualities: NODE_IMAGE_QUALITY_OPTIONS,
+      resolutions: ["1K", "2K", "4K"],
+      qualities: [],
       aspects: [...NANO_BANANA_ASPECTS],
       defaultResolution: "2K",
       defaultQuality: "medium",
@@ -122,9 +146,9 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
 
   if (id.startsWith("seedream")) {
     return {
-      resolutions: ["1K", "2K"],
+      resolutions: ["1K", "1.5K", "2K"],
       qualities: [],
-      aspects: [...SEEDREAM_ASPECTS],
+      aspects: [...SEEDREAM_ASPECTS, "3:2", "2:3"],
       defaultResolution: "2K",
       defaultQuality: "medium",
       defaultAspect: "16:9",

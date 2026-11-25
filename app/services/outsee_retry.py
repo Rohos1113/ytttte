@@ -949,6 +949,8 @@ async def generate_image_with_retries(
     `prompt_id_prefix` один на весь кадр (все retry и GPT-rewrite) —
     формат `[ID: P12-F3-a7f2b01c]`, где `a7f2b01c` = gen_id этой генерации.
     """
+    from app.bots import pay52_image
+    from app.bots.kie_http import kie_configured as _kie_configured
     from app.bots.outsee_http import (
         generate_image as outsee_api_generate_image,
     )
@@ -961,8 +963,21 @@ async def generate_image_with_retries(
 
     raw_slug = kwargs.get("model_slug") or getattr(_settings, "outsee_default_image_model", None)
     backend = image_provider_for(str(raw_slug) if raw_slug else None)
-    use_outsee_api = backend == "outsee" and outsee_api_configured()
-    if backend == "outsee" and not outsee_api_configured() and outsee is None:
+    use_kie_or_pay52 = backend == "kie" or (
+        outsee is None
+        and not outsee_api_configured()
+        and (
+            pay52_image.pay52_image_configured(str(raw_slug) if raw_slug else None)
+            or _kie_configured()
+        )
+    )
+    use_outsee_api = (not use_kie_or_pay52) and backend == "outsee" and outsee_api_configured()
+    if (
+        backend == "outsee"
+        and not use_kie_or_pay52
+        and not outsee_api_configured()
+        and outsee is None
+    ):
         raise OutseeImageError(
             "OUTSEE_API_KEY пуст — генерация идёт через ключ Outsee",
             context={"error_kind": "no_key", "provider": "outsee"},
@@ -993,9 +1008,9 @@ async def generate_image_with_retries(
                     else None,
                     project_id=pid if isinstance(pid, int) else None,
                 )
-                # kie-ветка ниже обязана быть достижима: use_outsee_api для kie
-                # всегда False, поэтому backend == "kie" идёт отдельным условием.
-                if use_outsee_api or backend == "kie":
+                # kie/52pay-ветка ниже обязана быть достижима: use_outsee_api для них
+                # всегда False, поэтому use_kie_or_pay52 идёт отдельным условием.
+                if use_outsee_api or use_kie_or_pay52:
                     refs = attempt_kwargs.get("reference_image")
                     ref_list: list[Any] | None = None
                     if isinstance(refs, Path):
@@ -1010,18 +1025,24 @@ async def generate_image_with_retries(
                     res = attempt_kwargs.get("resolution") or attempt_kwargs.get("image_resolution")
                     if ref_list:
                         logger.info(
-                            "outsee_retry: {} ref(s) → Outsee HTTP API image_urls",
+                            "outsee_retry: {} ref(s) → Image HTTP API",
                             len(ref_list),
                         )
-                    if backend == "kie":
+
+                    async def _run_kie_or_pay52() -> GenerationResult:
                         from app.bots.kie_http import generate_kie_image
 
-                        result = await generate_kie_image(
+                        r_kie = await generate_kie_image(
                             send_prompt,
                             out_path,
                             model_slug=str(raw_slug or "seedream-5-pro"),
                             aspect_ratio=str(ar).replace("_", ":"),
                             resolution=str(res) if res else "2K",
+                            quality=(
+                                str(attempt_kwargs.get("quality"))
+                                if attempt_kwargs.get("quality")
+                                else None
+                            ),
                             reference_images=ref_list,
                             timeout=float(attempt_kwargs.get("timeout") or 600),
                             gen_id=attempt_kwargs.get("gen_id"),
@@ -1031,7 +1052,7 @@ async def generate_image_with_retries(
                             from app.services.generation_storage import write_sidecar
 
                             write_sidecar(
-                                result.file_path,
+                                r_kie.file_path,
                                 media="image",
                                 model=str(raw_slug),
                                 prompt=send_prompt,
@@ -1041,28 +1062,47 @@ async def generate_image_with_retries(
                                     "project_id": pid,
                                     "gen_id": attempt_kwargs.get("gen_id"),
                                 },
-                                raw_url=result.raw_url,
+                                raw_url=r_kie.raw_url,
                                 quote=None,
                                 provider="kie",
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug("kie sidecar write skipped", exc_info=True)
-                        # Факт уже записан внутри generate_kie_image (media_call).
-                        return result
+                        return r_kie
+
+                    if use_kie_or_pay52:
+                        return await _run_kie_or_pay52()
                     if use_outsee_api:
-                        result = await outsee_api_generate_image(
-                            send_prompt,
-                            out_path,
-                            model_slug=slug,
-                            aspect_ratio=str(ar).replace("_", ":"),
-                            resolution=str(res) if res else "2K",
-                            detail_level=attempt_kwargs.get("quality"),
-                            reference_images=ref_list,
-                            prompt_id_prefix=attempt_kwargs.get("prompt_id_prefix"),
-                            timeout=float(attempt_kwargs.get("timeout") or 600),
-                            gen_id=attempt_kwargs.get("gen_id"),
-                            project_id=pid if isinstance(pid, int) else None,
-                        )
+                        try:
+                            result = await outsee_api_generate_image(
+                                send_prompt,
+                                out_path,
+                                model_slug=slug,
+                                aspect_ratio=str(ar).replace("_", ":"),
+                                resolution=str(res) if res else "2K",
+                                detail_level=attempt_kwargs.get("quality"),
+                                reference_images=ref_list,
+                                prompt_id_prefix=attempt_kwargs.get("prompt_id_prefix"),
+                                timeout=float(attempt_kwargs.get("timeout") or 600),
+                                gen_id=attempt_kwargs.get("gen_id"),
+                                project_id=pid if isinstance(pid, int) else None,
+                            )
+                        except OutseeImageError as e_outsee_http:
+                            ctx = getattr(e_outsee_http, "context", None) or {}
+                            can_fallback = pay52_image.pay52_image_configured(
+                                str(raw_slug) if raw_slug else None
+                            ) or _kie_configured()
+                            is_auth_or_balance = (
+                                ctx.get("provider_code") in (401, 402, 403)
+                                or ctx.get("error_kind") in ("no_key", "insufficient_credits")
+                            )
+                            if can_fallback and is_auth_or_balance:
+                                logger.warning(
+                                    "outsee_retry: Outsee image auth/balance error ({}), fallback to 52pay/KIE",
+                                    e_outsee_http.reason,
+                                )
+                                return await _run_kie_or_pay52()
+                            raise
                         try:
                             from app.services.generation_storage import write_sidecar
 

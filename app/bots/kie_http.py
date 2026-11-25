@@ -521,17 +521,92 @@ VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "kling-2-6": "kling-2-6",
 }
 
-# Маппинг генераторов картинок на ID модели в kie_catalog
+# Маппинг генераторов картинок на ID модели / семейства в kie_catalog
 IMAGE_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "flux_2_pro": "flux-2-pro",
     "flux-2-pro": "flux-2-pro",
+    "flux_3": "flux-3",
+    "flux-3": "flux-3",
     "seedream_5_pro": "seedream-5-pro",
     "seedream-5-pro": "seedream-5-pro",
+    "seedream_5_flash": "seedream-5-flash",
+    "seedream-5-flash": "seedream-5-flash",
+    "seedream_5_lite": "seedream-5-lite",
+    "seedream-5-lite": "seedream-5-lite",
+    "seedream_5_5": "seedream-5-5",
+    "seedream-5-5": "seedream-5-5",
+    "nano_banana_2": "nano-banana-2",
+    "nano-banana-2": "nano-banana-2",
+    "nano_banana_2_1": "nano-banana-2-1",
+    "nano-banana-2-1": "nano-banana-2-1",
+    "nano_banana_2_lite": "nano-banana-2",
+    "nano-banana-2-lite": "nano-banana-2",
+    "gpt_image_2": "gpt-image-2",
+    "gpt-image-2": "gpt-image-2",
+    "gpt_image_2_vip": "gpt-image-2",
+    "gpt-image-2-vip": "gpt-image-2",
+    "gpt_image_2_5": "gpt-image-2-5",
+    "gpt-image-2-5": "gpt-image-2-5",
+    "gpt_image_2_6": "gpt-image-2-6",
+    "gpt-image-2-6": "gpt-image-2-6",
     "qwen3_image": "qwen3-image",
     "qwen3-image": "qwen3-image",
+    "minimax_h3_image": "minimax-h3-image",
+    "minimax-h3-image": "minimax-h3-image",
+    "wan_2_7_image": "wan-2-7-image",
+    "wan-2-7-image": "wan-2-7-image",
     "topaz_image_upscale": "topaz-image-upscale",
     "topaz-image-upscale": "topaz-image-upscale",
 }
+
+
+def _resolve_kie_image_spec(kie_id: str, *, has_refs: bool) -> dict[str, Any] | None:
+    """Найти спецификацию модели/режима в семейном или плоском каталоге KIE."""
+    from app.services import kie_catalog
+
+    family = kie_catalog.get_family(kie_id)
+    if family:
+        mode = None
+        if has_refs:
+            for m in family.get("modes") or []:
+                mid = str(m.get("id") or "")
+                if "layer" in mid:
+                    continue
+                if any(f.get("kind") == "images" for f in (m.get("fields") or [])):
+                    mode = m
+                    break
+        if mode is None:
+            mode = kie_catalog.get_mode(family)
+        if mode is not None:
+            return kie_catalog.mode_spec(family, mode)
+    return kie_catalog.get_model(kie_id)
+
+
+def _clamp_res_option(val: str, options: list[str]) -> str:
+    if not options or val in options:
+        return val
+    # Сравниваем по числовому весу ("1K" -> 1.0, "1.5K" -> 1.5, "2K" -> 2.0, "4K" -> 4.0)
+    def _num(s: str) -> float:
+        try:
+            return float(s.upper().rstrip("K"))
+        except ValueError:
+            return 2.0
+
+    target = _num(val)
+    return min(options, key=lambda o: abs(_num(o) - target))
+
+
+def _normalize_image_quality(raw: str | None) -> str | None:
+    s = (raw or "").strip().lower()
+    if not s:
+        return None
+    if s in ("low", "низкое", "мало"):
+        return "low"
+    if s in ("medium", "med", "среднее", "средне"):
+        return "medium"
+    if s in ("high", "высокое", "максимум", "xhigh"):
+        return "high"
+    return s
 
 
 async def generate_kie_video(
@@ -708,6 +783,7 @@ async def generate_kie_image(
     model_slug: str,
     aspect_ratio: str | None = "9:16",
     resolution: str | None = "2K",
+    quality: str | None = None,
     reference_images: list[Path] | None = None,
     timeout: float = 600.0,
     project_id: int | None = None,
@@ -719,7 +795,7 @@ async def generate_kie_image(
     from app.services import kie_catalog
 
     kie_id = IMAGE_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
-    spec = kie_catalog.get_model(kie_id)
+    spec = _resolve_kie_image_spec(kie_id, has_refs=bool(reference_images))
     is_pay52 = bool(
         (spec and spec.get("api") == "pay52")
         or pay52_image.pay52_image_configured(spec or kie_id)
@@ -742,25 +818,60 @@ async def generate_kie_image(
             u = await _frame_to_public_url(ref)
             if u:
                 ref_urls.append(u)
+    if reference_images and not ref_urls:
+        spec = _resolve_kie_image_spec(kie_id, has_refs=False)
 
-    values: dict[str, Any] = {
-        "prompt": prompt,
-        "aspect_ratio": (aspect_ratio or "9:16").replace("_", ":"),
+    ar_norm = (aspect_ratio or "9:16").replace("_", ":")
+    res_norm = (
+        resolution.upper() if resolution and resolution.lower().endswith("k") else resolution
+    )
+    qual_norm = _normalize_image_quality(quality)
+
+    fields_by_name: dict[str, dict[str, Any]] = {
+        f["name"]: f for f in ((spec or {}).get("fields") or [])
     }
-    if resolution:
-        values["resolution"] = resolution.upper() if resolution.lower().endswith("k") else resolution
+    values: dict[str, Any] = {"prompt": prompt}
+    if "aspect_ratio" in fields_by_name or not fields_by_name:
+        values["aspect_ratio"] = ar_norm
+    elif "image_size" in fields_by_name:
+        values["image_size"] = ar_norm
+
+    if res_norm:
+        if "resolution" in fields_by_name or not fields_by_name:
+            opts = [str(o) for o in (fields_by_name.get("resolution", {}).get("options") or [])]
+            values["resolution"] = _clamp_res_option(res_norm, opts)
+        elif "size" in fields_by_name:
+            opts = [str(o) for o in (fields_by_name["size"].get("options") or [])]
+            values["size"] = _clamp_res_option(res_norm, opts)
+        elif "quality" in fields_by_name:
+            opts = [str(o) for o in (fields_by_name["quality"].get("options") or [])]
+            if any(o.upper().endswith("K") for o in opts):
+                values["quality"] = _clamp_res_option(res_norm, opts)
+
+    if qual_norm and "quality" in fields_by_name:
+        opts = [str(o) for o in (fields_by_name["quality"].get("options") or [])]
+        if not any(o.upper().endswith("K") for o in opts):
+            values["quality"] = qual_norm if (not opts or qual_norm in opts) else opts[0]
 
     if ref_urls:
-        if spec:
-            field_names = {f["name"] for f in spec.get("fields") or []}
-            if "image_urls" in field_names:
-                values["image_urls"] = ref_urls
-            elif "image_url" in field_names:
-                values["image_url"] = ref_urls[0]
-            elif "imageUrls" in field_names:
-                values["imageUrls"] = ref_urls
+        if fields_by_name:
+            for fname in ("image_urls", "input_urls", "image_input", "imageUrls"):
+                if fname in fields_by_name:
+                    values[fname] = ref_urls
+                    break
+            else:
+                if "image_url" in fields_by_name:
+                    values["image_url"] = ref_urls[0]
         else:
             values["image_urls"] = ref_urls
+
+    pay52_values: dict[str, Any] = {
+        "prompt": prompt,
+        "aspect_ratio": ar_norm,
+        **({"resolution": res_norm} if res_norm else {}),
+        **({"quality": qual_norm} if qual_norm else {}),
+        **({"image_urls": ref_urls} if ref_urls else {}),
+    }
 
     payload = kie_catalog.build_payload(spec, values) if spec else {"model": kie_id, "input": values}
     # Отдельные i2i-эндпоинты хотят другое имя поля (flux: input_urls).
@@ -769,10 +880,12 @@ async def generate_kie_image(
     if alt_field and isinstance(inp, dict) and "image_urls" in inp:
         inp[alt_field] = inp.pop("image_urls")
     logger.info(
-        "kie_http: generate image {} (model={}) aspect={} refs={} project={} provider={}",
+        "kie_http: generate image {} (model={}) aspect={} res={} qual={} refs={} project={} provider={}",
         kie_id,
         spec.get("model") if spec else kie_id,
-        values.get("aspect_ratio"),
+        ar_norm,
+        res_norm,
+        qual_norm,
         len(ref_urls),
         project_id,
         "pay52" if is_pay52 else "kie",
@@ -787,7 +900,7 @@ async def generate_kie_image(
     ) as call:
         if is_pay52:
             try:
-                result = await pay52_image.run_generation(effective_spec, values, out_path, timeout_s=timeout)
+                result = await pay52_image.run_generation(effective_spec, pay52_values, out_path, timeout_s=timeout)
                 call.provider = "pay52"
             except Exception as e_pay52:
                 if kie_configured() and spec:
@@ -812,7 +925,7 @@ async def generate_kie_image(
                         e_kie,
                     )
                     call.provider = "pay52"
-                    result = await pay52_image.run_generation(effective_spec, values, out_path, timeout_s=timeout)
+                    result = await pay52_image.run_generation(effective_spec, pay52_values, out_path, timeout_s=timeout)
                 else:
                     raise
         call.external_id = str(getattr(result, "gen_id", "") or "")

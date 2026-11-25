@@ -109,8 +109,8 @@ def test_node_overrides_name_the_node_that_wins() -> None:
     assert same == []
 
 @pytest.mark.parametrize(("node_key", "node_type", "model_id", "generator"), [
-    ("n_images", "images", "nano-banana-2-lite", "nano_banana_2_lite"),
-    ("n_hero", "hero", "flux-2-pro", "flux_2_pro"),
+    ("n_images", "images", "nano-banana-2-1", "nano_banana_2_1"),
+    ("n_hero", "hero", "flux-3", "flux_3"),
     ("n_items", "items", "qwen3-image", "qwen3_image"),
 ])
 def test_set_model_on_image_nodes_reaches_the_step_generator(node_key, node_type, model_id,

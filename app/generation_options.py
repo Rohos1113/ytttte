@@ -45,40 +45,91 @@ class OptionChoice:
 
 IMAGE_GENERATORS: list[OptionChoice] = [
     OptionChoice(
+        "gpt_image_2",
+        "GPT Image 2",
+        "gpt-image-2",
+        "OpenAI · GPT Image 2 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "gpt_image_2_5",
+        "GPT Image 2.5",
+        "gpt-image-2-5",
+        "OpenAI · GPT Image 2.5 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "gpt_image_2_6",
+        "GPT Image 2.6",
+        "gpt-image-2-6",
+        "OpenAI · GPT Image 2.6 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "nano_banana_2",
+        "Nano Banana 2",
+        "nano-banana-2",
+        "Google · Nano Banana 2 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "nano_banana_2_1",
+        "Nano Banana 2.1",
+        "nano-banana-2-1",
+        "Google · Nano Banana 2.1 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "seedream_5_pro",
+        "Seedream 5 Pro",
+        "seedream-5-pro",
+        "ByteDance · Seedream 5 Pro (52pay / KIE)",
+    ),
+    OptionChoice(
+        "seedream_5_flash",
+        "Seedream 5 Flash",
+        "seedream-5-flash",
+        "ByteDance · Seedream 5 Flash (52pay / KIE)",
+    ),
+    OptionChoice(
+        "seedream_5_lite",
+        "Seedream 5 Lite",
+        "seedream-5-lite",
+        "ByteDance · Seedream 5 Lite (52pay / KIE)",
+    ),
+    OptionChoice(
+        "seedream_5_5",
+        "Seedream 5.5",
+        "seedream-5-5",
+        "ByteDance · Seedream 5.5 (52pay / KIE)",
+    ),
+    OptionChoice(
+        "flux_3",
+        "Flux 3",
+        "flux-3",
+        "Black Forest Labs · Flux 3 (KIE)",
+    ),
+    OptionChoice(
+        "qwen3_image",
+        "Qwen3 Image",
+        "qwen3-image",
+        "Qwen · Qwen3 Image (KIE)",
+    ),
+    OptionChoice(
+        "minimax_h3_image",
+        "MiniMax H3 (картинки)",
+        "minimax-h3-image",
+        "Hailuo · MiniMax H3 Image (KIE)",
+    ),
+    OptionChoice(
+        "wan_2_7_image",
+        "WAN 2.7 Image",
+        "wan-2-7-image",
+        "Wan · WAN 2.7 Image (KIE)",
+    ),
+]
+
+_LEGACY_IMAGE_GENERATORS: list[OptionChoice] = [
+    OptionChoice(
         "flux_2_pro",
         "Flux 2 Pro",
         "flux-2-pro",
         "Kie · Black Forest Labs Flux 2 Pro",
-    ),
-    OptionChoice(
-        "seedream_5_pro",
-        "ByteDance Seedream 5 Pro",
-        "seedream-5-pro",
-        "Kie · Seedream 5 Pro",
-    ),
-    OptionChoice(
-        "nano_banana_2",
-        "+ Nano Banana 2",
-        "nano-banana-2",
-        "Outsee · Nano Banana 2",
-    ),
-    OptionChoice(
-        "gpt_image_2",
-        "+ GPT Image 2",
-        "gpt-image-2",
-        "Outsee · GPT Image 2",
-    ),
-    OptionChoice(
-        "gpt_image_2_5",
-        "+ GPT Image 2.5",
-        "gpt-image-2.5",
-        "Vibecode · GPT Image 2.5 (1K)",
-    ),
-    OptionChoice(
-        "qwen3_image",
-        "Alibaba Qwen Image 3",
-        "qwen3-image",
-        "Kie · Qwen Image 3",
     ),
 ]
 
@@ -103,23 +154,32 @@ ASPECT_RATIOS: list[OptionChoice] = [
 
 IMAGE_RESOLUTIONS: list[OptionChoice] = [
     OptionChoice("1k", "1K", "1K", "1K — компактное разрешение"),
+    OptionChoice("1.5k", "1.5K", "1.5K", "1.5K — промежуточное разрешение"),
     OptionChoice("2k", "2K", "2K", "2K — стандартное разрешение"),
+    OptionChoice("4k", "4K", "4K", "4K — максимальное разрешение"),
 ]
 
-# Какие разрешения реально отдает API (сверено с живым /api/v1/models:
-# картинки — только 2K, поэтому 4K убран).
+# Какие разрешения реально отдает API.
 IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
     "nano_banana_2": ("1k", "2k"),
+    "nano_banana_2_1": ("1k", "2k", "4k"),
     "gpt_image_1_5": ("2k",),
     "gpt_image_2": ("1k", "2k"),
-    "gpt_image_2_5": ("1k",),
+    "gpt_image_2_5": ("1k", "2k", "4k"),
+    "gpt_image_2_6": ("1k", "2k", "4k"),
     "flux_2_pro": ("1k", "2k"),
-    "seedream_5_pro": ("1k", "2k"),
+    "flux_3": ("1k", "2k", "4k"),
+    "seedream_5_pro": ("1k", "1.5k", "2k"),
+    "seedream_5_flash": ("1k", "1.5k", "2k"),
+    "seedream_5_lite": ("1k", "1.5k", "2k"),
+    "seedream_5_5": ("1k", "1.5k", "2k"),
     "qwen3_image": ("1k", "2k"),
+    "minimax_h3_image": ("1k", "2k", "4k"),
+    "wan_2_7_image": ("1k", "2k"),
 }
 
 
-# ---- 3b. Качество / «Детализация» (GPT Image 1.5 / 2) -----------------------
+# ---- 3b. Качество / «Детализация» (GPT Image 1.5 / 2 / 2.5 / 2.6) -----------
 
 IMAGE_QUALITIES: list[OptionChoice] = [
     OptionChoice("low", "Низкое", "Низкое", "Детализация: низкая — быстрее"),
@@ -137,7 +197,9 @@ IMAGE_QUALITY_DOM_VALUE: dict[str, str] = {
     "Высокое": "high",
 }
 
-GPT_IMAGE_GENERATOR_IDS = frozenset({"gpt_image_1_5", "gpt_image_2"})
+GPT_IMAGE_GENERATOR_IDS = frozenset(
+    {"gpt_image_1_5", "gpt_image_2", "gpt_image_2_5", "gpt_image_2_6"}
+)
 
 
 def is_gpt_image_generator(generator_id: str | None) -> bool:
@@ -158,12 +220,12 @@ def clamp_image_resolution_id(
     rid = (resolution_id or "2k").lower()
     if rid in allowed:
         return rid
-    order = ("1k", "2k")
+    order = ("1k", "1.5k", "2k", "4k")
     try:
         want = order.index(rid) if rid in order else order.index("2k")
     except ValueError:
-        want = 1
-    return min(allowed, key=lambda a: abs(order.index(a) - want))
+        want = order.index("2k")
+    return min(allowed, key=lambda a: abs((order.index(a) if a in order else 2) - want))
 
 
 # ---- 4. Видео-генераторы (13 штук, без Topaz Video Upscale) ---------------
@@ -265,7 +327,7 @@ def _by_id(choices: list[OptionChoice]) -> dict[str, OptionChoice]:
     return {c.id: c for c in choices}
 
 
-IMAGE_GENERATORS_BY_ID = _by_id(IMAGE_GENERATORS)
+IMAGE_GENERATORS_BY_ID = _by_id([*_LEGACY_IMAGE_GENERATORS, *IMAGE_GENERATORS])
 ASPECT_RATIOS_BY_ID = _by_id(ASPECT_RATIOS)
 IMAGE_RESOLUTIONS_BY_ID = _by_id(IMAGE_RESOLUTIONS)
 IMAGE_QUALITIES_BY_ID = _by_id(IMAGE_QUALITIES)
