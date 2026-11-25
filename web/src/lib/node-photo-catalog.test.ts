@@ -15,6 +15,7 @@ const EXPECTED_PHOTO_IDS = [
   "seedream-5-flash",
   "seedream-5-lite",
   "seedream-5-5",
+  "flux-2-pro",
   "flux-3",
   "qwen3-image",
   "minimax-h3-image",
@@ -40,10 +41,9 @@ test("localCatalog photo models match curated Create tab lineup across hero/item
     const ids = filtered.models.map((m) => m.id);
     assert.deepEqual(ids, EXPECTED_PHOTO_IDS);
     assert.ok(!ids.includes("nano-banana-2-lite"));
-    assert.ok(!ids.includes("flux-2-pro"));
   }
   assert.equal(findCatalogModel(full, "nano-banana-2-lite")?.id, "nano-banana-2");
-  assert.equal(findCatalogModel(full, "flux-2-pro")?.id, "flux-3");
+  assert.equal(findCatalogModel(full, "flux-2-pro")?.id, "flux-2-pro");
 });
 
 test("mediaOptionsForModel supports all 13 curated photo models", () => {

@@ -76,7 +76,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["kimi"] == 1
     assert counts["xai"] == 1
     assert "moonshot" not in counts
-    assert counts["images"] == 13
+    assert counts["images"] == 14
     assert counts["video"] == 7
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
@@ -102,6 +102,7 @@ def test_kie_image_models_in_catalog() -> None:
         "seedream-5-flash",
         "seedream-5-lite",
         "seedream-5-5",
+        "flux-2-pro",
         "flux-3",
         "qwen3-image",
         "minimax-h3-image",
@@ -116,7 +117,6 @@ def test_kie_image_models_in_catalog() -> None:
     assert "nano-banana" not in by_id
     assert "nano-banana-pro" not in by_id
     assert "nano-banana-2-lite" not in by_id
-    assert "flux-2-pro" not in by_id
 
 
 def test_default_model_by_node_type() -> None:

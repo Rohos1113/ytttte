@@ -579,7 +579,32 @@ def _resolve_kie_image_spec(kie_id: str, *, has_refs: bool) -> dict[str, Any] | 
             mode = kie_catalog.get_mode(family)
         if mode is not None:
             return kie_catalog.mode_spec(family, mode)
-    return kie_catalog.get_model(kie_id)
+    spec = kie_catalog.get_model(kie_id)
+    if spec is None and kie_id == "flux-2-pro":
+        return {
+            "id": "flux-2-pro",
+            "label": "Flux 2 Pro",
+            "category": "image",
+            "api": "jobs",
+            "model": "flux-2/pro-image-to-image" if has_refs else "flux-2/pro-text-to-image",
+            "result": "image",
+            "fields": [
+                {"name": "prompt", "kind": "textarea"},
+                *(
+                    [{"name": "image_urls", "kind": "images", "max_items": 8}]
+                    if has_refs
+                    else []
+                ),
+                {
+                    "name": "aspect_ratio",
+                    "kind": "select",
+                    "options": ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"],
+                    "default": "1:1",
+                },
+                {"name": "resolution", "kind": "select", "options": ["1K", "2K"], "default": "1K"},
+            ],
+        }
+    return spec
 
 
 def _clamp_res_option(val: str, options: list[str]) -> str:

@@ -100,7 +100,6 @@ export const IMAGE_MODEL_ALIASES: Record<string, string> = {
   "gpt-image-2-vip": "gpt-image-2",
   "gpt-image-2.5": "gpt-image-2-5",
   "nano-banana-2-lite": "nano-banana-2",
-  "flux-2-pro": "flux-3",
 };
 export const HIDDEN_IMAGE_IDS = new Set([
   "nano-banana",
@@ -108,7 +107,6 @@ export const HIDDEN_IMAGE_IDS = new Set([
   "nano-banana-2-lite",
   "seedream-4.5",
   "gpt-image-1.5",
-  "flux-2-pro",
 ]);
 
 export const VENDOR_META: Record<
@@ -260,6 +258,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
   imgExtra("seedream-5-flash", "Seedream 5 Flash", 0.0202, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
   imgExtra("seedream-5-lite", "Seedream 5 Lite", 0.0344, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
   imgExtra("seedream-5-5", "Seedream 5.5", 0.0225, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
+  imgExtra("flux-2-pro", "Flux 2 Pro", 0.035, { resolution: "1K/2K", provider: "kie" }),
   imgExtra("flux-3", "Flux 3", 0.01, { resolution: "1K/2K/4K", provider: "kie" }),
   imgExtra("qwen3-image", "Qwen3 Image", 0.03, { resolution: "1K/2K", provider: "kie" }),
   imgExtra("minimax-h3-image", "MiniMax H3 (картинки)", 0.0112, { resolution: "1K/2K/4K", provider: "kie" }),

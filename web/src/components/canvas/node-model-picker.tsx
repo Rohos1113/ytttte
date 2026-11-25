@@ -559,11 +559,6 @@ function ModelRow({
             <span className={cn("truncate text-[16px] font-medium", selected ? "text-[#9ff5e4]" : "text-white")}>
               {label}
             </span>
-            {model.is_top ? (
-              <span className="shrink-0 rounded-[5px] bg-[#2fd5b5]/15 px-1.5 py-px text-[11px] font-semibold uppercase text-[#7cf0d9]">
-                топ
-              </span>
-            ) : null}
           </div>
           <div className="mt-0.5 truncate text-[13px] text-white/50">
             {model.provider} · {vendorNote(model)}

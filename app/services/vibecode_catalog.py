@@ -28,14 +28,12 @@ HIDDEN_IMAGE_IDS = frozenset(
         "nano-banana-pro",
         "nano-banana-2-lite",
         "gpt-image-1.5",
-        "flux-2-pro",
     }
 )
 IMAGE_MODEL_ALIASES: dict[str, str] = {
     "gpt-image-2-vip": "gpt-image-2",
     "gpt-image-2.5": "gpt-image-2-5",
     "nano-banana-2-lite": "nano-banana-2",
-    "flux-2-pro": "flux-3",
 }
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
 TEXT_MODEL_ALIASES = {
@@ -223,6 +221,7 @@ _IMAGE_DISPLAY_ORDER = (
     "seedream-5-flash",
     "seedream-5-lite",
     "seedream-5-5",
+    "flux-2-pro",
     "flux-3",
     "qwen3-image",
     "minimax-h3-image",
@@ -244,11 +243,12 @@ def _build_kie_image_catalog_raw() -> list[dict[str, Any]]:
         and c.get("id") not in _HIDDEN_CREATE_IMAGE_FAMILIES
         and c.get("id") not in HIDDEN_IMAGE_IDS
     ]
-    cards.sort(key=lambda c: (order_idx.get(str(c.get("id")), 999), str(c.get("label") or "")))
 
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for c in cards:
         fid = str(c["id"])
+        seen.add(fid)
         price = c.get("price_from_usd")
         supports_52pay = pay52_image_supports_model(fid)
         out.append(
@@ -256,7 +256,6 @@ def _build_kie_image_catalog_raw() -> list[dict[str, Any]]:
                 "id": fid,
                 "display_name": str(c.get("label") or fid),
                 "is_image": True,
-                "is_top": bool(c.get("is_top")) or fid in {"gpt-image-2", "nano-banana-2", "seedream-5-pro"},
                 "owned_by": "52pay / kie" if supports_52pay else "kie",
                 "provider": "52pay / kie" if supports_52pay else "kie",
                 "pricing": (
@@ -266,6 +265,18 @@ def _build_kie_image_catalog_raw() -> list[dict[str, Any]]:
                 ),
             }
         )
+    if "flux-2-pro" not in seen and "flux-2-pro" not in HIDDEN_IMAGE_IDS:
+        out.append(
+            {
+                "id": "flux-2-pro",
+                "display_name": "Flux 2 Pro",
+                "is_image": True,
+                "owned_by": "kie",
+                "provider": "kie",
+                "pricing": {"currency": "usd", "usd_per_image": 0.035},
+            }
+        )
+    out.sort(key=lambda m: (order_idx.get(str(m.get("id")), 999), str(m.get("display_name") or "")))
     return out
 
 
@@ -308,7 +319,7 @@ def _resolution_badge(display_name: str, model_id: str) -> str | None:
         return "1K/2K/4K"
     if model_id.startswith("seedream-5"):
         return "1K/1.5K/2K"
-    if model_id in {"qwen3-image", "wan-2-7-image"}:
+    if model_id in {"flux-2-pro", "qwen3-image", "wan-2-7-image"}:
         return "1K/2K"
     return None
 

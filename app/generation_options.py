@@ -99,6 +99,12 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "ByteDance · Seedream 5.5 (52pay / KIE)",
     ),
     OptionChoice(
+        "flux_2_pro",
+        "Flux 2 Pro",
+        "flux-2-pro",
+        "Black Forest Labs · Flux 2 Pro (KIE)",
+    ),
+    OptionChoice(
         "flux_3",
         "Flux 3",
         "flux-3",
@@ -121,15 +127,6 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "WAN 2.7 Image",
         "wan-2-7-image",
         "Wan · WAN 2.7 Image (KIE)",
-    ),
-]
-
-_LEGACY_IMAGE_GENERATORS: list[OptionChoice] = [
-    OptionChoice(
-        "flux_2_pro",
-        "Flux 2 Pro",
-        "flux-2-pro",
-        "Kie · Black Forest Labs Flux 2 Pro",
     ),
 ]
 
@@ -327,7 +324,7 @@ def _by_id(choices: list[OptionChoice]) -> dict[str, OptionChoice]:
     return {c.id: c for c in choices}
 
 
-IMAGE_GENERATORS_BY_ID = _by_id([*_LEGACY_IMAGE_GENERATORS, *IMAGE_GENERATORS])
+IMAGE_GENERATORS_BY_ID = _by_id(IMAGE_GENERATORS)
 ASPECT_RATIOS_BY_ID = _by_id(ASPECT_RATIOS)
 IMAGE_RESOLUTIONS_BY_ID = _by_id(IMAGE_RESOLUTIONS)
 IMAGE_QUALITIES_BY_ID = _by_id(IMAGE_QUALITIES)

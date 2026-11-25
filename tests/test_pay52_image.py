@@ -214,6 +214,7 @@ def test_kie_http_resolves_all_curated_photo_families() -> None:
         "seedream-5-flash",
         "seedream-5-lite",
         "seedream-5-5",
+        "flux-2-pro",
         "flux-3",
         "qwen3-image",
         "minimax-h3-image",

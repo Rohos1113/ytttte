@@ -48,7 +48,6 @@ function normalizeModelId(modelId: string): string {
   if (id === "gpt-image-2-vip") return "gpt-image-2";
   if (id === "gpt-image-2.5") return "gpt-image-2-5";
   if (id === "nano-banana-2-lite") return "nano-banana-2";
-  if (id === "flux-2-pro") return "flux-3";
   return id;
 }
 
@@ -67,7 +66,18 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
     };
   }
 
-  if (id === "flux-3" || id === "flux-2-pro") {
+  if (id === "flux-2-pro") {
+    return {
+      resolutions: ["1K", "2K"],
+      qualities: [],
+      aspects: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"],
+      defaultResolution: "2K",
+      defaultQuality: "medium",
+      defaultAspect: "16:9",
+    };
+  }
+
+  if (id === "flux-3") {
     return {
       resolutions: ["1K", "2K", "4K"],
       qualities: [],
