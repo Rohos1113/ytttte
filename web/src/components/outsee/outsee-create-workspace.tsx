@@ -1188,11 +1188,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setImageSlug(rawImg.startsWith("kie:") ? rawImg : `kie:${rawImg}`);
     }
     const rawVid = String(s.video_slug || "veo-3-1-lite").replace("kie:", "");
-    if (rawVid === "veo-3-1-lite" || rawVid === "veo-3-1") {
-      setVideoSlug("veo-3-1-lite");
-    } else {
-      setVideoSlug(rawVid.startsWith("kie:") ? rawVid : `kie:${rawVid}`);
-    }
+    setVideoSlug(rawVid.startsWith("kie:") ? rawVid : `kie:${rawVid}`);
     const rawAud = String(s.audio_slug || "kie:suno-music");
     setAudioSlug(
       rawAud.startsWith("kie:")

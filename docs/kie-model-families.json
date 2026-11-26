@@ -3547,9 +3547,9 @@
       "desc": "описания в источниках нет",
       "modes": [
         {
-          "id": "fast",
-          "label": "Fast",
-          "kie_id": "veo-3-1/fast",
+          "id": "quality",
+          "label": "Quality",
+          "kie_id": "veo-3-1",
           "task_type": "Text to Video, Image to Video",
           "api": "veo",
           "endpoint": "/api/v1/veo/generate",
@@ -3628,11 +3628,22 @@
             "обязательные поля: prompt"
           ],
           "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
-        },
+        }
+      ],
+      "default_mode": "quality"
+    },
+    {
+      "id": "veo-3-1-lite",
+      "label": "Veo 3.1 Lite",
+      "brand": "Google",
+      "media": "video",
+      "desc": "Доступная версия Google Veo 3.1 для генерации видео.",
+      "default_mode": "lite",
+      "modes": [
         {
           "id": "lite",
           "label": "Lite",
-          "kie_id": "veo-3-1/lite",
+          "kie_id": "veo-3-1-lite",
           "task_type": "Text to Video, Image to Video",
           "api": "veo",
           "endpoint": "/api/v1/veo/generate",
@@ -3711,295 +3722,8 @@
             "обязательные поля: prompt"
           ],
           "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
-        },
-        {
-          "id": "quality",
-          "label": "Quality",
-          "kie_id": "veo-3-1/quality",
-          "task_type": "Text to Video, Image to Video",
-          "api": "veo",
-          "endpoint": "/api/v1/veo/generate",
-          "fields": [
-            {
-              "name": "prompt",
-              "label": "Промпт",
-              "kind": "textarea",
-              "required": true,
-              "default": null,
-              "hint": "Text prompt describing the desired video content. Required for all generation modes.",
-              "desc": "Text prompt describing the desired video content. Required for all generation modes."
-            },
-            {
-              "name": "image_urls",
-              "label": "Картинки",
-              "kind": "images",
-              "required": false,
-              "default": null,
-              "hint": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений.",
-              "desc": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений."
-            },
-            {
-              "name": "aspect_ratio",
-              "label": "Соотношение сторон",
-              "kind": "select",
-              "required": false,
-              "default": "16:9",
-              "options": [
-                "16:9",
-                "9:16",
-                "Auto"
-              ],
-              "hint": "Video aspect ratio.",
-              "desc": "Video aspect ratio."
-            },
-            {
-              "name": "watermark",
-              "label": "Водяной знак",
-              "kind": "text",
-              "required": false,
-              "default": null,
-              "hint": "Watermark text.",
-              "desc": "Watermark text."
-            },
-            {
-              "name": "resolution",
-              "label": "Разрешение",
-              "kind": "select",
-              "required": false,
-              "default": "720p",
-              "options": [
-                "720p",
-                "1080p",
-                "4k"
-              ],
-              "hint": "Output resolution: 720p (default), 1080p or 4k.",
-              "desc": "Output resolution: 720p (default), 1080p or 4k."
-            },
-            {
-              "name": "duration",
-              "label": "Длительность, сек",
-              "kind": "select",
-              "required": false,
-              "default": 8,
-              "options": [
-                "4",
-                "6",
-                "8"
-              ],
-              "hint": "The duration of the generated video, in seconds.",
-              "desc": "The duration of the generated video, in seconds."
-            }
-          ],
-          "constraints": [
-            "обязательные поля: prompt"
-          ],
-          "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
-        },
-        {
-          "id": "extend",
-          "label": "Продление видео",
-          "kie_id": "veo/extend",
-          "task_type": "Text to Video",
-          "api": "veo",
-          "endpoint": "/api/v1/veo/generate",
-          "fields": [
-            {
-              "name": "task_id",
-              "label": "Id задачи",
-              "kind": "text",
-              "required": true,
-              "default": null,
-              "hint": "The task ID of the original video generation. Must be a valid task ID returned by the video generation API."
-            },
-            {
-              "name": "prompt",
-              "label": "Промпт",
-              "kind": "textarea",
-              "required": true,
-              "default": null,
-              "hint": "A text prompt describing the content of the extended video. It should detail how you want the video to be extended, including actions, scene changes, styles, etc."
-            },
-            {
-              "name": "seeds",
-              "label": "Seeds",
-              "kind": "number",
-              "required": false,
-              "default": null,
-              "min": 10000,
-              "max": 99999,
-              "hint": "A random seed parameter that controls the randomness of the generated content. Range: 10000-99999. The same seed will generate similar video content, while different seeds will generate different video content. If not sp"
-            },
-            {
-              "name": "model",
-              "label": "Модель",
-              "kind": "select",
-              "required": false,
-              "default": "fast",
-              "options": [
-                "fast",
-                "quality",
-                "lite"
-              ],
-              "hint": "Extension tier: \"fast\" (default), \"quality\" or \"lite\". Billed per extension at the chosen tier."
-            },
-            {
-              "name": "watermark",
-              "label": "Водяной знак",
-              "kind": "text",
-              "required": false,
-              "default": null,
-              "hint": "Watermark text (optional). If provided, a watermark will be added to the generated video."
-            }
-          ],
-          "pricing": {
-            "unit": "gen",
-            "rules": [
-              {
-                "when": {
-                  "mode": "lite"
-                },
-                "credits": 30.0,
-                "usd_kie": 0.15,
-                "usd_client": 0.1875
-              },
-              {
-                "when": {
-                  "mode": "fast"
-                },
-                "credits": 60.0,
-                "usd_kie": 0.3,
-                "usd_client": 0.375
-              },
-              {
-                "when": {
-                  "mode": "quality"
-                },
-                "credits": 250.0,
-                "usd_kie": 1.25,
-                "usd_client": 1.5625
-              }
-            ],
-            "default": 60.0,
-            "note": "за генерацию/ролик/картинку; кредиты: 30, 60, 250; прайс kie.ai: Lite mode 30 credits ($0.15 ) , Fast mode 60 credits ($0.30), Quality mode 250 credits ($1.25) per extension.",
-            "credit_usd": 0.005,
-            "source_text": "Lite mode 30 credits ($0.15 ) , Fast mode 60 credits ($0.30), Quality mode 250 credits ($1.25) per extension. High-tier top-ups include 10% bonus credits, making the effective cost approximately 90% of the listed prices.",
-            "affects_price": [
-              "mode"
-            ],
-            "formula": "фикс за продление: тир lite/fast/quality",
-            "pricing_source": "docs/kie-prices-usd.json"
-          },
-          "constraints": [
-            "обязательные поля: task_id, prompt",
-            "seeds: 10000–99999"
-          ],
-          "docs_url": "https://docs.kie.ai/veo3-api/extend-video.md",
-          "fields_source": "docs.kie.ai OpenAPI (input)",
-          "fields_known": true,
-          "in_live_api": true
-        },
-        {
-          "id": "upscale-1080p",
-          "label": "Апскейл до 1080p",
-          "kie_id": "veo/get-1080p-video",
-          "task_type": "Video to Video",
-          "api": "veo",
-          "endpoint": "/api/v1/veo/generate",
-          "fields": [
-            {
-              "name": "taskId",
-              "label": "taskId",
-              "kind": "text",
-              "required": true,
-              "default": null,
-              "hint": "taskId"
-            },
-            {
-              "name": "index",
-              "label": "Индекс",
-              "kind": "text",
-              "required": false,
-              "default": null,
-              "hint": "video index"
-            }
-          ],
-          "pricing": {
-            "unit": "gen",
-            "rules": [
-              {
-                "when": {},
-                "credits": 5.0,
-                "usd_kie": 0.025,
-                "usd_client": 0.0312
-              }
-            ],
-            "default": 5.0,
-            "note": "за генерацию/ролик/картинку; кредиты: 5; прайс kie.ai: 1080P video output: 5 credits per video ($0.025)",
-            "credit_usd": 0.005,
-            "source_text": "1080P video output: 5 credits per video ($0.025) High-tier top-ups (+10% bonus) bring effective pricing down to (~$0.023) per video.",
-            "formula": "фикс за апскейл готового видео",
-            "pricing_source": "docs/kie-prices-usd.json"
-          },
-          "constraints": [
-            "обязательные поля: taskId"
-          ],
-          "docs_url": "https://docs.kie.ai/veo3-api/get-veo-3-1080-p-video.md",
-          "fields_source": "docs.kie.ai OpenAPI (input)",
-          "fields_known": true,
-          "in_live_api": true
-        },
-        {
-          "id": "upscale-4k",
-          "label": "Апскейл до 4K",
-          "kie_id": "veo/get-4k-video",
-          "task_type": "Video to Video",
-          "api": "veo",
-          "endpoint": "/api/v1/veo/generate",
-          "fields": [
-            {
-              "name": "task_id",
-              "label": "Id задачи",
-              "kind": "text",
-              "required": true,
-              "default": null,
-              "hint": "Task ID"
-            },
-            {
-              "name": "index",
-              "label": "Индекс",
-              "kind": "number",
-              "required": false,
-              "default": 0,
-              "hint": "video index"
-            }
-          ],
-          "pricing": {
-            "unit": "gen",
-            "rules": [
-              {
-                "when": {},
-                "credits": 120.0,
-                "usd_kie": 0.6,
-                "usd_client": 0.75
-              }
-            ],
-            "default": 120.0,
-            "note": "за генерацию/ролик/картинку; кредиты: 120; прайс kie.ai: 4K video generation: 120 credits per video (≈ $0.60)",
-            "credit_usd": 0.005,
-            "source_text": "4K video generation: 120 credits per video (≈ $0.60) High-tier top-ups (+10% bonus) bring effective pricing down to (~$0.54) per video.",
-            "formula": "фикс за апскейл готового видео",
-            "pricing_source": "docs/kie-prices-usd.json"
-          },
-          "constraints": [
-            "обязательные поля: task_id"
-          ],
-          "docs_url": "https://docs.kie.ai/veo3-api/get-veo-3-4k-video.md",
-          "fields_source": "docs.kie.ai OpenAPI (input)",
-          "fields_known": true,
-          "in_live_api": true
         }
-      ],
-      "default_mode": "fast"
+      ]
     },
     {
       "id": "hailuo-2-3",

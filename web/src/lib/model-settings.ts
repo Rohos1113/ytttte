@@ -671,7 +671,7 @@ export const OUTSEE_PRESET_FAMILIES: Record<string, string[]> = {
   "topaz-image-upscale": ["topaz-image-upscale"],
   "seedance-2-0-fast": ["seedance-2-0"],
   "seedance-2-0-mini": ["seedance-2-0"],
-  "veo-3-1-lite": ["veo-3-1"],
+  "veo-3-1-lite": ["veo-3-1-lite", "veo-3-1"],
   "omni-flash": ["gemini-omni-flash-1-1", "gemini-omni-flash-1-2"],
   "kling-3-0-turbo": ["kling-3-0"],
   "kling-2-6": ["kling-2-6"],

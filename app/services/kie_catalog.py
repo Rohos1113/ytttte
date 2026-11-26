@@ -1365,13 +1365,12 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
                 body["multi_shots"] = False
         return {"model": resolved_model, "input": body}
     if api == "veo":
-        mid = str(spec.get("mode_id") or spec.get("id") or "").lower()
-        if "lite" in mid:
+        mid = str(spec.get("mode_id") or "").lower()
+        fid = str(spec.get("family_id") or "").lower()
+        if "lite" in mid or "lite" in fid or body.get("model") == "veo3_lite":
             body["model"] = "veo3_lite"
-        elif "quality" in mid or mid == "veo3":
+        else:
             body["model"] = "veo3"
-        elif "fast" in mid or "generate" in mid or "model" not in body:
-            body["model"] = "veo3_fast"
 
         if "generation_type" not in body and "generationType" not in body:
             imgs = body.get("image_urls") or body.get("imageUrls") or []
@@ -1565,12 +1564,13 @@ def get_mode(
         if str(fam.get("id")) == "seedance-2-0" and key == "mini":
             return get_mode("seedance-2-0-mini", "mini")
         if str(fam.get("id")) == "veo-3-1":
-            if key in ("generate", "veo3_fast", "fast"):
-                return get_mode("veo-3-1", "fast")
-            if key in ("veo3_lite", "lite"):
-                return get_mode("veo-3-1", "lite")
-            if key in ("veo3", "quality"):
+            if key in ("quality", "generate", "veo3", "fast", "veo3_fast"):
                 return get_mode("veo-3-1", "quality")
+            if key in ("lite", "veo3_lite"):
+                return get_mode("veo-3-1-lite", "lite")
+        if str(fam.get("id")) == "veo-3-1-lite":
+            if key in ("lite", "generate", "veo3_lite", "default"):
+                return get_mode("veo-3-1-lite", "lite")
         return None
     default_id = str(fam.get("default_mode") or "")
     for mode in modes:

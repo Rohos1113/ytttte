@@ -685,7 +685,7 @@ test("dropDuplicatePresets: пресет без семьи (модель уда�
 test("outseePresetFamilyIds: соответствие пресетов семействам KIE", () => {
   assert.deepEqual(outseePresetFamilyIds("seedance-2-0-fast"), ["seedance-2-0"]);
   assert.deepEqual(outseePresetFamilyIds("seedance-2-0-mini"), ["seedance-2-0"]);
-  assert.deepEqual(outseePresetFamilyIds("veo-3-1-lite"), ["veo-3-1"]);
+  assert.deepEqual(outseePresetFamilyIds("veo-3-1-lite"), ["veo-3-1-lite", "veo-3-1"]);
   assert.deepEqual(outseePresetFamilyIds("kling-3-0-turbo"), ["kling-3-0"]);
   assert.deepEqual(outseePresetFamilyIds("omni-flash"), [
     "gemini-omni-flash-1-1",
