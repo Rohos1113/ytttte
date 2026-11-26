@@ -537,7 +537,17 @@ def _node_data_dict(node: dict[str, Any] | None) -> dict[str, Any]:
 def read_node_media_fields(node: dict[str, Any] | None) -> dict[str, str | None]:
     """Параметры media-пикера с ноды: resolution / quality / aspect."""
     data = _node_data_dict(node)
-    res = str(data.get("imageResolution") or data.get("image_resolution") or "").strip() or None
+    res = (
+        str(
+            data.get("imageResolution")
+            or data.get("image_resolution")
+            or data.get("videoResolution")
+            or data.get("video_resolution")
+            or data.get("resolution")
+            or ""
+        ).strip()
+        or None
+    )
     quality = str(data.get("imageQuality") or data.get("image_quality") or "").strip() or None
     aspect = str(data.get("aspectRatio") or data.get("aspect_ratio") or "").strip() or None
     if aspect and ":" in aspect:
@@ -548,6 +558,7 @@ def read_node_media_fields(node: dict[str, Any] | None) -> dict[str, str | None]
         aspect_id = None
     return {
         "image_resolution": res.lower() if res else None,
+        "video_resolution": res.lower() if res else None,
         "image_quality": quality.lower() if quality else None,
         "aspect_ratio": aspect_id,
         "aspect_slug": aspect.replace("_", ":") if aspect else None,
@@ -749,3 +760,28 @@ def effective_video_generator_id(
         or _provider_default("video")
         or DEFAULTS["video_generator"]
     )
+
+
+def resolve_video_resolution_id(
+    project: Any,
+    *,
+    node_key: str | None = None,
+    node_type: str = "videos",
+) -> str | None:
+    """id из generation_options.VIDEO_RESOLUTIONS_BY_ID, если на ноде задано разрешение."""
+    from app.generation_options import VIDEO_RESOLUTIONS_BY_ID
+
+    meta = getattr(project, "meta", None)
+    node = find_canvas_node(meta, node_key=node_key, node_type=node_type)
+    fields = read_node_media_fields(node)
+    node_res = fields.get("video_resolution") or fields.get("image_resolution")
+    if node_res:
+        clean = node_res.strip().lower()
+        if clean in VIDEO_RESOLUTIONS_BY_ID:
+            return clean
+    res = getattr(project, "video_resolution", None)
+    if res:
+        clean = str(res).strip().lower()
+        if clean in VIDEO_RESOLUTIONS_BY_ID:
+            return clean
+    return None

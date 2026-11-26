@@ -109,6 +109,17 @@ def test_build_payload_seedance_overseas_1080p() -> None:
     assert payload["resolution"] == "1080p"
 
 
+def test_build_payload_seedance_2_5_resolutions() -> None:
+    spec = {"model": "seedance-2.5"}
+    for res in ("480p", "720p", "1080p"):
+        p = build_pay52_video_payload(spec, {"prompt": "ocean wave", "seconds": 5, "resolution": res})
+        assert p["model"] == "seedance-2.5"
+        assert p["resolution"] == res
+    # fallback to 720p on unknown resolution
+    p_def = build_pay52_video_payload(spec, {"prompt": "ocean wave", "seconds": 5, "resolution": "unknown_res"})
+    assert p_def["resolution"] == "720p"
+
+
 def test_kie_http_resolves_all_curated_video_families() -> None:
     from app.bots.kie_http import _resolve_kie_video_spec
 

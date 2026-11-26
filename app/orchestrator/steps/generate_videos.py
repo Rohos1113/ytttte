@@ -242,11 +242,16 @@ def _video_opts(project: Project) -> tuple[str | None, str | None, str, bool]:
     from app.services.vibecode_catalog import (
         effective_video_generator_id,
         resolve_node_media_settings,
+        resolve_video_resolution_id,
     )
 
     vg_id = effective_video_generator_id(project, node_type="videos")
     vg = VIDEO_GENERATORS_BY_ID.get(vg_id)
-    res_id = project.video_resolution or DEFAULTS["video_resolution"]
+    res_id = (
+        resolve_video_resolution_id(project, node_type="videos")
+        or project.video_resolution
+        or DEFAULTS["video_resolution"]
+    )
     # Veo 3.1 Lite у Outsee отдаёт только 720p: заявляем то, что реально
     # получится (наша линия c8733af1). Хелпер в generation_options переносится
     # отдельно; без него остаётся поведение новой линии.

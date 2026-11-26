@@ -241,6 +241,35 @@ def test_resolve_node_media_settings_from_images_node() -> None:
     assert media["quality_slug"] == "Высокое"
 
 
+def test_resolve_video_resolution_from_videos_node() -> None:
+    from app.services.vibecode_catalog import resolve_video_resolution_id
+
+    meta = {
+        "canvas_graph": {
+            "workflow_id": 1,
+            "nodes": [
+                {
+                    "id": "n_videos",
+                    "type": "videos",
+                    "data": {
+                        "modelId": "seedance-2-5",
+                        "imageResolution": "480p",
+                        "aspectRatio": "16:9",
+                    },
+                }
+            ],
+            "edges": [],
+        }
+    }
+
+    class _Proj:
+        def __init__(self) -> None:
+            self.meta = meta
+            self.video_resolution = None
+
+    assert resolve_video_resolution_id(_Proj(), node_type="videos") == "480p"
+
+
 def test_pipeline_binds_project_llm() -> None:
     """Оркестратор обязан привязывать LLM проекта, а не брать глобальную.
 

@@ -13,7 +13,7 @@
   3. Seedance 2.0 海外 (SEEDANCE_OVERSEAS_KEY):
      - prompt, duration (4–15), resolution, referenceImages (до 9), referenceVideos (до 3), referenceAudios (до 3)
   4. seedance-2.5 (SEEDANCE_OVERSEAS_KEY):
-     - prompt, seconds (до 30), resolution ("1080p"), до 30 картинок.
+     - prompt, seconds (до 30), resolution ("480p" | "720p" | "1080p"), до 30 картинок.
 """
 
 from __future__ import annotations
@@ -262,7 +262,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             "model": "seedance-2.5",
             "prompt": prompt,
             "seconds": str(min(30, max(4, dur_int))),
-            "resolution": raw_res if raw_res in ("720p", "1080p") else "1080p",
+            "resolution": raw_res if raw_res in ("480p", "720p", "1080p") else "720p",
             "referenceImages": all_images[:30],
         }
 
