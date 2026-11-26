@@ -458,6 +458,26 @@ _ORCHESTRATOR_SYSTEM = (
     'Для нод «Работа с GPT» / «ИИ-редактор сцен» (тип excel_gpt) ОБЯЗАТЕЛЬНО передавай node_key: '
     '{"actions":[{"run_step":"excel_gpt","node_key":"n_excel_gpt_1"}]}. '
     'Также можно запустить ноду напрямую: {"actions":[{"run_node":"<node_key>"}]}.\n'
+    "ВЫБОР МОДЕЛЕЙ И БЕЗОПАСНЫЙ ЗАПУСК НОД ГЕНЕРАЦИИ (ПРАВИЛО №1):\n"
+    "ПЕРЕД запуском нод генерации картинок («Картинки» / img / images, «Персонажи» / hero) "
+    "или видео («Видео» / video / videos), либо когда пользователь просит «сгенерируй кадры», "
+    "«запусти картинки», «сделай видео», «анимируй»:\n"
+    "1. В интерактивном режиме (когда НЕТ автономного режима) ЗАПРЕЩЕНО запускать шаг "
+    "вслепую (run_step / run_node), если модель генерации не была только что явно указана пользователем в сообщении.\n"
+    "2. Сначала спроси в чате, какую модель использовать, ЛИБО предложи пользователю самому открыть "
+    "соответствующую ноду и настроить нужную модель и параметры вручную (это предпочтительный и самый правильный вариант).\n"
+    "3. ВСЕГДА прикрепляй choices с актуальными моделями 52pay и кнопкой открытия ноды:\n"
+    '   * Для картинок: ["Seedream 5 Pro (52pay)", "Seedream 5 Flash (быстрая / 52pay)", "GPT Image 2.5 (52pay)", "Открыть ноду картинок", "Свой выбор"]\n'
+    '   * Для видео: ["Seedance 2.0 Fast (быстрая / 52pay)", "Seedance 2.5 (52pay)", "Kling 4.0 (52pay)", "Открыть ноду видео", "Свой выбор"]\n'
+    '4. Если пользователь выбирает «Открыть ноду...»: открой её студию действием open_ui:\n'
+    '   {"actions":[{"open_ui":{"kind":"node_studio","node_type":"images"}}]} (или node_type: "videos").\n'
+    '5. Если пользователь выбирает конкретную модель: примени её действием set_option:\n'
+    '   {"actions":[{"set_option":{"key":"image_generator","value":"seedream_5_pro"}}]}\n'
+    '   (для видео — key: "video_generator"). Запускай генерацию только после выбора пользователем или по его подтверждению.\n'
+    '6. По явному запросу о моделях («какую модель выбрать?», «какие модели есть?»): '
+    'подробно объясни разницу между моделями 52pay (качество vs скорость) и предупреди о статусе провайдеров.\n'
+    '7. СТАТУС ПРОВАЙДЕРОВ: 52pay активен (Seedream 5 Pro/Flash, GPT Image 2.5, Nano Banana 2.1; Seedance 2.0 Fast/2.5, Kling 4.0; Sol/Claude/DeepSeek). '
+    'KIE сейчас имеет отрицательный баланс (-2.51 кр.) — модели KIE (Flux 3, Hailuo 2.3, Veo 3.1) не запускать по умолчанию без прямого требования пользователя и пополнения KIE.\n'
     '3) ОСТАНОВИТЬ генерацию → {"actions":[{"stop_step":true}]}.\n'
     "4) НАСТРОЙКА генерации → "
     '{"actions":[{"set_option":{"key":"<ключ>","value":"<id>"}}]} — '
@@ -1178,6 +1198,13 @@ def _settings_context(project: Project) -> list[str]:
         f"- video_resolution: {project.video_resolution or 'default'} → {ids(go.VIDEO_RESOLUTIONS)}",
         f"- hero_mode: {project.hero_mode} → hero, no_hero, auto",
         f"- auto_mode: {'вкл' if project.auto_mode else 'выкл'} → true/false",
+        "СТАТУС ПРОВАЙДЕРОВ И МОДЕЛЕЙ ДЛЯ ГЕНЕРАЦИИ:",
+        "- 52pay: АКТИВЕН (основной рабочий шлюз, баланс в порядке).",
+        "  * Картинки: seedream_5_pro, seedream_5_flash, seedream_5_lite, gpt_image_2_5, nano_banana_2_1",
+        "  * Видео: seedance_2_0_fast, seedance_2_5, kling_4_0",
+        "  * Текстовые LLM: gpt-6.1-sol (Sol), claude-sonnet-5 (Claude 3.5), deepseek-v4.1-flash",
+        "- KIE: БАЛАНС ОТРИЦАТЕЛЬНЫЙ (-2.51 кр., ТРЕБУЕТСЯ ПОПОЛНЕНИЕ).",
+        "  * flux_3, veo_3_1, veo_3_1_lite, hailuo_2_3_i2v, minimax_h3_t2v (временно НЕ запускать по умолчанию без пополнения)",
         "ПРОМТЫ (шаг → выбранный вариант → доступные):",
     ]
     for step_code in ("plan", "script", "split", "img_pr", "anim_pr", "hero_style"):
@@ -1253,10 +1280,29 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
         "video_resolution": go.VIDEO_RESOLUTIONS_BY_ID,
     }
     if k in catalogs:
-        if v not in catalogs[k]:
-            raise db_apply.ApplyOpsError(
-                f"set_option {k}: неизвестное значение {v!r}; допустимые: {sorted(catalogs[k])}"
-            )
+        cat = catalogs[k]
+        if v not in cat:
+            # Попробуем сопоставить по человеческой подписи (label) или очищенному названию
+            v_clean = re.sub(r"\(.*?\)", "", v).strip().lower().replace(" ", "_").replace(".", "_").replace("-", "_")
+            resolved = None
+            for cand_id, item in cat.items():
+                cand_clean = cand_id.lower().replace("-", "_")
+                label_clean = re.sub(r"\(.*?\)", "", getattr(item, "label", "")).strip().lower().replace(" ", "_").replace(".", "_").replace("-", "_")
+                if v_clean == cand_clean or (label_clean and v_clean == label_clean):
+                    resolved = cand_id
+                    break
+            if not resolved:
+                for cand_id in cat:
+                    cand_clean = cand_id.lower().replace("-", "_")
+                    if cand_clean and (cand_clean in v_clean or v_clean in cand_clean):
+                        resolved = cand_id
+                        break
+            if resolved:
+                v = resolved
+            else:
+                raise db_apply.ApplyOpsError(
+                    f"set_option {k}: неизвестное значение {v!r}; допустимые: {sorted(cat)}"
+                )
         if k == "image_resolution":
             v = go.clamp_image_resolution_id(project.image_generator, v)
         setattr(project, k, v)

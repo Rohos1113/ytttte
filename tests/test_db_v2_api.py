@@ -1841,7 +1841,8 @@ async def test_canvas_nodes_context_shows_storage_side_edges(api_client) -> None
         p.meta = meta
         await session.commit()
 
-        lines, _km = await _canvas_nodes_context(session, p)
+        res = await _canvas_nodes_context(session, p)
+        lines = res[0]
         blob = "\n".join(lines)
         assert "СВЯЗИ (цепочка):" in blob
         assert "n_plan → n_excel_gpt_1" in blob or "n_plan→n_excel_gpt_1" in blob

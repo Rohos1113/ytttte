@@ -233,3 +233,32 @@ def test_prompt_says_briefing_is_saved_at_once():
     sp = _system_prompt(False)
     assert "«Записал" in sp
     assert "ВСЕХ восьми пунктов" in sp
+    assert "ВЫБОР МОДЕЛЕЙ И БЕЗОПАСНЫЙ ЗАПУСК НОД" in sp
+    assert "52pay" in sp
+
+
+def test_apply_set_option_resolves_human_model_names():
+    from app.web.routers.db_browser import _apply_set_option
+
+    p = Project(slug="opt-test", title="Opt", meta={}, prompt_overrides={})
+
+    # Exact ID
+    res = _apply_set_option(p, "image_generator", "seedream_5_pro")
+    assert res == "image_generator=seedream_5_pro"
+    assert p.image_generator == "seedream_5_pro"
+
+    # Human label with (52pay)
+    res2 = _apply_set_option(p, "image_generator", "Seedream 5 Flash (быстрая / 52pay)")
+    assert res2 == "image_generator=seedream_5_flash"
+    assert p.image_generator == "seedream_5_flash"
+
+    # Video generator with (52pay)
+    res3 = _apply_set_option(p, "video_generator", "Seedance 2.0 Fast (быстрая / 52pay)")
+    assert res3 == "video_generator=seedance_2_0_fast"
+    assert p.video_generator == "seedance_2_0_fast"
+
+    # Kling 4.0
+    res4 = _apply_set_option(p, "video_generator", "Kling 4.0 (52pay)")
+    assert res4 == "video_generator=kling_4_0"
+    assert p.video_generator == "kling_4_0"
+
