@@ -150,8 +150,10 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         ) : null}
         {isAdmin ? <AdminRailLink /> : null}
         <div className="min-h-2" style={{ flexGrow: 0.45 }} />
-        {/* ИИ-агент размещён чуть выше центра навигационного меню */}
-        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
+        {/* ИИ-агент доступен только администраторам на этапе тестирования */}
+        {isAdmin ? (
+          <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
+        ) : null}
         <div className="min-h-2" style={{ flexGrow: 1.55 }} />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label={t("common.nav.billing")} active={railPanel === "payments"} onClick={() => togglePanel("payments")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label={t("common.nav.payouts")} active={railPanel === "payouts"} onClick={() => togglePanel("payouts")} />

@@ -330,7 +330,20 @@ export function OrchestratorPanel({ projectId }: Props) {
     queryFn: () => api.getProject(projectId!),
     enabled: projectId != null,
   });
-  const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
+  const [open, setOpen] = usePersistedState("vp-orchestrator-open", false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { is_admin?: boolean } | null) => {
+        if (alive && d?.is_admin) setIsAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [registrarOpen, setRegistrarOpen] = useState(false);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -1653,7 +1666,7 @@ export function OrchestratorPanel({ projectId }: Props) {
     };
   }, [resolvePlan, resolveAction]);
 
-  if (!open) return null;
+  if (!isAdmin || !open) return null;
 
   const renderChatsSidebar = () => (
     <div
