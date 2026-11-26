@@ -150,7 +150,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
 
     raw_dur = values.get("duration") or values.get("seconds") or 5
     try:
-        dur_int = max(4, min(30, int(float(raw_dur))))
+        dur_int = max(1, min(30, int(float(raw_dur))))
     except (ValueError, TypeError):
         dur_int = 5
 
@@ -305,7 +305,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
         payload_kling: dict[str, Any] = {
             "model": "kling-4.0",
             "prompt": prompt,
-            "duration": min(15, max(3, dur_int)),
+            "duration": min(30, max(5, dur_int)),
             "ratio": raw_ratio,
             "resolution": raw_res if raw_res in ("480p", "720p", "1080p") else "720p",
         }

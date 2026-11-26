@@ -260,9 +260,9 @@ def test_kling_4_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     assert normalize_pay52_video_model("kling-4.0-k1") == "kling-4.0"
     assert normalize_pay52_video_model("kling-4-0") == "kling-4.0"
 
-    # Text to video payload
+    # Text to video payload (duration < 5 clamped to 5)
     spec = {"model": "kling-4.0"}
-    p_text = build_pay52_video_payload(spec, {"prompt": "A running horse", "duration": 5, "aspect_ratio": "16:9"})
+    p_text = build_pay52_video_payload(spec, {"prompt": "A running horse", "duration": 3, "aspect_ratio": "16:9"})
     assert p_text["model"] == "kling-4.0"
     assert p_text["prompt"] == "A running horse"
     assert p_text["duration"] == 5
