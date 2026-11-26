@@ -78,7 +78,14 @@ _VIDEO: dict[str, str] = {
     "seedance-2.5": "seedance_fast_key",
     "seedance-2-5": "seedance_fast_key",
     "seedance 2.5 海外": "seedance_fast_key",
-    "kling-4.0-k1": "seedance_fast_key",
+    "kling-4.0-k1": "seedance_overseas_key",
+    "kling-4.0": "seedance_overseas_key",
+    "kling-4-0": "seedance_overseas_key",
+    "kling-4": "seedance_overseas_key",
+    "kling-4.0/keyframe-to-video": "seedance_overseas_key",
+    "kling-4.0/flash-keyframe-to-video": "seedance_overseas_key",
+    "kling-4.0/reference-to-video": "seedance_overseas_key",
+    "kling-4.0/flash-reference-to-video": "seedance_overseas_key",
     "veo-3.1-fast-generate-preview": "seedance_fast_key",
 }
 

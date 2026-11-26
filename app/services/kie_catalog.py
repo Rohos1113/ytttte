@@ -1359,7 +1359,11 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
 
         return build_pay52_video_payload(spec, merged)
     if api == "jobs":
-        return {"model": _legacy_resolve_model_id(spec, merged), "input": body}
+        resolved_model = _legacy_resolve_model_id(spec, merged)
+        if "kling-3" in str(resolved_model).lower() or "kling-3" in str(spec.get("id", "")).lower():
+            if "multi_shots" not in body:
+                body["multi_shots"] = False
+        return {"model": resolved_model, "input": body}
     if api in ("veo", "runway") and "duration" in body:
         # veo/runway ждут duration числом, даже если в UI это select
         with contextlib.suppress(TypeError, ValueError):

@@ -225,6 +225,26 @@
       "unit": "second",
       "usd_per_call": 0.36
     },
+    "kie:kling-3.0/video": {
+      "unit": "second",
+      "usd_per_call": 0.36
+    },
+    "kie:kling-4.0/keyframe-to-video": {
+      "unit": "second",
+      "usd_per_call": 0.42
+    },
+    "kie:kling-4.0/flash-keyframe-to-video": {
+      "unit": "second",
+      "usd_per_call": 0.28
+    },
+    "kie:kling-4.0/reference-to-video": {
+      "unit": "second",
+      "usd_per_call": 0.42
+    },
+    "kie:kling-4.0/flash-reference-to-video": {
+      "unit": "second",
+      "usd_per_call": 0.28
+    },
     "kie:kling-v3-turbo-t2v": {
       "unit": "second",
       "usd_per_call": 0.24
@@ -416,6 +436,46 @@
     "pay52:kling-4-0-k1@1080p": {
       "unit": "item",
       "usd_per_call": 0.1499
+    },
+    "pay52:kling-4.0": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1499
+    },
+    "pay52:kling-4-0": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4-0@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4-0@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1499
+    },
+    "pay52:kling-4.0/keyframe-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0/flash-keyframe-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0/reference-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0992
+    },
+    "pay52:kling-4.0/flash-reference-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0992
     },
     "pay52:veo-3.1-fast": {
       "unit": "item",

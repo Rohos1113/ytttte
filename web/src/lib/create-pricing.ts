@@ -37,6 +37,8 @@ const VIDEO_BASE: Record<string, number> = {
   "veo-3-1-lite": 1.82,
   "veo-3-fast": 1.82,
   "kling-4.0-k1": 9.92,
+  "kling-4-0": 9.92,
+  "kling-4.0": 9.92,
   "kling-3-0": 9.92,
   "kling-2-6": 9.92,
   "seedance-2.0-mini": 2.43,

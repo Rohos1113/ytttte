@@ -53,7 +53,7 @@ def normalize_pay52_video_model(raw: str) -> str:
     if "fast" in s:
         return "seedance-2.0-fast"
     if "kling" in s:
-        return "kling-4.0-k1"
+        return "kling-4.0"
     if "veo" in s:
         return "veo-3.1-fast-generate-preview"
     if "seedance" in s:
@@ -69,6 +69,8 @@ def pay52_video_supports_model(model_name: str) -> bool:
     return (
         "seedance" in name_low
         or "kling-4" in name_low
+        or "kling_4" in name_low
+        or ("kling" in name_low and "3" not in name_low and "2" not in name_low)
         or "veo-3.1-fast" in name_low
     )
 
@@ -78,6 +80,8 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         return ""
     s = cfg or settings
     name_low = (model_name or "").lower()
+    if "kling" in name_low:
+        return (s.seedance_overseas_key or s.seedance_fast_key or s.seedance_mini_key or "").strip()
     if "fast" in name_low:
         return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
     if "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
@@ -98,7 +102,9 @@ def pay52_video_candidate_keys(model_name: str, cfg: Any | None = None) -> list[
     fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
     if fallback_enabled:
         name_low = (model_name or "").lower()
-        if "fast" in name_low:
+        if "kling" in name_low:
+            keys.extend([s.seedance_fast_key, s.seedance_mini_key])
+        elif "fast" in name_low:
             keys.extend([s.seedance_mini_key, s.seedance_overseas_key])
         elif "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
             keys.extend([s.seedance_fast_key, s.seedance_mini_key])
@@ -133,7 +139,7 @@ def pay52_configured() -> bool:
 def pay52_video_configured(spec: dict[str, Any] | None = None) -> bool:
     if not spec:
         return pay52_configured()
-    model = str(spec.get("model") or spec.get("id") or "")
+    model = str(spec.get("model") or spec.get("id") or spec.get("family_id") or "")
     return bool(pay52_video_key_for_model(model))
 
 
@@ -149,14 +155,28 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
         dur_int = 5
 
     raw_ratio = str(values.get("aspect_ratio") or values.get("ratio") or "16:9").replace("_", ":")
+    if raw_ratio in ("auto", "", "None"):
+        raw_ratio = "16:9"
 
     raw_res = str(values.get("resolution") or "720p").lower()
     if raw_res not in ("480p", "720p", "1080p", "4k"):
         raw_res = "720p"
 
-    first_frame = values.get("first_frame_url") or values.get("first_frame")
+    first_frame = (
+        values.get("first_frame_url")
+        or values.get("first_frame")
+        or values.get("image_url")
+        or values.get("image")
+    )
     last_frame = values.get("last_frame_url") or values.get("last_frame")
-    ref_images = values.get("reference_image_urls") or values.get("reference_images") or values.get("image_urls") or []
+    ref_images = (
+        values.get("reference_image_urls")
+        or values.get("reference_images")
+        or values.get("referenceImages")
+        or values.get("image_urls")
+        or values.get("images")
+        or []
+    )
     if isinstance(ref_images, str):
         ref_images = [ref_images]
     ref_videos = values.get("reference_video_urls") or values.get("reference_videos") or []
@@ -266,7 +286,35 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             "referenceImages": all_images[:30],
         }
 
-    # 4. Fallback / Seedance 2.0 (seedance-2.0-fast)
+    # 4. Kling 4.0
+    if "kling" in model_raw.lower():
+        all_images = []
+        if first_frame:
+            su = str(first_frame).strip()
+            if su:
+                all_images.append(su)
+        if last_frame:
+            su = str(last_frame).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+        for u in ref_images:
+            su = str(u).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+
+        payload_kling: dict[str, Any] = {
+            "model": "kling-4.0",
+            "prompt": prompt,
+            "duration": min(15, max(3, dur_int)),
+            "ratio": raw_ratio,
+            "resolution": raw_res if raw_res in ("480p", "720p", "1080p") else "720p",
+        }
+        if all_images:
+            payload_kling["referenceImages"] = all_images[:9]
+            payload_kling["image_url"] = all_images[0]
+        return payload_kling
+
+    # 5. Fallback / Seedance 2.0 (seedance-2.0-fast)
     all_images = []
     if first_frame:
         all_images.append(str(first_frame).strip())

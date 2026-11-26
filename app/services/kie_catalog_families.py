@@ -2127,7 +2127,14 @@ FAMILIES: list[dict[str, Any]] = [{'id': 'happyhorse-1-1',
                          'desc': 'Required. Generation mode. std has standard resolution, pro has higher '
                                  'resolution, 4K has 4K resolution. Resolution mapping: - **std mode**: 16:9 '
                                  '(1280×720), 9:16 (720×1280), 1:1 (720×720) - **pro mode**: 16:9 '
-                                 '(1920×1080'}],
+                                 '(1920×1080'},
+                         {'name': 'multi_shots',
+                          'label': 'Мульти-шоты',
+                          'kind': 'toggle',
+                          'required': False,
+                          'default': False,
+                          'hint': 'Несколько планов в одном ролике',
+                          'desc': 'Несколько планов в одном ролике'}],
              'pricing': {'unit': 'sec',
                          'markup': 1.25,
                          'usd_rules': [{'when': {'resolution': '720p', 'sound': False},

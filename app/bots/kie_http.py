@@ -701,7 +701,8 @@ async def generate_kie_video(
     spec = _resolve_kie_video_spec(kie_id, has_start_frame=bool(start_frame))
     is_pay52 = bool(
         (spec and spec.get("api") == "pay52")
-        or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec))
+        or (spec and pay52_video.pay52_video_configured(spec))
+        or pay52_video.pay52_video_configured({"id": kie_id})
     )
 
     if not kie_configured() and not is_pay52:

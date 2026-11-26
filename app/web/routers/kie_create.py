@@ -286,7 +286,7 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
         result_kind == "image" and pay52_image.pay52_image_configured(spec)
     )
     is_pay52_video = bool(
-        "seedance" in str(spec.get("id", "")).lower()
+        result_kind == "video"
         and pay52_video.pay52_video_configured(spec)
     )
     is_pay52 = spec.get("api") == "pay52" or is_pay52_video or is_pay52_image

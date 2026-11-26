@@ -238,3 +238,50 @@ async def test_poll_task_rotates_on_400_invalid_token(monkeypatch: pytest.Monkey
     assert "good-key" in calls[1]
 
 
+def test_kling_4_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.bots.pay52_video import (
+        normalize_pay52_video_model,
+        pay52_video_supports_model,
+    )
+
+    monkeypatch.setenv("SEEDANCE_OVERSEAS_KEY", "key-overseas")
+    s = Settings()
+
+    assert pay52_video_supports_model("kling-4-0") is True
+    assert pay52_video_supports_model("kling-4.0") is True
+    assert pay52_video_supports_model("kling-4.0/keyframe-to-video") is True
+    assert pay52_video_supports_model("kling-3-0") is False
+    assert pay52_video_supports_model("kling-3.0/video") is False
+
+    assert pay52_video_key_for_model("kling-4-0", cfg=s) == "key-overseas"
+    assert pay52_video_key_for_model("kling-4.0", cfg=s) == "key-overseas"
+    assert pay52_video_key_for_model("kling-3-0", cfg=s) == ""
+
+    assert normalize_pay52_video_model("kling-4.0-k1") == "kling-4.0"
+    assert normalize_pay52_video_model("kling-4-0") == "kling-4.0"
+
+    # Text to video payload
+    spec = {"model": "kling-4.0"}
+    p_text = build_pay52_video_payload(spec, {"prompt": "A running horse", "duration": 5, "aspect_ratio": "16:9"})
+    assert p_text["model"] == "kling-4.0"
+    assert p_text["prompt"] == "A running horse"
+    assert p_text["duration"] == 5
+    assert p_text["ratio"] == "16:9"
+    assert "referenceImages" not in p_text
+
+    # Image to video payload
+    p_img = build_pay52_video_payload(
+        spec,
+        {
+            "prompt": "Animate this painting",
+            "first_frame_url": "https://img.example/frame.png",
+            "duration": 5,
+            "resolution": "720p",
+        },
+    )
+    assert p_img["model"] == "kling-4.0"
+    assert p_img["referenceImages"] == ["https://img.example/frame.png"]
+    assert p_img["image_url"] == "https://img.example/frame.png"
+
+
+
