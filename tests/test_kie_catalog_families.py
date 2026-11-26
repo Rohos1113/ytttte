@@ -984,10 +984,10 @@ def test_with_video_false_rule_is_kept_in_generated_data() -> None:
 @pytest.mark.parametrize(
     ("family_id", "mode_id", "values", "want_when"),
     [
-        # Veo 3.1: тир берётся из поля model, разрешение — из resolution
-        ("veo-3-1", "generate", {"model": "veo3_lite", "resolution": "720p"}, {"mode": "lite", "resolution": "720p"}),
-        ("veo-3-1", "generate", {"model": "veo3_fast", "resolution": "1080p"}, {"mode": "fast", "resolution": "1080p"}),
-        ("veo-3-1", "generate", {"model": "veo3", "resolution": "4k"}, {"mode": "quality", "resolution": "4K"}),
+        # Veo 3.1: режим задаёт тир (lite/fast/quality), разрешение — resolution
+        ("veo-3-1", "lite", {"resolution": "720p"}, {"resolution": "720p"}),
+        ("veo-3-1", "fast", {"resolution": "1080p"}, {"resolution": "1080p"}),
+        ("veo-3-1", "quality", {"resolution": "4k"}, {"resolution": "4K"}),
         ("veo-3-1", "extend", {"model": "quality"}, {"mode": "quality"}),
         # GPT Image 2: разрешение задаёт тариф
         ("gpt-image-2", "t2i", {"resolution": "1K", "aspect_ratio": "1:1"}, {"resolution": "1K"}),
@@ -1039,7 +1039,7 @@ def test_price_rule_selected_for_live_settings(
 def test_expensive_setting_changes_price() -> None:
     """Дорогая настройка в каждом из 6 случаев аудита реально поднимает цену."""
     pairs = [
-        (("veo-3-1", "generate"), {"model": "veo3_lite", "resolution": "720p"}, {"model": "veo3", "resolution": "4k"}),
+        (("veo-3-1", "fast"), {"resolution": "720p"}, {"resolution": "4k"}),
         (("veo-3-1", "extend"), {"model": "fast"}, {"model": "quality"}),
         (("gpt-image-2", "t2i"), {"resolution": "1K", "aspect_ratio": "1:1"}, {"resolution": "4K", "aspect_ratio": "1:1"}),
         (("kling-2-6", "i2v"), {"duration": 5, "sound": False}, {"duration": 10, "sound": True}),

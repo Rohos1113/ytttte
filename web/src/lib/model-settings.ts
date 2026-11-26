@@ -191,6 +191,10 @@ const KIE_SKIP_NAMES = new Set([
   "elements",
   "kling_elements",
   "enable_translation",
+  "enable_fallback",
+  "enableFallback",
+  "generation_type",
+  "generationType",
   "upload_cn",
   "safety_tolerance",
   "text_recognition",
@@ -359,6 +363,7 @@ export function kieSettingDescriptors(
   for (const field of fields) {
     if (KIE_FILE_KINDS.has(field.kind)) continue;
     if (KIE_SKIP_NAMES.has(field.name)) continue;
+    if (field.name === "model" && field.options?.some((o) => o.startsWith("veo3"))) continue;
     if (mainTextField && field.name === mainTextField) continue;
     if (!isKieFieldVisible(field, values)) continue;
     const descriptor = kieFieldDescriptor(field);
@@ -841,7 +846,7 @@ function ruleMatches(
     const got = merged[k];
     if (typeof want === "boolean") return settingIsOn(got) === want;
     if (Array.isArray(got) && typeof want === "number") return got.length === want;
-    return String(got ?? "") === String(want);
+    return String(got ?? "").trim().toLowerCase() === String(want).trim().toLowerCase();
   });
 }
 
@@ -892,7 +897,13 @@ export function estimateSettingsUsd(args: {
 
   const fields = kieEffectiveFields(model, modeId);
   const pricing = kieEffectivePricing(model, modeId);
-  const merged: ModelSettingValues = { ...defaultsOf(fields), ...values };
+  const activeMode = kieFamilyMode(model, modeId);
+  const activeModeId = activeMode?.id ?? modeId ?? null;
+  const merged: ModelSettingValues = {
+    ...defaultsOf(fields),
+    ...(activeModeId ? { mode: activeModeId } : {}),
+    ...values,
+  };
   if (!pricing) return { usd_client: 0, usd_kie: 0, credits: null, source: "usd" };
 
   const multiplier = unitMultiplier(pricing.unit, merged);

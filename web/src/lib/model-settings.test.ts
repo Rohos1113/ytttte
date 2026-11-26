@@ -753,3 +753,18 @@ test("kieSettingDescriptors скрывает complexity и moderation (GPT Image
   assert.deepEqual(names, ["aspect_ratio", "resolution", "quality"]);
 });
 
+test("kieSettingDescriptors скрывает fallback, generation_type и модель veo3", () => {
+  const fields: KieField[] = [
+    { name: "prompt", label: "Промпт", kind: "textarea" },
+    { name: "model", label: "Модель", kind: "select", options: ["veo3_fast", "veo3_lite", "veo3"] },
+    { name: "generation_type", label: "Тип генерации", kind: "select", options: ["TEXT_2_VIDEO"] },
+    { name: "enable_fallback", label: "Fallback", kind: "toggle" },
+    { name: "aspect_ratio", label: "Соотношение сторон", kind: "select", options: ["16:9", "9:16"] },
+    { name: "resolution", label: "Разрешение", kind: "select", options: ["720p", "1080p", "4k"] },
+    { name: "duration", label: "Длительность", kind: "select", options: ["4", "6", "8"] },
+  ];
+  const descriptors = kieSettingDescriptors(fields, { mainTextField: "prompt" });
+  const names = descriptors.map((d) => d.name);
+  assert.deepEqual(names, ["aspect_ratio", "resolution", "duration"]);
+});
+

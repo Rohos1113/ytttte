@@ -3547,9 +3547,9 @@
       "desc": "описания в источниках нет",
       "modes": [
         {
-          "id": "generate",
-          "label": "Генерация (Lite / Fast / Quality)",
-          "kie_id": "veo-3-1",
+          "id": "fast",
+          "label": "Fast",
+          "kie_id": "veo-3-1/fast",
           "task_type": "Text to Video, Image to Video",
           "api": "veo",
           "endpoint": "/api/v1/veo/generate",
@@ -3560,20 +3560,8 @@
               "kind": "textarea",
               "required": true,
               "default": null,
-              "hint": "Text prompt describing the desired video content. Required for all generation modes. - Should be detailed and specific in describing video content - Can include actions, scenes, style and other information - For image-to"
-            },
-            {
-              "name": "model",
-              "label": "Модель",
-              "kind": "select",
-              "required": false,
-              "default": "veo3_fast",
-              "options": [
-                "veo3_fast",
-                "veo3_lite",
-                "veo3"
-              ],
-              "hint": "Veo 3.1 tier: \"veo3_fast\" (default), \"veo3_lite\" or \"veo3\" (Quality). The top-level model stays \"veo-3-1\". REFERENCE_2_VIDEO supports veo3_fast and veo3_lite."
+              "hint": "Text prompt describing the desired video content. Required for all generation modes.",
+              "desc": "Text prompt describing the desired video content. Required for all generation modes."
             },
             {
               "name": "image_urls",
@@ -3581,20 +3569,8 @@
               "kind": "images",
               "required": false,
               "default": null,
-              "hint": "Image URLs. FIRST_AND_LAST_FRAMES_2_VIDEO: 1 image (first frame) or 2 images (first + last frame). REFERENCE_2_VIDEO: 1–3 reference images, 8-second duration only."
-            },
-            {
-              "name": "generation_type",
-              "label": "Тип генерации",
-              "kind": "select",
-              "required": false,
-              "default": null,
-              "options": [
-                "TEXT_2_VIDEO",
-                "FIRST_AND_LAST_FRAMES_2_VIDEO",
-                "REFERENCE_2_VIDEO"
-              ],
-              "hint": "Video generation mode (optional). Specifies different video generation approaches: - **TEXT_2_VIDEO**: Text-to-video - Generate videos using only text prompts - **FIRST_AND_LAST_FRAMES_2_VIDEO**: First and last frames to"
+              "hint": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений.",
+              "desc": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений."
             },
             {
               "name": "aspect_ratio",
@@ -3607,23 +3583,8 @@
                 "9:16",
                 "Auto"
               ],
-              "hint": "Video aspect ratio. Specifies the dimension ratio of the generated video. Available options: - 16:9: Landscape video format. - 9:16: Portrait video format, suitable for mobile short videos - Auto: In auto mode, the video"
-            },
-            {
-              "name": "enable_fallback",
-              "label": "Fallback",
-              "kind": "toggle",
-              "required": false,
-              "default": false,
-              "hint": "Deprecated. Remove it from requests."
-            },
-            {
-              "name": "enable_translation",
-              "label": "Перевод",
-              "kind": "toggle",
-              "required": false,
-              "default": null,
-              "hint": "Optional. When true, the prompt is translated to English before generation."
+              "hint": "Video aspect ratio.",
+              "desc": "Video aspect ratio."
             },
             {
               "name": "watermark",
@@ -3631,7 +3592,8 @@
               "kind": "text",
               "required": false,
               "default": null,
-              "hint": "Watermark text. - Optional parameter - If provided, a watermark will be added to the generated video"
+              "hint": "Watermark text.",
+              "desc": "Watermark text."
             },
             {
               "name": "resolution",
@@ -3644,7 +3606,8 @@
                 "1080p",
                 "4k"
               ],
-              "hint": "Output resolution: 720p (default), 1080p or 4k. For 1080p and 4k, the video URL is in resultJson.data.result_urls (the 720p version is in data.origin_urls). Controls the pixel dimensions of the generated video. Higher re"
+              "hint": "Output resolution: 720p (default), 1080p or 4k.",
+              "desc": "Output resolution: 720p (default), 1080p or 4k."
             },
             {
               "name": "duration",
@@ -3657,112 +3620,180 @@
                 "6",
                 "8"
               ],
-              "hint": "The duration of the generated video, in seconds. Optional values are 4, 6, 8. **Important Note**: - The REFERENCE_2_VIDEO mode currently only supports a duration of 8 seconds."
+              "hint": "The duration of the generated video, in seconds.",
+              "desc": "The duration of the generated video, in seconds."
             }
           ],
-          "pricing": {
-            "unit": "gen",
-            "rules": [
-              {
-                "when": {
-                  "mode": "lite",
-                  "resolution": "720p"
-                },
-                "credits": 30.0,
-                "usd_kie": 0.15,
-                "usd_client": 0.1875
-              },
-              {
-                "when": {
-                  "mode": "lite",
-                  "resolution": "1080p"
-                },
-                "credits": 35.0,
-                "usd_kie": 0.175,
-                "usd_client": 0.2188
-              },
-              {
-                "when": {
-                  "mode": "lite",
-                  "resolution": "4K"
-                },
-                "credits": 150.0,
-                "usd_kie": 0.75,
-                "usd_client": 0.9375
-              },
-              {
-                "when": {
-                  "mode": "fast",
-                  "resolution": "720p"
-                },
-                "credits": 60.0,
-                "usd_kie": 0.3,
-                "usd_client": 0.375
-              },
-              {
-                "when": {
-                  "mode": "fast",
-                  "resolution": "1080p"
-                },
-                "credits": 65.0,
-                "usd_kie": 0.325,
-                "usd_client": 0.4062
-              },
-              {
-                "when": {
-                  "mode": "fast",
-                  "resolution": "4K"
-                },
-                "credits": 180.0,
-                "usd_kie": 0.9,
-                "usd_client": 1.125
-              },
-              {
-                "when": {
-                  "mode": "quality",
-                  "resolution": "720p"
-                },
-                "credits": 250.0,
-                "usd_kie": 1.25,
-                "usd_client": 1.5625
-              },
-              {
-                "when": {
-                  "mode": "quality",
-                  "resolution": "1080p"
-                },
-                "credits": 255.0,
-                "usd_kie": 1.275,
-                "usd_client": 1.5938
-              },
-              {
-                "when": {
-                  "mode": "quality",
-                  "resolution": "4K"
-                },
-                "credits": 370.0,
-                "usd_kie": 1.85,
-                "usd_client": 2.3125
-              }
-            ],
-            "default": 60.0,
-            "note": "за генерацию/ролик/картинку; кредиты: 30, 35, 60, 65, 150, 180, 250, 255, 370; прайс kie.ai: Lite mode (text-to-video / image-to-video/ reference-to-video): 720P — 30 credits (≈ $0.15) per video; 1080P — 35 credits (≈ $0.175) per video; 4K — 150 credits (≈ $0.75) per video. Fast mode (text-to-video / image-to-video / reference-to-video): 720P — 60 cre",
-            "credit_usd": 0.005,
-            "source_text": "Lite mode (text-to-video / image-to-video/ reference-to-video): 720P — 30 credits (≈ $0.15) per video; 1080P — 35 credits (≈ $0.175) per video; 4K — 150 credits (≈ $0.75) per video. Fast mode (text-to-video / image-to-video / reference-to-video): 720P — 60 credits (≈ $0.30) per video; 1080P — 65 credits (≈ $0.325) per video; 4K — 180 credits (≈ $0.90) per video. Quality mode (text-to-video / image-to-video): 720P — 250 credits (≈ $1.25) per video; 1080P — 255 credits (≈ $1.275) per video; 4K — 370 credits (≈ $1.85) per video. High-tier top-ups (+10% bonus) reduce the effective cost by about 10%, making pricing even lower for Lite, Fast, and Quality mode across all resolutions.",
-            "affects_price": [
-              "mode",
-              "resolution"
-            ],
-            "formula": "фикс за видео: тир (lite/fast/quality) × разрешение (720P/1080P/4K); длительность в цену не входит",
-            "pricing_source": "docs/kie-prices-usd.json"
-          },
           "constraints": [
             "обязательные поля: prompt"
           ],
-          "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md",
-          "fields_source": "docs.kie.ai OpenAPI (input)",
-          "fields_known": true,
-          "in_live_api": true
+          "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
+        },
+        {
+          "id": "lite",
+          "label": "Lite",
+          "kie_id": "veo-3-1/lite",
+          "task_type": "Text to Video, Image to Video",
+          "api": "veo",
+          "endpoint": "/api/v1/veo/generate",
+          "fields": [
+            {
+              "name": "prompt",
+              "label": "Промпт",
+              "kind": "textarea",
+              "required": true,
+              "default": null,
+              "hint": "Text prompt describing the desired video content. Required for all generation modes.",
+              "desc": "Text prompt describing the desired video content. Required for all generation modes."
+            },
+            {
+              "name": "image_urls",
+              "label": "Картинки",
+              "kind": "images",
+              "required": false,
+              "default": null,
+              "hint": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений.",
+              "desc": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений."
+            },
+            {
+              "name": "aspect_ratio",
+              "label": "Соотношение сторон",
+              "kind": "select",
+              "required": false,
+              "default": "16:9",
+              "options": [
+                "16:9",
+                "9:16",
+                "Auto"
+              ],
+              "hint": "Video aspect ratio.",
+              "desc": "Video aspect ratio."
+            },
+            {
+              "name": "watermark",
+              "label": "Водяной знак",
+              "kind": "text",
+              "required": false,
+              "default": null,
+              "hint": "Watermark text.",
+              "desc": "Watermark text."
+            },
+            {
+              "name": "resolution",
+              "label": "Разрешение",
+              "kind": "select",
+              "required": false,
+              "default": "720p",
+              "options": [
+                "720p",
+                "1080p",
+                "4k"
+              ],
+              "hint": "Output resolution: 720p (default), 1080p or 4k.",
+              "desc": "Output resolution: 720p (default), 1080p or 4k."
+            },
+            {
+              "name": "duration",
+              "label": "Длительность, сек",
+              "kind": "select",
+              "required": false,
+              "default": 8,
+              "options": [
+                "4",
+                "6",
+                "8"
+              ],
+              "hint": "The duration of the generated video, in seconds.",
+              "desc": "The duration of the generated video, in seconds."
+            }
+          ],
+          "constraints": [
+            "обязательные поля: prompt"
+          ],
+          "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
+        },
+        {
+          "id": "quality",
+          "label": "Quality",
+          "kie_id": "veo-3-1/quality",
+          "task_type": "Text to Video, Image to Video",
+          "api": "veo",
+          "endpoint": "/api/v1/veo/generate",
+          "fields": [
+            {
+              "name": "prompt",
+              "label": "Промпт",
+              "kind": "textarea",
+              "required": true,
+              "default": null,
+              "hint": "Text prompt describing the desired video content. Required for all generation modes.",
+              "desc": "Text prompt describing the desired video content. Required for all generation modes."
+            },
+            {
+              "name": "image_urls",
+              "label": "Картинки",
+              "kind": "images",
+              "required": false,
+              "default": null,
+              "hint": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений.",
+              "desc": "Image URLs. 1-2 изображения (первый и последний кадры) или до 3 референсных изображений."
+            },
+            {
+              "name": "aspect_ratio",
+              "label": "Соотношение сторон",
+              "kind": "select",
+              "required": false,
+              "default": "16:9",
+              "options": [
+                "16:9",
+                "9:16",
+                "Auto"
+              ],
+              "hint": "Video aspect ratio.",
+              "desc": "Video aspect ratio."
+            },
+            {
+              "name": "watermark",
+              "label": "Водяной знак",
+              "kind": "text",
+              "required": false,
+              "default": null,
+              "hint": "Watermark text.",
+              "desc": "Watermark text."
+            },
+            {
+              "name": "resolution",
+              "label": "Разрешение",
+              "kind": "select",
+              "required": false,
+              "default": "720p",
+              "options": [
+                "720p",
+                "1080p",
+                "4k"
+              ],
+              "hint": "Output resolution: 720p (default), 1080p or 4k.",
+              "desc": "Output resolution: 720p (default), 1080p or 4k."
+            },
+            {
+              "name": "duration",
+              "label": "Длительность, сек",
+              "kind": "select",
+              "required": false,
+              "default": 8,
+              "options": [
+                "4",
+                "6",
+                "8"
+              ],
+              "hint": "The duration of the generated video, in seconds.",
+              "desc": "The duration of the generated video, in seconds."
+            }
+          ],
+          "constraints": [
+            "обязательные поля: prompt"
+          ],
+          "docs_url": "https://docs.kie.ai/veo3-api/generate-veo-3-video.md"
         },
         {
           "id": "extend",
@@ -3967,7 +3998,8 @@
           "fields_known": true,
           "in_live_api": true
         }
-      ]
+      ],
+      "default_mode": "fast"
     },
     {
       "id": "hailuo-2-3",
@@ -5176,6 +5208,15 @@
                 "4K"
               ],
               "hint": "Required. Generation mode. std has standard resolution, pro has higher resolution, 4K has 4K resolution. Resolution mapping: - **std mode**: 16:9 (1280×720), 9:16 (720×1280), 1:1 (720×720) - **pro mode**: 16:9 (1920×1080"
+            },
+            {
+              "name": "multi_shots",
+              "label": "Мульти-шоты",
+              "kind": "toggle",
+              "required": false,
+              "default": false,
+              "hint": "Несколько планов в одном ролике",
+              "desc": "Несколько планов в одном ролике"
             }
           ],
           "pricing": {
@@ -6165,7 +6206,7 @@
               "kind": "number",
               "required": false,
               "default": 5,
-              "min": 3,
+              "min": 5,
               "max": 30,
               "hint": "Output video duration in seconds. Integer from 3 to 30. Default: `5`. Also caps the total number of frames (first + middle + last): - 3 s → 4 frames - 4 s → 5 frames - 5 s → 6 frames - 6 s → 7 frames - 7 s → 8 frames - 8"
             },
@@ -6289,7 +6330,7 @@
               "kind": "number",
               "required": false,
               "default": 5,
-              "min": 3,
+              "min": 5,
               "max": 20,
               "hint": "Output video duration in seconds. Integer from 3 to 20. Default: `5`."
             },
@@ -6382,7 +6423,7 @@
               "kind": "number",
               "required": false,
               "default": 5,
-              "min": 3,
+              "min": 5,
               "max": 30,
               "hint": "Output video duration in seconds. Integer from 3 to 30. Default: `5`."
             },
@@ -6541,7 +6582,7 @@
               "kind": "number",
               "required": false,
               "default": 5,
-              "min": 3,
+              "min": 5,
               "max": 20,
               "hint": "Output video duration in seconds. Integer from 3 to 20. Default: `5`."
             },

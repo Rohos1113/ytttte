@@ -4685,6 +4685,174 @@
       "pricing_desc": "Billed per image by total output pixels: 1.8 credits ($0.009) up to 4.5 MP (1K / 2K) and 5.5 credits ($0.0275) up to 20 MP (4K) — about 60% below official pricing.\n\nHigh-tier top-ups come with bonus credits that lower the effective price by about 10%.",
       "schema_fields_present": true,
       "default_note": "совпало с дефолтами схемы docs (resolution=2K)"
+    },
+    "veo-3-1/fast": {
+      "kie_id": "veo-3-1/fast",
+      "brand": "Google",
+      "media": "video",
+      "task_type": [
+        "Text to Video",
+        "Image to Video"
+      ],
+      "unit": "gen",
+      "formula": "фикс за видео: разрешение (720P/1080P/4K)",
+      "rules": [
+        {
+          "when": {
+            "resolution": "720p"
+          },
+          "credits": 60.0,
+          "usd_kie": 0.3,
+          "usd_client": 0.375
+        },
+        {
+          "when": {
+            "resolution": "1080p"
+          },
+          "credits": 65.0,
+          "usd_kie": 0.325,
+          "usd_client": 0.4062
+        },
+        {
+          "when": {
+            "resolution": "4K"
+          },
+          "credits": 180.0,
+          "usd_kie": 0.9,
+          "usd_client": 1.125
+        },
+        {
+          "when": {
+            "resolution": "4k"
+          },
+          "credits": 180.0,
+          "usd_kie": 0.9,
+          "usd_client": 1.125
+        }
+      ],
+      "extra_charges": [],
+      "duration_billing": null,
+      "draft_inherits": null,
+      "default_usd_kie": 0.3,
+      "default_usd_client": 0.375,
+      "markup": 1.25,
+      "source": "pricingDesc",
+      "note": "Fast: 60/65/180 кр (720P/1080P/4K)",
+      "affects_price": [
+        "resolution"
+      ]
+    },
+    "veo-3-1/lite": {
+      "kie_id": "veo-3-1/lite",
+      "brand": "Google",
+      "media": "video",
+      "task_type": [
+        "Text to Video",
+        "Image to Video"
+      ],
+      "unit": "gen",
+      "formula": "фикс за видео: разрешение (720P/1080P/4K)",
+      "rules": [
+        {
+          "when": {
+            "resolution": "720p"
+          },
+          "credits": 30.0,
+          "usd_kie": 0.15,
+          "usd_client": 0.1875
+        },
+        {
+          "when": {
+            "resolution": "1080p"
+          },
+          "credits": 35.0,
+          "usd_kie": 0.175,
+          "usd_client": 0.2188
+        },
+        {
+          "when": {
+            "resolution": "4K"
+          },
+          "credits": 150.0,
+          "usd_kie": 0.75,
+          "usd_client": 0.9375
+        },
+        {
+          "when": {
+            "resolution": "4k"
+          },
+          "credits": 150.0,
+          "usd_kie": 0.75,
+          "usd_client": 0.9375
+        }
+      ],
+      "extra_charges": [],
+      "duration_billing": null,
+      "draft_inherits": null,
+      "default_usd_kie": 0.15,
+      "default_usd_client": 0.1875,
+      "markup": 1.25,
+      "source": "pricingDesc",
+      "note": "Lite: 30/35/150 кр (720P/1080P/4K)",
+      "affects_price": [
+        "resolution"
+      ]
+    },
+    "veo-3-1/quality": {
+      "kie_id": "veo-3-1/quality",
+      "brand": "Google",
+      "media": "video",
+      "task_type": [
+        "Text to Video",
+        "Image to Video"
+      ],
+      "unit": "gen",
+      "formula": "фикс за видео: разрешение (720P/1080P/4K)",
+      "rules": [
+        {
+          "when": {
+            "resolution": "720p"
+          },
+          "credits": 250.0,
+          "usd_kie": 1.25,
+          "usd_client": 1.5625
+        },
+        {
+          "when": {
+            "resolution": "1080p"
+          },
+          "credits": 255.0,
+          "usd_kie": 1.275,
+          "usd_client": 1.5938
+        },
+        {
+          "when": {
+            "resolution": "4K"
+          },
+          "credits": 370.0,
+          "usd_kie": 1.85,
+          "usd_client": 2.3125
+        },
+        {
+          "when": {
+            "resolution": "4k"
+          },
+          "credits": 370.0,
+          "usd_kie": 1.85,
+          "usd_client": 2.3125
+        }
+      ],
+      "extra_charges": [],
+      "duration_billing": null,
+      "draft_inherits": null,
+      "default_usd_kie": 1.25,
+      "default_usd_client": 1.5625,
+      "markup": 1.25,
+      "source": "pricingDesc",
+      "note": "Quality: 250/255/370 кр (720P/1080P/4K)",
+      "affects_price": [
+        "resolution"
+      ]
     }
   },
   "complex_formulas": {

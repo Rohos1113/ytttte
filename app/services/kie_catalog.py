@@ -1364,6 +1364,23 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
             if "multi_shots" not in body:
                 body["multi_shots"] = False
         return {"model": resolved_model, "input": body}
+    if api == "veo":
+        mid = str(spec.get("mode_id") or spec.get("id") or "").lower()
+        if "lite" in mid:
+            body["model"] = "veo3_lite"
+        elif "quality" in mid or mid == "veo3":
+            body["model"] = "veo3"
+        elif "fast" in mid or "generate" in mid or "model" not in body:
+            body["model"] = "veo3_fast"
+
+        if "generation_type" not in body and "generationType" not in body:
+            imgs = body.get("image_urls") or body.get("imageUrls") or []
+            if imgs:
+                body["generation_type"] = "FIRST_AND_LAST_FRAMES_2_VIDEO"
+            else:
+                body["generation_type"] = "TEXT_2_VIDEO"
+        body.pop("enable_fallback", None)
+        body.pop("enableFallback", None)
     if api in ("veo", "runway") and "duration" in body:
         # veo/runway ждут duration числом, даже если в UI это select
         with contextlib.suppress(TypeError, ValueError):
@@ -1547,6 +1564,13 @@ def get_mode(
                 return mode
         if str(fam.get("id")) == "seedance-2-0" and key == "mini":
             return get_mode("seedance-2-0-mini", "mini")
+        if str(fam.get("id")) == "veo-3-1":
+            if key in ("generate", "veo3_fast", "fast"):
+                return get_mode("veo-3-1", "fast")
+            if key in ("veo3_lite", "lite"):
+                return get_mode("veo-3-1", "lite")
+            if key in ("veo3", "quality"):
+                return get_mode("veo-3-1", "quality")
         return None
     default_id = str(fam.get("default_mode") or "")
     for mode in modes:
