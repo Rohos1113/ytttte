@@ -167,7 +167,7 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
 
   if (id === "veo-3-1-lite") {
     return {
-      resolutions: ["720p"],
+      resolutions: ["720p", "1080p"],
       qualities: [],
       aspects: ["16:9", "9:16"],
       defaultResolution: "720p",

@@ -3697,11 +3697,10 @@
               "default": "720p",
               "options": [
                 "720p",
-                "1080p",
-                "4k"
+                "1080p"
               ],
-              "hint": "Output resolution: 720p (default), 1080p or 4k.",
-              "desc": "Output resolution: 720p (default), 1080p or 4k."
+              "hint": "Output resolution: 720p (default) or 1080p.",
+              "desc": "Output resolution: 720p (default) or 1080p."
             },
             {
               "name": "duration",

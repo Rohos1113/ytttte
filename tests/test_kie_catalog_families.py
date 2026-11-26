@@ -1038,7 +1038,7 @@ def test_expensive_setting_changes_price() -> None:
     """Дорогая настройка в каждом из 6 случаев аудита реально поднимает цену."""
     pairs = [
         (("veo-3-1", "quality"), {"resolution": "720p"}, {"resolution": "4k"}),
-        (("veo-3-1-lite", "lite"), {"resolution": "720p"}, {"resolution": "4k"}),
+        (("veo-3-1-lite", "lite"), {"resolution": "720p"}, {"resolution": "1080p"}),
         (("gpt-image-2", "t2i"), {"resolution": "1K", "aspect_ratio": "1:1"}, {"resolution": "4K", "aspect_ratio": "1:1"}),
         (("kling-2-6", "i2v"), {"duration": 5, "sound": False}, {"duration": 10, "sound": True}),
         (

@@ -4639,7 +4639,7 @@
         "Image to Video"
       ],
       "unit": "gen",
-      "formula": "фикс за видео: разрешение (720P/1080P/4K)",
+      "formula": "фикс за видео: разрешение (720P/1080P)",
       "rules": [
         {
           "when": {
@@ -4656,22 +4656,6 @@
           "credits": 35.0,
           "usd_kie": 0.175,
           "usd_client": 0.2188
-        },
-        {
-          "when": {
-            "resolution": "4K"
-          },
-          "credits": 150.0,
-          "usd_kie": 0.75,
-          "usd_client": 0.9375
-        },
-        {
-          "when": {
-            "resolution": "4k"
-          },
-          "credits": 150.0,
-          "usd_kie": 0.75,
-          "usd_client": 0.9375
         }
       ],
       "extra_charges": [],
@@ -4681,7 +4665,7 @@
       "default_usd_client": 0.1875,
       "markup": 1.25,
       "source": "pricingDesc",
-      "note": "Lite: 30/35/150 кр (720P/1080P/4K)",
+      "note": "Lite: 30/35 кр (720P/1080P)",
       "affects_price": [
         "resolution"
       ]
