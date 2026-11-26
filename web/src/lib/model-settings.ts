@@ -622,10 +622,13 @@ const NO_MODE_FAMILIES = new Set([
   "flux-3",
   "flux-1-kontext",
   "minimax-h3",
+  "minimax-h3-t2v",
   "minimax-h3-image",
   "qwen3-image",
   "wan-2-7-image",
   "kling-4-0",
+  "hailuo-2-3",
+  "hailuo-2-3-i2v",
 ]);
 
 /** Опции селектора режима для дока (id/label/hint). */
@@ -633,7 +636,8 @@ export function kieModeOptions(
   model: KieModelSpec | null | undefined,
 ): { id: string; label: string; hint?: string }[] {
   const familyId = String(model?.id || "").replace(/^kie:/, "").trim();
-  if (NO_MODE_FAMILIES.has(familyId)) {
+  const rawFamId = String((model as { family_id?: string })?.family_id || "").trim();
+  if (NO_MODE_FAMILIES.has(familyId) || (rawFamId && NO_MODE_FAMILIES.has(rawFamId))) {
     return [];
   }
   const modes = kieFamilyModes(model);

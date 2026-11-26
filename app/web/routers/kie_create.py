@@ -240,8 +240,36 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
 
     family: dict[str, Any] | None = None
     mode: dict[str, Any] | None = None
+    family = kie_catalog.get_family(model_id)
+
+    # Автоопределение режима для семейств с автодетектом (MiniMax H3)
+    if family is not None and str(family.get("id")) == "minimax-h3":
+        has_refs = bool(
+            values.get("reference_image_urls")
+            or values.get("reference_video_urls")
+            or values.get("reference_audio_urls")
+            or "@image_" in str(values.get("prompt") or "")
+        )
+        has_frame = bool(
+            values.get("first_frame_url")
+            or values.get("last_frame_url")
+            or values.get("image_url")
+            or values.get("image_urls")
+        )
+        if has_refs:
+            mode_id = "r2v"
+        elif has_frame:
+            mode_id = "i2v"
+            if not values.get("first_frame_url"):
+                img = values.get("image_url") or values.get("image_urls")
+                if img:
+                    values["first_frame_url"] = img[0] if isinstance(img, list) else img
+        elif not mode_id:
+            mode_id = "t2v"
+
     if mode_id:
-        family = kie_catalog.get_family(model_id)
+        if family is None:
+            family = kie_catalog.get_family(model_id)
         mode = kie_catalog.get_mode(family, mode_id) if family is not None else None
         if family is None or mode is None:
             raise HTTPException(

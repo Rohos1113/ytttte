@@ -1666,6 +1666,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const isKling3 = mediaType === "video" && kieActive && Boolean(kieModel?.id?.startsWith("kling-3-0"));
   const isKling4 = mediaType === "video" && kieActive && Boolean(kieModel?.id?.startsWith("kling-4-0"));
+  const isHailuo23 =
+    mediaType === "video" &&
+    kieActive &&
+    Boolean(kieModel?.id?.startsWith("hailuo-2-3") || (kieModel as { family_id?: string })?.family_id === "hailuo-2-3");
 
   const kling3Variant: "standard" | "omni" | "turbo" = useMemo(() => {
     const m = kieMode?.id || "";
@@ -1680,6 +1684,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     return "standard";
   }, [kieMode?.id]);
 
+  const hailuoVariant: "standard" | "pro" = useMemo(() => {
+    const m = kieMode?.id || "";
+    if (m.includes("standard")) return "standard";
+    return "pro";
+  }, [kieMode?.id]);
+
   const applyKling3Variant = (v: "standard" | "omni" | "turbo") => {
     if (v === "omni") switchKieMode("omni-t2v");
     else if (v === "turbo") switchKieMode("turbo-t2v");
@@ -1689,6 +1699,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const applyKling4Variant = (v: "standard" | "flash") => {
     if (v === "flash") switchKieMode("keyframe-flash");
     else switchKieMode("keyframe");
+  };
+
+  const applyHailuoVariant = (v: "standard" | "pro") => {
+    if (v === "standard") switchKieMode("i2v-standard");
+    else switchKieMode("i2v-pro");
   };
 
   /** Клик по строке пикера: строка = семейство + режим. */
@@ -1904,10 +1919,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       return { supportsFirst: false, supportsLast: false, supportsRefs: false, maxRefs: 0 };
     }
     if (kieActive && kieModel) {
-      const fieldNames = new Set(kieModel.fields.map((f) => f.name));
-      const hasFirst = fieldNames.has("first_frame_url") || fieldNames.has("first_frame");
+      const allModeFields = kieModes.flatMap((m) => m.fields || []);
+      const allFields = [...kieModel.fields, ...allModeFields];
+      const fieldNames = new Set(allFields.map((f) => f.name));
+      const hasFirst =
+        fieldNames.has("first_frame_url") ||
+        fieldNames.has("first_frame") ||
+        fieldNames.has("image_url");
       const hasLast = fieldNames.has("last_frame_url") || fieldNames.has("last_frame");
-      const multiImg = kieModel.fields.find(
+      const multiImg = allFields.find(
         (f) =>
           f.kind === "images" ||
           ["image_urls", "imageUrls", "images", "image_input"].includes(f.name),
@@ -1916,7 +1936,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
       const supportsFirst = hasFirst || Boolean(multiImg);
       const supportsLast = hasLast || (Boolean(multiImg) && multiMax >= 2);
-      const refField = kieModel.fields.find(
+      const refField = allFields.find(
         (f) =>
           f.name === "reference_image_urls" ||
           f.name === "reference_images" ||
@@ -2701,13 +2721,30 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
            */
           const sameFamily =
             Boolean(effectiveKieModel && kieModel) && effectiveKieModel!.id === kieModel!.id;
-          const payloadModeId = retry
+          let payloadModeId = retry
             ? typeof retryParams.mode === "string" && retryParams.mode
               ? retryParams.mode
               : null
             : sameFamily
               ? (slugModeId ?? kieModeId)
               : slugModeId;
+
+          const isMinimaxH3 = Boolean(
+            effectiveKieModel?.id?.startsWith("minimax-h3") ||
+              kieModel?.id?.startsWith("minimax-h3"),
+          );
+          if (isMinimaxH3 && !retry) {
+            const hasFrameInput = Boolean(firstFrameDataUrl || lastFrameDataUrl);
+            const hasRefInput =
+              (refUrls && refUrls.length > 0) || Boolean(text && /@image_\d+/i.test(text));
+            if (hasRefInput) {
+              payloadModeId = "r2v";
+            } else if (hasFrameInput) {
+              payloadModeId = "i2v";
+            } else {
+              payloadModeId = "t2v";
+            }
+          }
           const payloadFields = (() => {
             const base = effectiveKieModel ?? kieModel;
             const mode = payloadModeId ? kieFamilyMode(base, payloadModeId) : null;
@@ -4775,7 +4812,22 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }
                       // Аудио-теги и клонирование — там же, в «Параметрах».
                       panelExtras={
-                        elevenlabsAudio ? (
+                        isHailuo23 ? (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-semibold tracking-wider text-white/50 uppercase">
+                              Качество
+                            </span>
+                            <SegmentedPills<"standard" | "pro">
+                              ariaLabel="Качество Hailuo 2.3"
+                              options={[
+                                { id: "standard", label: "Standard", title: "Hailuo 2.3 Standard" },
+                                { id: "pro", label: "Pro", title: "Hailuo 2.3 Pro" },
+                              ]}
+                              value={hailuoVariant}
+                              onChange={applyHailuoVariant}
+                            />
+                          </div>
+                        ) : elevenlabsAudio ? (
                           <>
                             <AudioTagsRow onInsertTag={handleInsertAudioTag} />
                             <button
@@ -4815,6 +4867,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             ]}
                             value={kling4Variant}
                             onChange={applyKling4Variant}
+                          />
+                        ) : isHailuo23 ? (
+                          <SegmentedPills<"standard" | "pro">
+                            ariaLabel="Качество Hailuo 2.3"
+                            options={[
+                              { id: "standard", label: "Standard", title: "Hailuo 2.3 Standard" },
+                              { id: "pro", label: "Pro", title: "Hailuo 2.3 Pro" },
+                            ]}
+                            value={hailuoVariant}
+                            onChange={applyHailuoVariant}
                           />
                         ) : undefined
                       }

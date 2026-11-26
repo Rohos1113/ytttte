@@ -447,6 +447,16 @@ test("kieModeOptions: id/label/hint для селектора режима", () 
     { id: "t2v", label: "Текст → видео", hint: "просто текст" },
     { id: "i2v", label: "i2v", hint: undefined },
   ]);
+
+  // Скрытие режимов для семейств без ручного выбора (Hailuo 2.3, MiniMax H3)
+  assert.deepEqual(
+    kieModeOptions(model({ id: "hailuo-2-3-i2v", modes: [mode("i2v-pro"), mode("i2v-standard")] })),
+    [],
+  );
+  assert.deepEqual(
+    kieModeOptions(model({ id: "minimax-h3-t2v", modes: [mode("t2v"), mode("i2v"), mode("r2v")] })),
+    [],
+  );
 });
 
 test("valuesForMode: оставляет поля нового режима и служебные ключи", () => {
