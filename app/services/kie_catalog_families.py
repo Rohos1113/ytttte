@@ -1080,13 +1080,13 @@ FAMILIES: list[dict[str, Any]] = [{'id': 'happyhorse-1-1',
              'endpoint': '/api/v1/veo/generate',
              'docs_url': 'https://docs.kie.ai/veo3-api/generate-veo-3-video.md'}]},
  {'id': 'veo-3-1-lite',
-  'label': 'Veo 3.1 Lite',
+  'label': 'veo-3.1-fast-generate-preview',
   'brand': 'Google',
   'media': 'video',
-  'desc': 'Доступная версия Google Veo 3.1 для генерации видео.',
+  'desc': 'Google Veo 3.1 Fast Preview (veo-3.1-fast-generate-preview) на 52pay.',
   'default_mode': 'lite',
   'modes': [{'id': 'lite',
-             'label': 'Lite',
+             'label': 'Fast Preview',
              'kie_id': 'veo-3-1-lite',
              'task_type': 'Text to Video, Image to Video',
              'api': 'veo',
@@ -3233,7 +3233,7 @@ FAMILIES: list[dict[str, Any]] = [{'id': 'happyhorse-1-1',
   'desc': 'описания в источниках нет',
   'default_mode': 'video',
   'modes': [{'id': 'video',
-             'label': 'Видео (текст / картинка / видео)',
+             'label': 'Видео',
              'kie_id': 'wan/3-0-video',
              'task_type': 'Text to Video, Image to Video, Video to Video',
              'api': 'jobs',
@@ -3425,203 +3425,7 @@ FAMILIES: list[dict[str, Any]] = [{'id': 'happyhorse-1-1',
                              'reference_link_urls: до 1 шт.',
                              'seed: 0–2147483647'],
              'endpoint': '/api/v1/jobs/createTask',
-             'docs_url': 'https://docs.kie.ai/market/wan/3-0-video.md'},
-            {'id': 'prime',
-             'label': 'Видео Prime',
-             'kie_id': 'wan/3-0-video-prime',
-             'task_type': 'Text to Video, Image to Video, Video to Video',
-             'api': 'jobs',
-             'media': 'video',
-             'fields': [{'name': 'prompt',
-                         'label': 'Промпт',
-                         'kind': 'textarea',
-                         'required': False,
-                         'default': None,
-                         'hint': 'Text prompt. Chinese and English are supported. Up to 20,000 characters. '
-                                 'Required for text-to-video; for other modes, it is recommended to provide '
-                                 'it together with media. In reference mode, use Image1/Video1/Audio1 to re '
-                                 '(макс. 20000 симв.)',
-                         'desc': 'Text prompt. Chinese and English are supported. Up to 20,000 characters. '
-                                 'Required for text-to-video; for other modes, it is recommended to provide '
-                                 'it together with media. In reference mode, use Image1/Video1/Audio1 to re '
-                                 '(макс. 20000 симв.)'},
-                        {'name': 'first_frame_url',
-                         'label': 'Первый кадр',
-                         'kind': 'images',
-                         'required': False,
-                         'default': None,
-                         'max_items': 1,
-                         'hint': 'URL of the first-frame image. Up to 1 image, used strictly as the first '
-                                 'frame of the video. Used for first-frame-to-video or '
-                                 'first-and-last-frame-to-video generation. Cannot be provided together with '
-                                 '`reference_*_urls`. ',
-                         'desc': 'URL of the first-frame image. Up to 1 image, used strictly as the first '
-                                 'frame of the video. Used for first-frame-to-video or '
-                                 'first-and-last-frame-to-video generation. Cannot be provided together with '
-                                 '`reference_*_urls`. '},
-                        {'name': 'last_frame_url',
-                         'label': 'Последний кадр',
-                         'kind': 'images',
-                         'required': False,
-                         'default': None,
-                         'max_items': 1,
-                         'hint': 'URL of the last-frame image. Use together with first_frame_url. Same '
-                                 'format limits as first_frame_url.',
-                         'desc': 'URL of the last-frame image. Use together with first_frame_url. Same '
-                                 'format limits as first_frame_url.'},
-                        {'name': 'reference_image_urls',
-                         'label': 'Референс-картинки',
-                         'kind': 'images',
-                         'required': False,
-                         'default': None,
-                         'max_items': 10,
-                         'hint': 'Reference images for all-purpose reference mode. Up to 10 images. '
-                                 'Correspond to Image1, Image2, and so on in the prompt according to array '
-                                 'order. Same specifications as `first_frame_url`. Cannot be provided '
-                                 'together with',
-                         'desc': 'Reference images for all-purpose reference mode. Up to 10 images. '
-                                 'Correspond to Image1, Image2, and so on in the prompt according to array '
-                                 'order. Same specifications as `first_frame_url`. Cannot be provided '
-                                 'together with'},
-                        {'name': 'reference_video_urls',
-                         'label': 'Референс-видео',
-                         'kind': 'videos',
-                         'required': False,
-                         'default': None,
-                         'max_items': 5,
-                         'hint': 'Reference videos for all-purpose reference mode. Up to 5 videos. Each '
-                                 'video must be 1–15s, with a combined duration of ≤ 15s. Correspond to '
-                                 'Video1, Video2, and so on according to array order. Formats: mp4, mov; '
-                                 'each side',
-                         'desc': 'Reference videos for all-purpose reference mode. Up to 5 videos. Each '
-                                 'video must be 1–15s, with a combined duration of ≤ 15s. Correspond to '
-                                 'Video1, Video2, and so on according to array order. Formats: mp4, mov; '
-                                 'each side'},
-                        {'name': 'reference_audio_urls',
-                         'label': 'Референс-аудио',
-                         'kind': 'audios',
-                         'required': False,
-                         'default': None,
-                         'max_items': 5,
-                         'hint': 'Reference audio files for all-purpose reference mode. Up to 5 audio files. '
-                                 'Each file must be 1–15s, with a combined duration of ≤ 15s. Correspond to '
-                                 'Audio1, Audio2, and so on according to array order. Formats: wav, mp3; ',
-                         'desc': 'Reference audio files for all-purpose reference mode. Up to 5 audio files. '
-                                 'Each file must be 1–15s, with a combined duration of ≤ 15s. Correspond to '
-                                 'Audio1, Audio2, and so on according to array order. Formats: wav, mp3; '},
-                        {'name': 'reference_file_urls',
-                         'label': 'Референс-файлы',
-                         'kind': 'images',
-                         'required': False,
-                         'default': None,
-                         'max_items': 1,
-                         'hint': 'File-to-video generation. Up to 1 file. Cannot be provided together with '
-                                 '`reference_link_urls`, or with the first-frame/last-frame image. Formats: '
-                                 'docx/doc/xlsx/xls/pptx/ppt/pdf/txt/key/pages/numbers/md; ≤ 100MB; pdf/doc',
-                         'desc': 'File-to-video generation. Up to 1 file. Cannot be provided together with '
-                                 '`reference_link_urls`, or with the first-frame/last-frame image. Formats: '
-                                 'docx/doc/xlsx/xls/pptx/ppt/pdf/txt/key/pages/numbers/md; ≤ 100MB; pdf/doc'},
-                        {'name': 'reference_link_urls',
-                         'label': 'Референс-ссылки',
-                         'kind': 'images',
-                         'required': False,
-                         'default': None,
-                         'max_items': 1,
-                         'hint': 'Link-to-video generation. Up to 1 publicly accessible webpage that does '
-                                 'not require login. Cannot be provided together with `reference_file_urls`, '
-                                 'or with the first-frame/last-frame image.',
-                         'desc': 'Link-to-video generation. Up to 1 publicly accessible webpage that does '
-                                 'not require login. Cannot be provided together with `reference_file_urls`, '
-                                 'or with the first-frame/last-frame image.'},
-                        {'name': 'resolution',
-                         'label': 'Разрешение',
-                         'kind': 'select',
-                         'required': False,
-                         'default': '1080P',
-                         'options': ['480P', '720P', '1080P'],
-                         'hint': 'Output resolution level. Default: **1080P**.',
-                         'desc': 'Output resolution level. Default: **1080P**.'},
-                        {'name': 'aspect_ratio',
-                         'label': 'Соотношение сторон',
-                         'kind': 'select',
-                         'required': False,
-                         'default': 'adaptive',
-                         'options': ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'],
-                         'hint': 'Output aspect ratio. `adaptive` (default) automatically selects the aspect '
-                                 'ratio based on the input materials and intent.',
-                         'desc': 'Output aspect ratio. `adaptive` (default) automatically selects the aspect '
-                                 'ratio based on the input materials and intent.'},
-                        {'name': 'duration',
-                         'label': 'Длительность, сек',
-                         'kind': 'number',
-                         'required': False,
-                         'default': 5,
-                         'min': 4,
-                         'hint': 'Output video duration in seconds. Default: 5. When there is no video '
-                                 'input, the value must be within [2, 30]. When reference videos are '
-                                 'provided: input video duration plus output duration ≤ 30. Pass `-1` to use '
-                                 'an intell',
-                         'desc': 'Output video duration in seconds. Default: 5. When there is no video '
-                                 'input, the value must be within [2, 30]. When reference videos are '
-                                 'provided: input video duration plus output duration ≤ 30. Pass `-1` to use '
-                                 'an intell'},
-                        {'name': 'audio',
-                         'label': 'Аудио',
-                         'kind': 'toggle',
-                         'required': False,
-                         'default': True,
-                         'hint': 'Whether the output video includes an audio track. Default: true.',
-                         'desc': 'Whether the output video includes an audio track. Default: true.'},
-                        {'name': 'seed',
-                         'label': 'Seed',
-                         'kind': 'number',
-                         'required': False,
-                         'default': None,
-                         'min': 0,
-                         'max': 2147483647,
-                         'hint': 'Random seed used to reproduce results. If omitted, a random seed is used.',
-                         'desc': 'Random seed used to reproduce results. If omitted, a random seed is used.'},
-                        {'name': 'nsfw_checker',
-                         'label': 'Проверка NSFW',
-                         'kind': 'toggle',
-                         'required': False,
-                         'default': None,
-                         'hint': 'Defaults to false. When false, no additional content filtering is applied '
-                                 'and results are returned directly by the model.',
-                         'desc': 'Defaults to false. When false, no additional content filtering is applied '
-                                 'and results are returned directly by the model.'}],
-             'pricing': {'unit': 'sec',
-                         'markup': 1.25,
-                         'usd_rules': [{'when': {'resolution': '480p'},
-                                        'usd_kie': 0.061,
-                                        'usd_client': 0.0762},
-                                       {'when': {'resolution': '720p'},
-                                        'usd_kie': 0.126,
-                                        'usd_client': 0.1575},
-                                       {'when': {'resolution': '1080p'},
-                                        'usd_kie': 0.252,
-                                        'usd_client': 0.315}],
-                         'usd_default_kie': 0.252,
-                         'usd_default_client': 0.315,
-                         'extra_charges': [],
-                         'note': '12.2 credits/s for 480P ($0.0612/s), 25.2 credits/s for 720P ($0.126/s), '
-                                 'and 50.4 credits/s for 1080P ($0.252/s), all 10% below official pricing.  '
-                                 'Note: The billing rule is (input video duration + output video duration) × '
-                                 'unit price.',
-                         'formula': '(длительность входного видео + длительность выхода) × тариф по '
-                                    'разрешению',
-                         'affects_price': ['resolution', 'duration'],
-                         'source': 'pricingDesc'},
-             'constraints': ['first_frame_url: до 1 шт.',
-                             'last_frame_url: до 1 шт.',
-                             'reference_image_urls: до 10 шт.',
-                             'reference_video_urls: до 5 шт.',
-                             'reference_audio_urls: до 5 шт.',
-                             'reference_file_urls: до 1 шт.',
-                             'reference_link_urls: до 1 шт.',
-                             'seed: 0–2147483647'],
-             'endpoint': '/api/v1/jobs/createTask',
-             'docs_url': 'https://docs.kie.ai/market/wan/3-0-video-prime.md'}]},
+             'docs_url': 'https://docs.kie.ai/market/wan/3-0-video.md'}]},
  {'id': 'flux-3',
   'label': 'Flux 3',
   'brand': 'Black Forest Labs',

@@ -275,8 +275,7 @@ function videoExtra(
 }
 
 const VIDEO_EXTRA: CatalogModel[] = [
-  videoExtra("veo-3-1-lite", "Veo 3.1 Lite", 0.15, "outsee"),
-  videoExtra("veo-3.1-fast-generate-preview", "Veo 3.1 Fast (52pay)", 0.0700, "52pay"),
+  videoExtra("veo-3-1-lite", "veo-3.1-fast-generate-preview (52pay)", 0.0182, "52pay"),
   videoExtra("veo-3-1", "Veo 3.1", 0.0312, "kie"),
   videoExtra("seedance-2-0-mini", "Seedance 2.0 Mini", 0.0243, "52pay"),
   videoExtra("seedance-2-0-fast", "Seedance 2.0 Fast", 0.0466, "52pay"),
@@ -286,9 +285,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
   videoExtra("kling-4-0", "Kling 4.0", 0.0706, "52pay / kie"),
   videoExtra("hailuo-2-3-i2v", "Hailuo 2.3", 0.1875, "kie"),
   videoExtra("minimax-h3-t2v", "MiniMax H3 (52pay)", 0.0263, "52pay"),
-  videoExtra("MiniMax-H3", "MiniMax H3 (52pay)", 0.0263, "52pay"),
   videoExtra("wan-3-0", "WAN 3.0 (52pay)", 0.0625, "52pay"),
-  videoExtra("wan3.0-video", "WAN 3.0 (52pay)", 0.0625, "52pay"),
 ];
 
 function normalizeSnapshot(row: SnapshotRow): CatalogModel {

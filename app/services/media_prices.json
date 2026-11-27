@@ -675,7 +675,7 @@
     },
     "pay52:MiniMax-H3@480p": {
       "unit": "item",
-      "usd_per_call": 0.0170
+      "usd_per_call": 0.017
     },
     "pay52:MiniMax-H3@768p": {
       "unit": "item",
@@ -695,7 +695,7 @@
     },
     "pay52:minimax-h3@480p": {
       "unit": "item",
-      "usd_per_call": 0.0170
+      "usd_per_call": 0.017
     },
     "pay52:minimax-h3@768p": {
       "unit": "item",
@@ -708,6 +708,82 @@
     "pay52:minimax-h3@2K": {
       "unit": "item",
       "usd_per_call": 0.0408
+    },
+    "pay52:minimax-h3/text-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/text-to-video@480p": {
+      "unit": "item",
+      "usd_per_call": 0.017
+    },
+    "pay52:minimax-h3/text-to-video@768p": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/text-to-video@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0357
+    },
+    "pay52:minimax-h3/text-to-video@2K": {
+      "unit": "item",
+      "usd_per_call": 0.0408
+    },
+    "pay52:minimax-h3/image-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/image-to-video@480p": {
+      "unit": "item",
+      "usd_per_call": 0.017
+    },
+    "pay52:minimax-h3/image-to-video@768p": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/image-to-video@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0357
+    },
+    "pay52:minimax-h3/image-to-video@2K": {
+      "unit": "item",
+      "usd_per_call": 0.0408
+    },
+    "pay52:minimax-h3/reference-to-video": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/reference-to-video@480p": {
+      "unit": "item",
+      "usd_per_call": 0.017
+    },
+    "pay52:minimax-h3/reference-to-video@768p": {
+      "unit": "item",
+      "usd_per_call": 0.0255
+    },
+    "pay52:minimax-h3/reference-to-video@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0357
+    },
+    "pay52:minimax-h3/reference-to-video@2K": {
+      "unit": "item",
+      "usd_per_call": 0.0408
+    },
+    "pay52:wan/3-0-video": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan/3-0-video@480p": {
+      "unit": "item",
+      "usd_per_call": 0.0306
+    },
+    "pay52:wan/3-0-video@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0612
+    },
+    "pay52:wan/3-0-video@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.1224
     }
   }
 }

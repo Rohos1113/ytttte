@@ -220,7 +220,7 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
     };
   }
 
-  if (id === "seedance-2-0") {
+  if (id === "seedance-2-0-mini" || id === "seedance-2-0") {
     return {
       resolutions: ["480p", "720p", "1080p", "4k"],
       qualities: [],

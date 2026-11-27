@@ -76,7 +76,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["kimi"] == 1
     assert counts["xai"] == 1
     assert "moonshot" not in counts
-    assert counts["images"] == 14
+    assert counts["images"] == 13
     assert counts["video"] == 11
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
@@ -100,7 +100,6 @@ def test_kie_image_models_in_catalog() -> None:
         "nano-banana-2-1",
         "seedream-5-pro",
         "seedream-5-flash",
-        "seedream-5-lite",
         "seedream-5-5",
         "flux-2-pro",
         "flux-3",
@@ -115,7 +114,6 @@ def test_kie_image_models_in_catalog() -> None:
         assert m["vendor"] == "images"
         assert (m["pricing"] or {}).get("usd_per_image") is not None
     assert "nano-banana" not in by_id
-    assert "nano-banana-pro" not in by_id
     assert "nano-banana-2-lite" not in by_id
 
 
@@ -125,7 +123,7 @@ def test_kie_video_models_in_catalog() -> None:
     for mid in (
         "veo-3-1-lite",
         "veo-3-1",
-        "seedance-2-0",
+        "seedance-2-0-mini",
         "seedance-2-0-fast",
         "seedance-2-5",
         "kling-2-6",

@@ -61,7 +61,7 @@ test("mediaOptionsForModel supports all 13 curated photo models", () => {
 const EXPECTED_VIDEO_IDS = [
   "veo-3-1-lite",
   "veo-3-1",
-  "seedance-2-0",
+  "seedance-2-0-mini",
   "seedance-2-0-fast",
   "seedance-2-5",
   "kling-2-6",
