@@ -458,22 +458,10 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                             raw_url=None,
                         )
                     elif is_pay52:
-                        try:
-                            if result_kind == "image":
-                                res = await pay52_image.run_generation(spec, values, out_path)
-                            else:
-                                res = await pay52_video.run_generation(spec, payload, out_path)
-                        except Exception as e_pay52:
-                            if kie_http.kie_configured():
-                                logger.warning(
-                                    "kie_create: 52pay generation failed ({}), falling back to KIE: {}",
-                                    type(e_pay52).__name__,
-                                    e_pay52,
-                                )
-                                call.provider = "kie"
-                                res = await kie_http.run_generation(spec, payload, out_path)
-                            else:
-                                raise
+                        if result_kind == "image":
+                            res = await pay52_image.run_generation(spec, values, out_path)
+                        else:
+                            res = await pay52_video.run_generation(spec, payload, out_path)
                     elif result_kind == "text":
                         task_id = await kie_http.create_task(
                             str(spec.get("api")), spec.get("endpoint"), payload

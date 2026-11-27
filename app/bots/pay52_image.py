@@ -241,12 +241,6 @@ async def run_generation(
         try:
             async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
                 r = await client.post(url, headers=headers, json=payload)
-                if r.status_code == 400 and payload.get("model") == "doubao-seedream-5.5":
-                    logger.warning(
-                        "pay52_image: ключ 52pay не имеет прав на doubao-seedream-5.5, мягкий fallback на doubao-seedream-5.0-pro"
-                    )
-                    fallback_payload = dict(payload, model="doubao-seedream-5.0-pro")
-                    r = await client.post(url, headers=headers, json=fallback_payload)
                 if r.status_code == 200:
                     data = r.json()
                     items = data.get("data") or []

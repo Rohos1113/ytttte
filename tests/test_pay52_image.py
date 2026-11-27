@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.bots.pay52_image import (
+    Pay52ImageError,
     build_pay52_image_payload,
     normalize_pay52_image_model,
     pay52_image_candidate_keys,
@@ -158,32 +159,27 @@ async def test_run_generation_url(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_generation_seedream_fallback(monkeypatch, tmp_path: Path) -> None:
+async def test_run_generation_seedream_fails_honestly_on_400(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PAY52_SEEDREAM_KEY", "good-key")
     s = Settings()
     out_file = tmp_path / "fallback.png"
 
-    sample_b64 = base64.b64encode(b"FALLBACK_IMAGE_DATA").decode("utf-8")
     resp_400 = httpx.Response(
         status_code=400,
         text="Unsupported seedream-5.5",
         request=httpx.Request("POST", "https://api.52pay.com/v1/images/generations"),
     )
-    resp_200 = httpx.Response(
-        status_code=200,
-        json={"data": [{"b64_json": sample_b64}]},
-        request=httpx.Request("POST", "https://api.52pay.com/v1/images/generations"),
-    )
 
     with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
-        mock_post.side_effect = [resp_400, resp_200]
+        mock_post.return_value = resp_400
         spec = {"model": "doubao-seedream-5.5"}
         values = {"prompt": "test fallback"}
-        result = await run_generation(spec, values, out_file, cfg=s)
+        with pytest.raises(Pay52ImageError) as exc_info:
+            await run_generation(spec, values, out_file, cfg=s)
 
-        assert mock_post.call_count == 2
-        assert result.file_path == out_file
-        assert out_file.read_bytes() == b"FALLBACK_IMAGE_DATA"
+        assert mock_post.call_count == 1
+        assert "400" in str(exc_info.value)
+        assert not out_file.exists()
 
 
 def test_build_payload_accepts_input_urls_and_image_input() -> None:
