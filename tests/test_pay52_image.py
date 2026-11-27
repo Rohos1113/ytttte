@@ -68,13 +68,13 @@ def test_pay52_image_key_selection(monkeypatch) -> None:
     # Candidate keys
     c_seed = pay52_image_candidate_keys("seedream-5-pro", cfg=s)
     assert c_seed[0] == "key-seedream"
-    assert "key-master-gpt" in c_seed
+    assert "key-master-gpt" not in c_seed
 
     # Fallback when specific key empty
     monkeypatch.setenv("PAY52_SEEDREAM_KEY", "")
     s_noseed = Settings()
     c_fallback = pay52_image_candidate_keys("seedream-5-pro", cfg=s_noseed)
-    assert "key-master-gpt" in c_fallback
+    assert "key-master-gpt" not in c_fallback
 
 
 def test_build_pay52_image_payload() -> None:
@@ -158,16 +158,15 @@ async def test_run_generation_url(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_generation_key_fallback(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("PAY52_SEEDREAM_KEY", "bad-key")
-    monkeypatch.setenv("PAY52_GPT_KEY", "good-key")
+async def test_run_generation_model_fallback(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PAY52_GPT_IMAGE_KEY", "good-key")
     s = Settings()
     out_file = tmp_path / "fallback.png"
 
     sample_b64 = base64.b64encode(b"FALLBACK_IMAGE_DATA").decode("utf-8")
-    resp_401 = httpx.Response(
-        status_code=401,
-        text="Invalid key",
+    resp_400 = httpx.Response(
+        status_code=400,
+        text="Unsupported flare",
         request=httpx.Request("POST", "https://api.52pay.com/v1/images/generations"),
     )
     resp_200 = httpx.Response(
@@ -177,8 +176,8 @@ async def test_run_generation_key_fallback(monkeypatch, tmp_path: Path) -> None:
     )
 
     with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
-        mock_post.side_effect = [resp_401, resp_200]
-        spec = {"model": "doubao-seedream-5.0-flash"}
+        mock_post.side_effect = [resp_400, resp_200]
+        spec = {"model": "gpt-image-2.5-flare"}
         values = {"prompt": "test fallback"}
         result = await run_generation(spec, values, out_file, cfg=s)
 
@@ -212,7 +211,6 @@ def test_kie_http_resolves_all_curated_photo_families() -> None:
         "nano-banana-2-1",
         "seedream-5-pro",
         "seedream-5-flash",
-        "seedream-5-lite",
         "seedream-5-5",
         "flux-2-pro",
         "flux-3",

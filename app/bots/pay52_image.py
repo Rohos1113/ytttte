@@ -84,10 +84,10 @@ def normalize_pay52_image_model(raw_model: str, values: dict[str, Any] | None = 
     if "gpt" in s and "image" in s:
         quality = str(val.get("quality") or "").lower()
         resolution = str(val.get("resolution") or "").upper()
-        if "flare" in s or quality == "high":
-            return "gpt-image-2.5-flare"
         if "4k" in s or resolution == "4K":
             return "gpt-image-2-4k"
+        if "flare" in s or quality == "high":
+            return "gpt-image-2.5-flare"
         if "2-6" in s or "2.6" in s or "2-5" in s or "2.5" in s:
             return "gpt-image-2.5"
         if "2" in s and ("2-0" in s or "2.0" in s or s.endswith("-2") or s == "gpt-image-2"):
@@ -116,22 +116,14 @@ def pay52_image_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         if key:
             return key
     elif "gpt" in name_low and "image" in name_low:
-        key = (getattr(s, "pay52_gpt_image_key", "") or getattr(s, "pay52_gpt_key", "") or "").strip()
+        key = (getattr(s, "pay52_gpt_image_key", "") or "").strip()
         if key:
             return key
     elif "banana" in name_low or "gemini" in name_low:
-        key = (getattr(s, "pay52_banana_key", "") or getattr(s, "pay52_gemini_key", "") or "").strip()
+        key = (getattr(s, "pay52_banana_key", "") or "").strip()
         if key:
             return key
 
-    # Fallback на глобальный ключ GPT / любой ключ пула
-    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
-    if fallback_enabled:
-        return str(
-            getattr(s, "pay52_gpt_key", "")
-            or getattr(s, "pay52_glm_key", "")
-            or ""
-        ).strip()
     return ""
 
 
@@ -143,28 +135,19 @@ def pay52_image_candidate_keys(model_name: str, cfg: Any | None = None) -> list[
     if primary:
         keys.append(primary)
 
-    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
-    if fallback_enabled:
-        name_low = (model_name or "").lower()
-        if "seedream" in name_low or "doubao" in name_low:
-            alt = str(getattr(s, "pay52_seedream_key", "") or "").strip()
-            if alt:
-                keys.append(alt)
-        elif "gpt" in name_low and "image" in name_low:
-            for field in ("pay52_gpt_image_key", "pay52_gpt_key"):
-                alt = str(getattr(s, field, "") or "").strip()
-                if alt:
-                    keys.append(alt)
-        elif "banana" in name_low or "gemini" in name_low:
-            for field in ("pay52_banana_key", "pay52_gemini_key"):
-                alt = str(getattr(s, field, "") or "").strip()
-                if alt:
-                    keys.append(alt)
-
-        for master_field in ("pay52_gpt_key", "pay52_glm_key"):
-            val = str(getattr(s, master_field, "") or "").strip()
-            if val:
-                keys.append(val)
+    name_low = (model_name or "").lower()
+    if "seedream" in name_low or "doubao" in name_low:
+        alt = str(getattr(s, "pay52_seedream_key", "") or "").strip()
+        if alt:
+            keys.append(alt)
+    elif "gpt" in name_low and "image" in name_low:
+        alt = str(getattr(s, "pay52_gpt_image_key", "") or "").strip()
+        if alt:
+            keys.append(alt)
+    elif "banana" in name_low or "gemini" in name_low:
+        alt = str(getattr(s, "pay52_banana_key", "") or "").strip()
+        if alt:
+            keys.append(alt)
 
     seen: set[str] = set()
     result: list[str] = []
@@ -263,6 +246,14 @@ async def run_generation(
                         "pay52_image: ключ 52pay не имеет прав на doubao-seedream-5.5, мягкий fallback на doubao-seedream-5.0-pro"
                     )
                     fallback_payload = dict(payload, model="doubao-seedream-5.0-pro")
+                    r = await client.post(url, headers=headers, json=fallback_payload)
+                elif r.status_code in (400, 500, 502, 503, 504) and payload.get("model") in ("gpt-image-2.5-flare", "gpt-image-2-4k"):
+                    logger.warning(
+                        "pay52_image: ошибка модели {} (status={}), мягкий fallback на gpt-image-2.5",
+                        payload.get("model"),
+                        r.status_code,
+                    )
+                    fallback_payload = dict(payload, model="gpt-image-2.5")
                     r = await client.post(url, headers=headers, json=fallback_payload)
                 if r.status_code == 200:
                     data = r.json()

@@ -35,7 +35,6 @@ KIE_IMAGE_IDS = frozenset(
         "flux-3",
         "seedream-5-pro",
         "seedream-5-flash",
-        "seedream-5-lite",
         "seedream-5-5",
         "nano-banana-2-1",
         "gpt-image-2-5",

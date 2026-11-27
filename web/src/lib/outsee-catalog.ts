@@ -470,7 +470,8 @@ export function chipOptions(slug: string, chip: OutseeChip): string[] {
       if (clean.startsWith("nano-banana")) return ["2K"];
       if (clean === "seedream-4.5") return ["2K", "4K"];
       if (clean === "seedream-5-pro") return ["1K", "2K"];
-      if (clean === "seedream-5-lite") return ["2K", "3K"];
+      if (clean === "seedream-5-flash") return ["1K", "2K"];
+      if (clean === "seedream-5-5") return ["1K", "2K"];
       if (clean === "gpt-image-1.5") return ["2K"];
       return ["1K", "2K"];
     }

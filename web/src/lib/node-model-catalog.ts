@@ -246,7 +246,6 @@ const IMAGE_EXTRA: CatalogModel[] = [
   imgExtra("nano-banana-2-1", "Nano Banana 2.1", 0.025, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
   imgExtra("seedream-5-pro", "Seedream 5 Pro", 0.0438, { resolution: "1K/1.5K/2K", provider: "52pay / kie", isTop: true }),
   imgExtra("seedream-5-flash", "Seedream 5 Flash", 0.0202, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
-  imgExtra("seedream-5-lite", "Seedream 5 Lite", 0.0344, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
   imgExtra("seedream-5-5", "Seedream 5.5", 0.0225, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
   imgExtra("flux-2-pro", "Flux 2 Pro", 0.035, { resolution: "1K/2K", provider: "kie" }),
   imgExtra("flux-3", "Flux 3", 0.01, { resolution: "1K/2K/4K", provider: "kie" }),

@@ -13,7 +13,6 @@ const EXPECTED_PHOTO_IDS = [
   "nano-banana-2-1",
   "seedream-5-pro",
   "seedream-5-flash",
-  "seedream-5-lite",
   "seedream-5-5",
   "flux-2-pro",
   "flux-3",

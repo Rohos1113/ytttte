@@ -36,6 +36,7 @@ const HIDDEN_FAMILY_IDS = new Set([
   "nano-banana-pro",
   "nano-banana-2-lite",
   "flux-1-kontext",
+  "seedream-5-lite",
 ]);
 
 /** Семейство скрыто из меню выбора модели. */

@@ -938,11 +938,11 @@ function displayJobModelName(
     if (modelId === "gpt-image-2-6") return "GPT Image 2.6";
     if (modelId === "seedream-5-pro") return "Seedream 5 Pro";
     if (modelId === "seedream-5-flash") return "Seedream 5 Flash";
-    if (modelId === "seedream-5-lite") return "Seedream 5 Lite";
     if (modelId === "seedream-5-5" || modelId.includes("5-5") || modelId.includes("5.5")) return "Seedream 5.5";
     if (modelId.startsWith("seedream")) return "Seedream 5";
     if (modelId === "seedance-2-0") return "Seedance 2.0";
     if (modelId === "seedance-2-0-fast") return "Seedance 2.0 Fast";
+    if (modelId === "seedance-2-0-mini" || modelId.includes("mini")) return "Seedance 2.0 Mini";
     if (modelId === "seedance-2-5") return "Seedance 2.5";
   }
   const raw = String(item.model || item.label || "");
@@ -954,12 +954,12 @@ function displayJobModelName(
   if (rawLow.includes("economy")) return "GPT Image 2.6";
   if (rawLow.includes("seedream")) {
     if (rawLow.includes("flash")) return "Seedream 5 Flash";
-    if (rawLow.includes("lite")) return "Seedream 5 Lite";
     if (rawLow.includes("pro")) return "Seedream 5 Pro";
     if (rawLow.includes("5.5") || rawLow.includes("5-5")) return "Seedream 5.5";
     return "Seedream 5 Pro";
   }
   if (rawLow.includes("seedance")) {
+    if (rawLow.includes("mini")) return "Seedance 2.0 Mini";
     if (rawLow.includes("fast")) return "Seedance 2.0 Fast";
     if (rawLow.includes("2.5") || rawLow.includes("2-5")) return "Seedance 2.5";
     return "Seedance 2.0";
