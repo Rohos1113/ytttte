@@ -1555,6 +1555,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (name === "aspect_ratio" || name === "aspect") {
       setAspect(String(value));
     }
+    if (name === "duration") {
+      setDuration(String(value));
+    }
   };
 
   const applySeedancePreset = (preset: "fast" | "quality") => {

@@ -300,12 +300,25 @@ function kieFieldDescriptor(field: KieField): ModelSettingDescriptor | null {
   }
 
   if (name === "duration") {
+    let minVal = field.min;
+    let maxVal = field.max;
+    const hintText = field.hint || field.desc;
+    if (minVal == null && hintText) {
+      const rangeMatch =
+        hintText.match(/(\d+)\s*[-–]\s*(\d+)\s*sec/i) ||
+        hintText.match(/between\s*(\d+)\s*and\s*(\d+)/i) ||
+        hintText.match(/(\d+)\s*to\s*(\d+)\s*sec/i);
+      if (rangeMatch) {
+        minVal = Number(rangeMatch[1]);
+        maxVal = Number(rangeMatch[2]);
+      }
+    }
     const fromOptions = (field.options ?? [])
       .map((o) => Number(o))
       .filter((n) => Number.isFinite(n));
     const numbers = fromOptions.length
       ? [...new Set(fromOptions)].sort((a, b) => a - b)
-      : durationNumbers({ ...base, min: field.min, max: field.max });
+      : durationNumbers({ ...base, min: minVal, max: maxVal });
     if (!numbers.length) return null;
     return {
       ...base,

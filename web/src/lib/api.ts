@@ -62,6 +62,7 @@ export interface KieField {
   max?: number;
   step?: number;
   max_items?: number;
+  hint?: string;
   desc?: string;
   show_if?: Record<string, unknown>;
 }

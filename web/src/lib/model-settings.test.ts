@@ -180,6 +180,26 @@ test("kieSettingDescriptors: duration из options не разворачивае
   assert.deepEqual(duration.options?.map((o) => o.id), ["4", "6", "8"]);
 });
 
+test("kieSettingDescriptors: duration Seedance 2.0 mini отсекает 1..3с по hint/min", () => {
+  const descriptors = kieSettingDescriptors([
+    field("duration", "number", {
+      hint: "Video duration in 4-15 seconds or -1.",
+      default: 5,
+    }),
+  ]);
+  const duration = byName(descriptors, "duration")!;
+  assert.equal(duration.kind, "duration");
+  assert.equal(duration.min, 4);
+  assert.equal(duration.max, 15);
+  assert.deepEqual(
+    durationNumbers(duration),
+    [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  );
+  assert.ok(!durationNumbers(duration).includes(1));
+  assert.ok(!durationNumbers(duration).includes(2));
+  assert.ok(!durationNumbers(duration).includes(3));
+});
+
 test("kieSettingDescriptors: range-поля получают границы 0..1 и дефолт из смысла поля", () => {
   const descriptors = kieSettingDescriptors([
     field("stability", "number", {}),
