@@ -94,36 +94,12 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
 
 
 def pay52_video_candidate_keys(model_name: str, cfg: Any | None = None) -> list[str]:
-    """Список рабочих и резервных ключей для видео 52pay в порядке приоритета."""
+    """Список рабочих ключей для конкретной модели видео 52pay (строго 1 ключ модели, без дублирующих вызовов)."""
     s = cfg or settings
     primary = pay52_video_key_for_model(model_name, cfg=s)
-    keys = [primary]
-
-    fallback_enabled = bool(getattr(s, "pay52_key_fallback_enabled", True))
-    if fallback_enabled:
-        name_low = (model_name or "").lower()
-        if "kling" in name_low:
-            keys.extend([s.seedance_fast_key, s.seedance_mini_key])
-        elif "fast" in name_low:
-            keys.extend([s.seedance_mini_key, s.seedance_overseas_key])
-        elif "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
-            keys.extend([s.seedance_fast_key, s.seedance_mini_key])
-        elif "mini" in name_low or "ref" in name_low:
-            keys.extend([s.seedance_fast_key, s.seedance_overseas_key])
-        else:
-            keys.extend([s.seedance_fast_key, s.seedance_mini_key, s.seedance_overseas_key])
-
-        # Мастер-ключ GPT как последний резерв
-        keys.append(getattr(s, "pay52_gpt_key", ""))
-
-    seen: set[str] = set()
-    result: list[str] = []
-    for k in keys:
-        clean = (k or "").strip()
-        if clean and clean not in seen:
-            seen.add(clean)
-            result.append(clean)
-    return result
+    if primary:
+        return [primary]
+    return []
 
 
 def pay52_configured() -> bool:
