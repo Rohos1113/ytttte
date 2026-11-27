@@ -939,6 +939,7 @@ function displayJobModelName(
     if (modelId === "seedream-5-pro") return "Seedream 5 Pro";
     if (modelId === "seedream-5-flash") return "Seedream 5 Flash";
     if (modelId === "seedream-5-lite") return "Seedream 5 Lite";
+    if (modelId === "seedream-5-5" || modelId.includes("5-5") || modelId.includes("5.5")) return "Seedream 5.5";
     if (modelId.startsWith("seedream")) return "Seedream 5";
     if (modelId === "seedance-2-0") return "Seedance 2.0";
     if (modelId === "seedance-2-0-fast") return "Seedance 2.0 Fast";
@@ -4486,7 +4487,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 {/* Просмотр референса крупно */}
                 {refPreview && (
                   <div
-                    className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-6"
+                    className="fixed inset-y-0 right-0 left-16 z-[95] flex items-center justify-center bg-black/85 p-6"
                     onClick={() => setRefPreview(null)}
                   >
                     <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/15 bg-[#121216]">
@@ -5029,11 +5030,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       {/* Lightbox full screen modal & Prompt Inspector */}
       {lightboxOpen && selected?.preview_url && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-3 md:p-6 backdrop-blur-2xl animate-in fade-in duration-200"
+          className="fixed inset-y-0 right-0 left-16 z-50 flex items-center justify-center bg-black/95 p-3 md:p-6 backdrop-blur-2xl animate-in fade-in duration-200"
           onClick={() => setLightboxOpen(false)}
         >
           <div
-            className="flex flex-col max-h-[96vh] max-w-[98vw] w-full gap-3 md:gap-3.5"
+            className="flex flex-col max-h-[96vh] w-full max-w-full gap-3 md:gap-3.5"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Bar: Media Info & Action buttons (Download, Delete, Close) */}
@@ -6183,11 +6184,6 @@ function ModelPickerPopover({
             >
               {item.label}
             </span>
-            {item.isTop && (
-              <span className="shrink-0 rounded bg-[#2dd4bf]/15 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-[#2dd4bf]">
-                топ
-              </span>
-            )}
           </span>
           <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-white/45 group-hover:text-white/60">
             {item.desc}
@@ -6483,11 +6479,6 @@ function ModelPickerPopover({
                     </span>
                   </span>
                   {hasSelected && <Check className="h-3 w-3 shrink-0 text-[#2dd4bf]" />}
-                  {!hasSelected && brand.tops > 0 && brandGroups[0]?.id === brand.id && (
-                    <span className="shrink-0 rounded bg-[#2dd4bf]/15 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-[#2dd4bf]">
-                      топ
-                    </span>
-                  )}
                 </button>
               );
             })}

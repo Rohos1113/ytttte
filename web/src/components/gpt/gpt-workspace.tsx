@@ -1710,7 +1710,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-150"
+          className="fixed inset-y-0 right-0 left-16 z-[120] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-150"
           onClick={() => setPreviewImage(null)}
         >
           <div
