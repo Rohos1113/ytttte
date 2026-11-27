@@ -11,6 +11,7 @@ const EXPECTED_PHOTO_IDS = [
   "gpt-image-2-6",
   "nano-banana-2",
   "nano-banana-2-1",
+  "nano-banana-pro",
   "seedream-5-pro",
   "seedream-5-flash",
   "seedream-5-5",

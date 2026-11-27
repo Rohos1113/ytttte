@@ -158,15 +158,15 @@ async def test_run_generation_url(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_generation_model_fallback(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("PAY52_GPT_IMAGE_KEY", "good-key")
+async def test_run_generation_seedream_fallback(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PAY52_SEEDREAM_KEY", "good-key")
     s = Settings()
     out_file = tmp_path / "fallback.png"
 
     sample_b64 = base64.b64encode(b"FALLBACK_IMAGE_DATA").decode("utf-8")
     resp_400 = httpx.Response(
         status_code=400,
-        text="Unsupported flare",
+        text="Unsupported seedream-5.5",
         request=httpx.Request("POST", "https://api.52pay.com/v1/images/generations"),
     )
     resp_200 = httpx.Response(
@@ -177,7 +177,7 @@ async def test_run_generation_model_fallback(monkeypatch, tmp_path: Path) -> Non
 
     with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
         mock_post.side_effect = [resp_400, resp_200]
-        spec = {"model": "gpt-image-2.5-flare"}
+        spec = {"model": "doubao-seedream-5.5"}
         values = {"prompt": "test fallback"}
         result = await run_generation(spec, values, out_file, cfg=s)
 
@@ -209,6 +209,7 @@ def test_kie_http_resolves_all_curated_photo_families() -> None:
         "gpt-image-2-6",
         "nano-banana-2",
         "nano-banana-2-1",
+        "nano-banana-pro",
         "seedream-5-pro",
         "seedream-5-flash",
         "seedream-5-5",

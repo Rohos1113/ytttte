@@ -936,6 +936,9 @@ function displayJobModelName(
     if (modelId === "gpt-image-2") return "GPT Image 2";
     if (modelId === "gpt-image-2-5") return "GPT Image 2.5";
     if (modelId === "gpt-image-2-6") return "GPT Image 2.6";
+    if (modelId === "nano-banana-pro" || modelId.includes("banana-pro")) return "Nano Banana Pro";
+    if (modelId === "nano-banana-2-1" || modelId.includes("banana-2-1")) return "Nano Banana 2.1";
+    if (modelId === "nano-banana-2") return "Nano Banana 2";
     if (modelId === "seedream-5-pro") return "Seedream 5 Pro";
     if (modelId === "seedream-5-flash") return "Seedream 5 Flash";
     if (modelId === "seedream-5-5" || modelId.includes("5-5") || modelId.includes("5.5")) return "Seedream 5.5";
@@ -963,6 +966,11 @@ function displayJobModelName(
     if (rawLow.includes("fast")) return "Seedance 2.0 Fast";
     if (rawLow.includes("2.5") || rawLow.includes("2-5")) return "Seedance 2.5";
     return "Seedance 2.0";
+  }
+  if (rawLow.includes("banana")) {
+    if (rawLow.includes("pro")) return "Nano Banana Pro";
+    if (rawLow.includes("2.1") || rawLow.includes("2-1")) return "Nano Banana 2.1";
+    return "Nano Banana 2";
   }
   if (
     raw.includes(":") &&

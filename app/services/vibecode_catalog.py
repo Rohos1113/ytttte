@@ -209,7 +209,6 @@ _HIDDEN_CREATE_IMAGE_FAMILIES = frozenset(
         "recraft",
         "omnihuman-1-5-image",
         "ideogram-v3",
-        "nano-banana-pro",
         "nano-banana-2-lite",
         "flux-1-kontext",
     }
@@ -221,6 +220,7 @@ _IMAGE_DISPLAY_ORDER = (
     "gpt-image-2-6",
     "nano-banana-2",
     "nano-banana-2-1",
+    "nano-banana-pro",
     "seedream-5-pro",
     "seedream-5-flash",
     "seedream-5-5",

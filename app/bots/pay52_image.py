@@ -247,14 +247,6 @@ async def run_generation(
                     )
                     fallback_payload = dict(payload, model="doubao-seedream-5.0-pro")
                     r = await client.post(url, headers=headers, json=fallback_payload)
-                elif r.status_code in (400, 500, 502, 503, 504) and payload.get("model") in ("gpt-image-2.5-flare", "gpt-image-2-4k"):
-                    logger.warning(
-                        "pay52_image: ошибка модели {} (status={}), мягкий fallback на gpt-image-2.5",
-                        payload.get("model"),
-                        r.status_code,
-                    )
-                    fallback_payload = dict(payload, model="gpt-image-2.5")
-                    r = await client.post(url, headers=headers, json=fallback_payload)
                 if r.status_code == 200:
                     data = r.json()
                     items = data.get("data") or []

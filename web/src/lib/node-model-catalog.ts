@@ -93,7 +93,6 @@ export const IMAGE_MODEL_ALIASES: Record<string, string> = {
 };
 export const HIDDEN_IMAGE_IDS = new Set([
   "nano-banana",
-  "nano-banana-pro",
   "nano-banana-2-lite",
   "seedream-4.5",
   "gpt-image-1.5",
@@ -244,6 +243,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
   imgExtra("gpt-image-2-6", "GPT Image 2.6", 0.0312, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
   imgExtra("nano-banana-2", "Nano Banana 2", 0.05, { resolution: "1K/2K/4K", provider: "52pay / kie", isTop: true }),
   imgExtra("nano-banana-2-1", "Nano Banana 2.1", 0.025, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
+  imgExtra("nano-banana-pro", "Nano Banana Pro", 0.05, { resolution: "1K/2K/4K", provider: "52pay / kie" }),
   imgExtra("seedream-5-pro", "Seedream 5 Pro", 0.0438, { resolution: "1K/1.5K/2K", provider: "52pay / kie", isTop: true }),
   imgExtra("seedream-5-flash", "Seedream 5 Flash", 0.0202, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),
   imgExtra("seedream-5-5", "Seedream 5.5", 0.0225, { resolution: "1K/1.5K/2K", provider: "52pay / kie" }),

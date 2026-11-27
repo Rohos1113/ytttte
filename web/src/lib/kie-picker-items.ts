@@ -33,7 +33,6 @@ const HIDDEN_FAMILY_IDS = new Set([
   "ideogram-v3",
   "happyhorse",
   "happyhorse-1-1",
-  "nano-banana-pro",
   "nano-banana-2-lite",
   "flux-1-kontext",
   "seedream-5-lite",
