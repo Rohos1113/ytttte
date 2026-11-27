@@ -164,6 +164,7 @@ def write_sidecar(
     provider: str = "outsee",
     status: str = "done",
     job_id: str | None = None,
+    gen_id: str | None = None,
     error: str | None = None,
     require_file: bool = True,
     started_at: str | None = None,
@@ -194,6 +195,7 @@ def write_sidecar(
         "bytes": media_path.stat().st_size if media_path.is_file() else 0,
         "status": status,
         "job_id": job_id,
+        "gen_id": gen_id,
         "error": error,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -627,6 +629,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "model": meta.get("model"),
                 "status": status,
                 "job_id": meta.get("job_id"),
+                "gen_id": meta.get("gen_id"),
                 "error": (
                     __import__("app.services.human_error", fromlist=["humanize_media_job_error"]).humanize_media_job_error(
                         meta.get("error")

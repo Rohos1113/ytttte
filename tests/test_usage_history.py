@@ -244,3 +244,63 @@ async def test_usage_history_shows_unknown_price_as_null(env):
     ]
     assert len(recent_unknown) == 2, "ровно две строки без цены; оценённая — числом"
     assert data["summary"]["total_cost_usd"] == 0.02, "частичная сумма: только известное"
+
+
+async def test_usage_history_deduplicates_create_gens_and_media_calls(env, monkeypatch):
+    """Генерация из вкладки «Создать» не должна дублироваться в истории расходов."""
+    from datetime import datetime, timezone
+    client: AsyncClient = env["client"]
+    admin = env["admin"]
+    tenant_id = admin.user_id
+    now = datetime.now(timezone.utc)
+
+    # 1. Запись в базе данных (фактический вызов провайдера)
+    async with env["factory"]() as s:
+        s.add(
+            MediaCall(
+                tenant_id=tenant_id,
+                project_id=None,
+                provider="pay52",
+                kind="image",
+                model="seedream/5-pro-text-to-image",
+                units=1.0,
+                unit="item",
+                cost_usd=0.0408,
+                unpriced=False,
+                result="ok",
+                external_id="pay52-img-12345",
+                created_at=now,
+            )
+        )
+        await s.commit()
+
+    # 2. Файл на диске из вкладки Create
+    fake_gens = [
+        {
+            "id": "gen-080026_6335f444f9",
+            "kind": "image",
+            "model": "Seedream 5 Pro",
+            "provider": "pay52",
+            "status": "done",
+            "job_id": "6335f444f9fa",
+            "created_at": now.isoformat(),
+            "params": {"kie_id": "seedream/5-pro-text-to-image"},
+        }
+    ]
+    from app.services import generation_storage
+    monkeypatch.setattr(generation_storage, "list_generation_files", lambda **kwargs: fake_gens)
+
+    data = (await client.get("/api/billing/usage-history", headers=admin.auth)).json()
+
+    # Проверяем, что в recent только ОДНА запись для Seedream 5 Pro (из MediaCall с реальной ценой)
+    seedream_recent = [r for r in data["recent"] if "seedream" in r["model"].lower()]
+    assert len(seedream_recent) == 1, f"Ожидалась ровно 1 запись без дублей, получено: {seedream_recent}"
+    assert seedream_recent[0]["id"].startswith("mc-")
+    assert seedream_recent[0]["model"] == "Seedream 5 Pro"
+    assert seedream_recent[0]["cost_usd"] == 0.0408
+
+    # В сводке по моделям также ровно 1 вызов
+    seedream_models = [m for m in data["models"] if "seedream" in m["model"].lower() or "seedream" in m["display_name"].lower()]
+    assert len(seedream_models) == 1
+    assert seedream_models[0]["calls"] == 1
+

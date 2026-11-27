@@ -610,6 +610,7 @@ async def _run_job(
                 provider=job.provider,
                 status="done",
                 job_id=job.id,
+                gen_id=getattr(result, "gen_id", None),
                 started_at=job.started_at,
                 finished_at=job.finished_at,
                 elapsed_sec=job.elapsed_sec,

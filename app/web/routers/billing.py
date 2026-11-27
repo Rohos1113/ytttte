@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -620,20 +620,59 @@ def _clean_model_name(raw: str) -> tuple[str, str]:
         # Картинки (Images)
         "flux-2-pro": "Flux 2 Pro",
         "flux-dev": "Flux Dev",
+        "flux-3/klein-text-to-image": "Flux 3 Klein",
+        "flux-3-klein": "Flux 3 Klein",
+        "gpt-image-2": "GPT Image 2",
+        "gpt-image-2-text-to-image": "GPT Image 2",
+        "gpt-image-2.5": "GPT Image 2.5",
+        "gpt-image-2-5": "GPT Image 2.5",
+        "gpt-image-2-5-flare": "GPT Image 2.5 Flare",
+        "gpt-image-2-5-flare-text-to-image": "GPT Image 2.5 Flare",
         "nano-banana-2": "Nano Banana 2",
+        "nano-banana-2.1": "Nano Banana 2.1",
+        "nano-banana-2-1": "Nano Banana 2.1",
+        "gemini-3.1-flash-image": "Nano Banana 2",
+        "gemini-nano-banana-2.1": "Nano Banana 2.1",
+        "gemini-3-pro-image-preview": "Nano Banana Pro",
         "nano-banana-2-lite": "Nano Banana 2 Lite",
         "nano-banana-fast": "Nano Banana Fast",
         "nano-banana-pro": "Nano Banana Pro",
         "nano-banana": "Nano Banana",
         "seedream-5-pro": "Seedream 5 Pro",
+        "seedream/5-pro": "Seedream 5 Pro",
+        "seedream/5-pro-text-to-image": "Seedream 5 Pro",
+        "doubao-seedream-5.0-pro": "Seedream 5 Pro",
+        "seedream-5-flash": "Seedream 5 Flash",
+        "seedream/5-flash": "Seedream 5 Flash",
+        "seedream/5-flash-text-to-image": "Seedream 5 Flash",
+        "doubao-seedream-5.0-flash": "Seedream 5 Flash",
+        "seedream-5-lite": "Seedream 5 Lite",
+        "seedream/5-lite": "Seedream 5 Lite",
+        "seedream/5-lite-text-to-image": "Seedream 5 Lite",
+        "seedream-5-5": "Seedream 5.5",
+        "seedream-5.5": "Seedream 5.5",
+        "seedream/5-5": "Seedream 5.5",
+        "seedream/5.5": "Seedream 5.5",
+        "seedream/5-5-text-to-image": "Seedream 5.5",
+        "seedream/5.5-text-to-image": "Seedream 5.5",
+        "doubao-seedream-5.5": "Seedream 5.5",
+        "seedream-4-0": "Seedream 4.0",
+        "seedream-4.0": "Seedream 4.0",
+        "seedream/4-0": "Seedream 4.0",
+        "seedream/4.0": "Seedream 4.0",
+        "seedream/4-0-text-to-image": "Seedream 4.0",
+        "seedream/4.0-text-to-image": "Seedream 4.0",
+        "doubao-seedream-4.0": "Seedream 4.0",
         "z-image": "Z-Image",
         "qwen3-image": "Alibaba Qwen Image 3",
         "alibaba-qwen-image-3": "Alibaba Qwen Image 3",
         # Видео (Video)
-        "veo-3-1-lite": "Veo 3.1 Lite",
-        "veo-3-1-pro": "Veo 3.1 Pro",
-        "veo-3-1-fast": "Veo 3.1 Fast",
-        "veo-3-fast": "Veo 3.1 Fast",
+        "kling-4.0/keyframe-to-video": "Kling 4.0",
+        "kling-4.0/video": "Kling 4.0",
+        "kling-4.0": "Kling 4.0",
+        "kling-4-0": "Kling 4.0",
+        "bytedance/seedance-2": "Seedance 2.0",
+        "bytedance/seedance-2-fast": "Seedance 2.0 Fast",
         "seedance-2-0-mini": "Seedance 2.0 Mini",
         "seedance-2-0-fast-overseas": "Seedance 2.0 Fast",
         "seedance-2-5": "Seedance 2.5",
@@ -670,6 +709,31 @@ def _clean_model_name(raw: str) -> tuple[str, str]:
     for k, v in display_map.items():
         if low == k or low == k.lower():
             return clean, v
+
+    # Пробуем без технических суффиксов генераторов (напр. -text-to-image, /keyframe-to-video)
+    clean_base = low
+    for suffix in (
+        "-text-to-image",
+        "-image-to-image",
+        "-text-to-video",
+        "-keyframe-to-video",
+        "/text-to-image",
+        "/image-to-image",
+        "/keyframe-to-video",
+        "/video",
+    ):
+        if clean_base.endswith(suffix):
+            clean_base = clean_base[: -len(suffix)]
+            break
+
+    if clean_base != low:
+        for k, v in display_map.items():
+            if clean_base == k or clean_base == k.lower():
+                return clean, v
+        alt_base = clean_base.replace("/", "-")
+        for k, v in display_map.items():
+            if alt_base == k or alt_base == k.lower():
+                return clean, v
 
     # 3. Аккуратный fallback: замена дефисов на пробелы и Title Case
     formatted = clean.replace("-", " ").replace("_", " ").title()
@@ -804,14 +868,37 @@ async def usage_history(
     models_dict: dict[str, dict[str, Any]] = {}
     recent_entries: list[RecentUsageEntry] = []
     seen_external_ids: set[str] = set()
+    mc_signatures: list[dict[str, Any]] = []
 
     for mc in mc_rows:
         if mc.external_id:
-            seen_external_ids.add(str(mc.external_id))
+            ext_str = str(mc.external_id).strip()
+            seen_external_ids.add(ext_str)
+            if "|" in ext_str:
+                for part in ext_str.split("|"):
+                    part_s = part.strip()
+                    if part_s:
+                        seen_external_ids.add(part_s)
         raw_model, display_name = _clean_model_name(mc.model or "unknown")
         m_kind = (mc.kind or "image").lower()
         if m_kind == "tts":
             m_kind = "audio"
+
+        dt = mc.created_at
+        if dt:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            ts = dt.timestamp()
+        else:
+            ts = 0.0
+        mc_signatures.append({
+            "id": mc.id,
+            "kind": m_kind,
+            "ts": ts,
+            "model_raw": (mc.model or "").lower(),
+            "display_name": display_name.lower(),
+            "matched": False,
+        })
         key = f"{m_kind}:{raw_model}"
 
         # Себестоимость может быть неизвестна (`unpriced`): не врём нулём —
@@ -931,7 +1018,58 @@ async def usage_history(
     for g in create_gens:
         jid = str(g.get("job_id") or "")
         gid = str(g.get("id") or "").removeprefix("gen-")
-        if (jid and jid in seen_external_ids) or (gid and gid in seen_external_ids):
+        gen_id = str(g.get("gen_id") or "")
+        if (
+            (jid and jid in seen_external_ids)
+            or (gid and gid in seen_external_ids)
+            or (gen_id and gen_id in seen_external_ids)
+        ):
+            continue
+
+        # Непрямое сопоставление с существующими MediaCall (исключение дублей генераций на диске)
+        g_kind = str(g.get("kind") or "image").lower()
+        if g_kind == "tts":
+            g_kind = "audio"
+        g_created = g.get("created_at") or g.get("started_at") or g.get("finished_at")
+        g_ts = 0.0
+        if g_created:
+            try:
+                g_dt = datetime.fromisoformat(str(g_created).replace("Z", "+00:00"))
+                if g_dt.tzinfo is None:
+                    g_dt = g_dt.replace(tzinfo=timezone.utc)
+                g_ts = g_dt.timestamp()
+            except Exception:
+                g_ts = 0.0
+
+        g_model_raw = str(g.get("model") or "").lower()
+        params = g.get("params") or {}
+        g_kie_id = str(params.get("kie_id") or "").lower()
+        g_model_id = str(params.get("model_id") or "").lower()
+        _, g_display = _clean_model_name(str(g.get("model") or "unknown"))
+        g_display_low = g_display.lower()
+
+        matched_mc = False
+        if g_ts > 0:
+            for sig in mc_signatures:
+                if sig["matched"] or sig["kind"] != g_kind:
+                    continue
+                # Окно сопоставления: 90 секунд от времени фиксации вызова
+                if abs(sig["ts"] - g_ts) <= 90.0:
+                    s_m = sig["model_raw"]
+                    s_disp = sig["display_name"]
+                    if (
+                        s_m == g_kie_id
+                        or s_m == g_model_id
+                        or s_m == g_model_raw
+                        or (g_kie_id and g_kie_id in s_m)
+                        or (s_m and s_m in g_kie_id)
+                        or s_disp == g_display_low
+                    ):
+                        sig["matched"] = True
+                        matched_mc = True
+                        break
+
+        if matched_mc:
             continue
 
         raw_model, display_name = _clean_model_name(str(g.get("model") or "unknown"))

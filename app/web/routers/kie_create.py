@@ -508,8 +508,11 @@ async def post_generate(request: Request, body: dict[str, Any]) -> dict[str, Any
                             else:
                                 raise
                     gid = getattr(res, "gen_id", None)
+                    stem_id = out_path.stem
                     if gid:
-                        call.external_id = str(gid)
+                        call.external_id = f"{gid}|{stem_id}"
+                    else:
+                        call.external_id = stem_id
 
             if hold_id:
                 async with session_scope() as session:
