@@ -276,10 +276,11 @@ function videoExtra(
 
 const VIDEO_EXTRA: CatalogModel[] = [
   videoExtra("veo-3-1-lite", "Veo 3.1 Lite", 0.15, "outsee"),
+  videoExtra("veo-3.1-fast-generate-preview", "Veo 3.1 Fast (52pay)", 0.0700, "52pay"),
   videoExtra("veo-3-1", "Veo 3.1", 0.0312, "kie"),
-  videoExtra("seedance-2-0", "Seedance 2.0", 0.0719, "52pay / kie"),
-  videoExtra("seedance-2-0-fast", "Seedance 2.0 Fast", 0.0425, "52pay / kie"),
-  videoExtra("seedance-2-5", "Seedance 2.5", 0.1063, "52pay / kie"),
+  videoExtra("seedance-2-0-mini", "Seedance 2.0 Mini", 0.0243, "52pay"),
+  videoExtra("seedance-2-0-fast", "Seedance 2.0 Fast", 0.0466, "52pay"),
+  videoExtra("seedance-2-5", "Seedance 2.5", 0.1063, "52pay"),
   videoExtra("kling-2-6", "Kling 2.6", 0.0788, "kie"),
   videoExtra("kling-3-0", "Kling 3.0", 0.0944, "kie"),
   videoExtra("kling-4-0", "Kling 4.0", 0.0706, "52pay / kie"),

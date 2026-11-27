@@ -134,20 +134,22 @@ export function settingDefaultPairs(
   return out;
 }
 
-/** Числа длительности: из options, иначе диапазон min..max (1..60, как в доке). */
+/** Числа длительности: из options, иначе диапазон min..max (минимум 4с для видео, как в доке). */
 export function durationNumbers(descriptor: ModelSettingDescriptor): number[] {
+  let nums: number[] = [];
   if (descriptor.options?.length) {
-    const nums = descriptor.options
+    const parsed = descriptor.options
       .map((o) => Number(o.id))
       .filter((n) => Number.isFinite(n));
-    return [...new Set(nums)].sort((a, b) => a - b);
+    nums = [...new Set(parsed)].sort((a, b) => a - b);
+  } else {
+    const lo = Math.max(4, Math.round(Number(descriptor.min ?? 4)));
+    const rawHi = Number(descriptor.max ?? 15);
+    const hi = Math.min(60, Math.max(lo, Math.round(Number.isFinite(rawHi) ? rawHi : 15)));
+    for (let n = lo; n <= hi; n += 1) nums.push(n);
   }
-  const lo = Math.max(1, Math.round(Number(descriptor.min ?? 1)));
-  const rawHi = Number(descriptor.max ?? 15);
-  const hi = Math.min(60, Math.max(lo, Math.round(Number.isFinite(rawHi) ? rawHi : 15)));
-  const out: number[] = [];
-  for (let n = lo; n <= hi; n += 1) out.push(n);
-  return out;
+  // Все видео-модели в студии генерируют от 4 секунд (убираем некорректные 1с, 2с, 3с)
+  return nums.filter((n) => n >= 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -313,9 +315,12 @@ function kieFieldDescriptor(field: KieField): ModelSettingDescriptor | null {
         maxVal = Number(rangeMatch[2]);
       }
     }
+    if (minVal == null || minVal < 4) {
+      minVal = 4;
+    }
     const fromOptions = (field.options ?? [])
       .map((o) => Number(o))
-      .filter((n) => Number.isFinite(n));
+      .filter((n) => Number.isFinite(n) && n >= 4);
     const numbers = fromOptions.length
       ? [...new Set(fromOptions)].sort((a, b) => a - b)
       : durationNumbers({ ...base, min: minVal, max: maxVal });
@@ -467,9 +472,10 @@ export function outseeSettingDescriptors(
     const options = input.options.duration ?? [];
     const nums = options
       .map((o) => Number(o.id))
-      .filter((n) => Number.isFinite(n))
+      .filter((n) => Number.isFinite(n) && n >= 4)
       .sort((a, b) => a - b);
     if (nums.length) {
+      const defVal = defaults.duration != null && Number(defaults.duration) >= 4 ? defaults.duration : nums[0];
       out.push({
         name: "duration",
         chip: "duration",
@@ -482,7 +488,7 @@ export function outseeSettingDescriptors(
         min: nums[0],
         max: nums[nums.length - 1],
         options: nums.map((n) => ({ id: String(n), label: `${n}с` })),
-        defaultValue: defaults.duration,
+        defaultValue: defVal,
       });
     }
   }

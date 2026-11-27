@@ -251,7 +251,7 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
   {
     slug: "seedance-2-0-mini",
     studioId: null,
-    displayName: "Seedance 2 Mini",
+    displayName: "Seedance 2.0 Mini",
     description: "Новая, лёгкая версия Seedance 2. Отклоняет реальные лица.",
     icon: "/icons/bytedance.svg",
     price: "от 8",
@@ -313,7 +313,7 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     defaults: { aspectRatio: "16:9", resolution: "720p", duration: 5 },
     nn: {
       resolutions: ["720p", "1080p"],
-      durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       aspectRatios: ["16:9", "9:16", "1:1"],
     },
   },

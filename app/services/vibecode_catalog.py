@@ -128,7 +128,7 @@ VENDOR_META: dict[str, dict[str, str]] = {
 _VIDEO_DISPLAY_ORDER = (
     "veo-3-1-lite",
     "veo-3-1",
-    "seedance-2-0",
+    "seedance-2-0-mini",
     "seedance-2-0-fast",
     "seedance-2-5",
     "kling-2-6",
@@ -147,7 +147,7 @@ _HIDDEN_CREATE_VIDEO_FAMILIES = frozenset(
         "volcengine-lipsync",
         "happyhorse",
         "happyhorse-1-1",
-        "seedance-2-0-mini",
+        "seedance-2-0",
     }
 )
 

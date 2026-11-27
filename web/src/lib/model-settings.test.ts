@@ -200,6 +200,37 @@ test("kieSettingDescriptors: duration Seedance 2.0 mini отсекает 1..3с 
   assert.ok(!durationNumbers(duration).includes(3));
 });
 
+test("durationNumbers: отсекает 1, 2, 3 секунды для всех видео-моделей", () => {
+  const fromOptions = durationNumbers({
+    name: "duration",
+    chip: "duration",
+    label: "Длительность",
+    section: "Длительность",
+    kind: "duration",
+    icon: "duration",
+    options: [
+      { id: "1", label: "1s" },
+      { id: "2", label: "2s" },
+      { id: "3", label: "3s" },
+      { id: "4", label: "4s" },
+      { id: "5", label: "5s" },
+    ],
+  });
+  assert.deepEqual(fromOptions, [4, 5]);
+
+  const fromRange = durationNumbers({
+    name: "duration",
+    chip: "duration",
+    label: "Длительность",
+    section: "Длительность",
+    kind: "duration",
+    icon: "duration",
+    min: 1,
+    max: 6,
+  });
+  assert.deepEqual(fromRange, [4, 5, 6]);
+});
+
 test("kieSettingDescriptors: range-поля получают границы 0..1 и дефолт из смысла поля", () => {
   const descriptors = kieSettingDescriptors([
     field("stability", "number", {}),
@@ -357,7 +388,7 @@ test("settingDefaultPairs: только поля с дефолтом", () => {
   ]);
 });
 
-test("durationNumbers: диапазон ограничен 1..60 и по умолчанию 1..15", () => {
+test("durationNumbers: диапазон ограничен 4..60 и по умолчанию 4..15", () => {
   const base: ModelSettingDescriptor = {
     name: "d",
     chip: "d",
@@ -366,8 +397,8 @@ test("durationNumbers: диапазон ограничен 1..60 и по умо�
     kind: "duration",
     icon: "duration",
   };
-  assert.deepEqual(durationNumbers(base), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
-  assert.deepEqual(durationNumbers({ ...base, min: 1, max: 99 }), Array.from({ length: 60 }, (_, i) => i + 1));
+  assert.deepEqual(durationNumbers(base), [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+  assert.deepEqual(durationNumbers({ ...base, min: 1, max: 99 }), Array.from({ length: 57 }, (_, i) => i + 4));
 });
 
 // ---------------------------------------------------------------------------
