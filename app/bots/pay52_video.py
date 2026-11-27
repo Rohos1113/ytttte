@@ -195,6 +195,8 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
     if isinstance(ref_audios, str):
         ref_audios = [ref_audios]
 
+    all_images: list[str] = []
+
     # 1. MiniMax-H3
     if "minimax" in model_raw.lower() or "h3" in model_raw.lower():
         all_images = []
@@ -316,7 +318,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
 
     # 2. Модель Seedance 2.0 Fast (seedance-2.0-fast)
     if "fast" in model_raw.lower():
-        all_images: list[str] = []
+        all_images = []
         if first_frame:
             all_images.append(str(first_frame).strip())
         if last_frame:
