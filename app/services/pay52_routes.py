@@ -87,6 +87,12 @@ _VIDEO: dict[str, str] = {
     "kling-4.0/reference-to-video": "seedance_overseas_key",
     "kling-4.0/flash-reference-to-video": "seedance_overseas_key",
     "veo-3.1-fast-generate-preview": "seedance_fast_key",
+    "minimax-h3": "pay52_minimax_key",
+    "minimax-h3-t2v": "pay52_minimax_key",
+    "MiniMax-H3": "pay52_minimax_key",
+    "wan-3-0": "pay52_wan_key",
+    "wan3.0-video": "pay52_wan_key",
+    "wan-3.0-video": "pay52_wan_key",
 }
 
 
@@ -107,6 +113,10 @@ def _key(settings, field: str) -> str:
         return str(getattr(settings, "pay52_banana_key", "") or getattr(settings, "pay52_gemini_key", "") or "").strip()
     if "gpt_image" in field:
         return str(getattr(settings, "pay52_gpt_image_key", "") or getattr(settings, "pay52_gpt_key", "") or "").strip()
+    if "minimax" in field:
+        return str(getattr(settings, "pay52_minimax_key", "") or getattr(settings, "pay52_video_key", "") or getattr(settings, "seedance_fast_key", "") or getattr(settings, "seedance_overseas_key", "") or "").strip()
+    if "wan" in field:
+        return str(getattr(settings, "pay52_wan_key", "") or getattr(settings, "pay52_video_key", "") or getattr(settings, "seedance_fast_key", "") or getattr(settings, "seedance_overseas_key", "") or "").strip()
     # Fallback на любой настроенный 52pay ключ
     return str(
         getattr(settings, "pay52_gpt_key", "")

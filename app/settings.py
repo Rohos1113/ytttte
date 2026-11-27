@@ -154,6 +154,9 @@ class Settings(BaseSettings):
     seedance_mini_key: str = Field("", alias="SEEDANCE_MINI_KEY")
     seedance_fast_key: str = Field("", alias="SEEDANCE_FAST_KEY")
     seedance_overseas_key: str = Field("", alias="SEEDANCE_OVERSEAS_KEY")
+    pay52_video_key: str = Field("", alias="PAY52_VIDEO_KEY")
+    pay52_minimax_key: str = Field("", alias="PAY52_MINIMAX_KEY")
+    pay52_wan_key: str = Field("", alias="PAY52_WAN_KEY")
 
     # 52pay отказоустойчивость: ретраи, задержки и ротация ключей
     pay52_max_retries: int = Field(3, alias="PAY52_MAX_RETRIES")

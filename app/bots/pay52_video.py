@@ -46,6 +46,12 @@ def pay52_base_url() -> str:
 
 def normalize_pay52_video_model(raw: str) -> str:
     s = (raw or "").strip().lower()
+    if "minimax" in s or "h3" in s:
+        return "MiniMax-H3"
+    if "wan" in s:
+        return "wan3.0-video"
+    if "mini-ref" in s or "mini_ref" in s:
+        return "seedance-2.0-mini-ref"
     if "mini" in s:
         return "seedance-2.0-mini"
     if "2.5" in s or "2-5" in s:
@@ -72,6 +78,9 @@ def pay52_video_supports_model(model_name: str) -> bool:
         or "kling_4" in name_low
         or ("kling" in name_low and "3" not in name_low and "2" not in name_low)
         or "veo-3.1-fast" in name_low
+        or "minimax" in name_low
+        or "h3" in name_low
+        or "wan" in name_low
     )
 
 
@@ -80,6 +89,24 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         return ""
     s = cfg or settings
     name_low = (model_name or "").lower()
+    if "minimax" in name_low or "h3" in name_low:
+        return (
+            getattr(s, "pay52_minimax_key", "")
+            or getattr(s, "pay52_video_key", "")
+            or s.seedance_fast_key
+            or s.seedance_mini_key
+            or s.seedance_overseas_key
+            or ""
+        ).strip()
+    if "wan" in name_low:
+        return (
+            getattr(s, "pay52_wan_key", "")
+            or getattr(s, "pay52_video_key", "")
+            or s.seedance_fast_key
+            or s.seedance_mini_key
+            or s.seedance_overseas_key
+            or ""
+        ).strip()
     if "kling" in name_low:
         return (s.seedance_overseas_key or s.seedance_fast_key or s.seedance_mini_key or "").strip()
     if "fast" in name_low:
@@ -90,7 +117,13 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
     if "seedance" in name_low:
         return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
-    return ""
+    return (
+        getattr(s, "pay52_video_key", "")
+        or s.seedance_fast_key
+        or s.seedance_mini_key
+        or s.seedance_overseas_key
+        or ""
+    ).strip()
 
 
 def pay52_video_candidate_keys(model_name: str, cfg: Any | None = None) -> list[str]:
@@ -162,8 +195,74 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
     if isinstance(ref_audios, str):
         ref_audios = [ref_audios]
 
-    # 1. Модель seedance-2.0-mini (базовый Mini)
-    if "mini" in model_raw.lower() or "seedance-2.0-mini" in model_raw.lower():
+    # 1. MiniMax-H3
+    if "minimax" in model_raw.lower() or "h3" in model_raw.lower():
+        all_images = []
+        if first_frame:
+            su = str(first_frame).strip()
+            if su:
+                all_images.append(su)
+        if last_frame:
+            su = str(last_frame).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+        for u in ref_images:
+            su = str(u).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+
+        valid_res = raw_res if raw_res in ("480p", "768p", "1080p", "2k") else "768p"
+        payload_minimax: dict[str, Any] = {
+            "model": "MiniMax-H3",
+            "prompt": prompt,
+            "duration": min(30, max(4, dur_int)),
+            "resolution": valid_res,
+        }
+        if raw_ratio:
+            payload_minimax["ratio"] = raw_ratio
+        if all_images:
+            payload_minimax["image_url"] = all_images[0]
+            payload_minimax["referenceImages"] = all_images[:9]
+        if ref_videos:
+            payload_minimax["referenceVideos"] = [str(u).strip() for u in ref_videos if str(u).strip()][:3]
+        return payload_minimax
+
+    # 2. wan3.0-video
+    if "wan" in model_raw.lower():
+        all_images = []
+        if first_frame:
+            su = str(first_frame).strip()
+            if su:
+                all_images.append(su)
+        if last_frame:
+            su = str(last_frame).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+        for u in ref_images:
+            su = str(u).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+
+        valid_res = raw_res if raw_res in ("480p", "720p", "1080p") else "720p"
+        payload_wan: dict[str, Any] = {
+            "model": "wan3.0-video",
+            "prompt": prompt,
+            "duration": min(30, max(4, dur_int)),
+            "resolution": valid_res,
+        }
+        if raw_ratio:
+            payload_wan["ratio"] = raw_ratio
+        if all_images:
+            payload_wan["image_url"] = all_images[0]
+            payload_wan["referenceImages"] = all_images[:10]
+        if ref_videos:
+            payload_wan["referenceVideos"] = [str(u).strip() for u in ref_videos if str(u).strip()][:5]
+        if ref_audios:
+            payload_wan["referenceAudios"] = [str(u).strip() for u in ref_audios if str(u).strip()][:5]
+        return payload_wan
+
+    # 3. Модель seedance-2.0-mini (базовый Mini)
+    if ("seedance" in model_raw.lower() and "mini" in model_raw.lower()) or ("mini" in model_raw.lower() and "minimax" not in model_raw.lower()):
         content: list[dict[str, str]] = []
         img_count = 0
         if first_frame and img_count < 9:
@@ -499,18 +598,23 @@ async def poll_task(
                     and any(m in poll_text_low or m in (r.text or "") for m in ("密钥", "token", "key", "auth"))
                 )
             )
-            if is_poll_key_err and key_idx + 1 < len(candidate_keys):
-                key_idx += 1
-                active_key = candidate_keys[key_idx]
-                headers["Authorization"] = f"Bearer {active_key}"
-                logger.warning(
-                    "pay52_video poll: ключ вернул HTTP {}, ротация на запасной ключ ({}/{})",
-                    r.status_code,
-                    key_idx + 1,
-                    len(candidate_keys),
+            if is_poll_key_err:
+                if key_idx + 1 < len(candidate_keys):
+                    key_idx += 1
+                    active_key = candidate_keys[key_idx]
+                    headers["Authorization"] = f"Bearer {active_key}"
+                    logger.warning(
+                        "pay52_video poll: ключ вернул HTTP {}, ротация на запасной ключ ({}/{})",
+                        r.status_code,
+                        key_idx + 1,
+                        len(candidate_keys),
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
+                raise Pay52VideoError(
+                    f"52pay poll {task_id}: ошибка авторизации/ключа (HTTP {r.status_code}): {(r.text or '')[:200]}",
+                    context={"provider_code": r.status_code, "task_id": task_id},
                 )
-                await asyncio.sleep(1.0)
-                continue
 
             if r.status_code >= 500:
                 net_fails += 1

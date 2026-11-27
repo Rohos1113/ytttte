@@ -145,14 +145,13 @@ def test_kie_http_resolves_all_curated_video_families() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_task_fails_honestly_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
 
     from app.bots import pay52_video
 
     monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
     monkeypatch.setattr(pay52_video.settings, "seedance_fast_key", "good-key")
-    monkeypatch.setattr(pay52_video.settings, "pay52_key_fallback_enabled", True)
 
     calls: list[str] = []
 
@@ -178,28 +177,24 @@ async def test_create_task_rotates_on_400_invalid_token(monkeypatch: pytest.Monk
         async def post(self, url: str, headers: dict | None = None, json: dict | None = None) -> DummyResponse:
             auth = (headers or {}).get("Authorization", "")
             calls.append(auth)
-            if "bad-key" in auth:
-                return DummyResponse(400, {"error": {"message": "密钥无效。请检查 API Key 是否复制完整，以及是否已禁用或过期。"}})
-            return DummyResponse(200, {"id": "task_12345"})
+            return DummyResponse(400, {"error": {"message": "密钥无效。请检查 API Key 是否复制完整，以及是否已禁用或过期。"}})
 
     monkeypatch.setattr(httpx, "AsyncClient", DummyClient)
 
-    task_id = await pay52_video.create_task({"model": "seedance-2.5", "prompt": "test"})
-    assert task_id == "task_12345"
-    assert len(calls) == 2
+    with pytest.raises(pay52_video.Pay52VideoError):
+        await pay52_video.create_task({"model": "seedance-2.5", "prompt": "test"})
+    assert len(calls) == 1
     assert "bad-key" in calls[0]
-    assert "good-key" in calls[1]
 
 
 @pytest.mark.asyncio
-async def test_poll_task_rotates_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_poll_task_fails_honestly_on_400_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
 
     from app.bots import pay52_video
 
     monkeypatch.setattr(pay52_video.settings, "seedance_overseas_key", "bad-key")
     monkeypatch.setattr(pay52_video.settings, "seedance_fast_key", "good-key")
-    monkeypatch.setattr(pay52_video.settings, "pay52_key_fallback_enabled", True)
 
     calls: list[str] = []
 
@@ -225,17 +220,72 @@ async def test_poll_task_rotates_on_400_invalid_token(monkeypatch: pytest.Monkey
         async def get(self, url: str, headers: dict | None = None) -> DummyResponse:
             auth = (headers or {}).get("Authorization", "")
             calls.append(auth)
-            if "bad-key" in auth:
-                return DummyResponse(400, {"error": "Invalid token"}, text="Invalid token")
-            return DummyResponse(200, {"status": "SUCCESS", "video_url": "https://video.example/1.mp4"})
+            return DummyResponse(400, {"error": "Invalid token"}, text="Invalid token")
 
     monkeypatch.setattr(httpx, "AsyncClient", DummyClient)
 
-    url = await pay52_video.poll_task("task_abc", model_name="seedance-2.5", timeout_s=5.0)
-    assert url == "https://video.example/1.mp4"
-    assert len(calls) == 2
+    with pytest.raises(pay52_video.Pay52VideoError):
+        await pay52_video.poll_task("task_abc", model_name="seedance-2.5", timeout_s=5.0)
+    assert len(calls) == 1
     assert "bad-key" in calls[0]
-    assert "good-key" in calls[1]
+
+
+def test_minimax_and_wan_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.bots.pay52_video import (
+        normalize_pay52_video_model,
+        pay52_video_supports_model,
+        pay52_video_key_for_model,
+        build_pay52_video_payload,
+    )
+
+    monkeypatch.setenv("PAY52_MINIMAX_KEY", "key-minimax")
+    monkeypatch.setenv("PAY52_WAN_KEY", "key-wan")
+    monkeypatch.setenv("SEEDANCE_FAST_KEY", "key-fast")
+    s = Settings()
+
+    assert pay52_video_supports_model("minimax-h3") is True
+    assert pay52_video_supports_model("MiniMax-H3") is True
+    assert pay52_video_supports_model("minimax-h3-t2v") is True
+    assert pay52_video_supports_model("wan-3-0") is True
+    assert pay52_video_supports_model("wan3.0-video") is True
+
+    assert normalize_pay52_video_model("minimax-h3-t2v") == "MiniMax-H3"
+    assert normalize_pay52_video_model("wan-3-0") == "wan3.0-video"
+
+    assert pay52_video_key_for_model("minimax-h3", cfg=s) == "key-minimax"
+    assert pay52_video_key_for_model("wan-3-0", cfg=s) == "key-wan"
+
+    # MiniMax payload
+    p_minimax = build_pay52_video_payload(
+        {"model": "MiniMax-H3"},
+        {
+            "prompt": "Cyberpunk city flying cars",
+            "duration": 8,
+            "resolution": "768p",
+            "first_frame_url": "https://img.example/city.png",
+        },
+    )
+    assert p_minimax["model"] == "MiniMax-H3"
+    assert p_minimax["prompt"] == "Cyberpunk city flying cars"
+    assert p_minimax["duration"] == 8
+    assert p_minimax["resolution"] == "768p"
+    assert p_minimax["image_url"] == "https://img.example/city.png"
+
+    # Wan payload
+    p_wan = build_pay52_video_payload(
+        {"model": "wan3.0-video"},
+        {
+            "prompt": "Panda playing bamboo flute",
+            "duration": 6,
+            "resolution": "720p",
+            "first_frame_url": "https://img.example/panda.png",
+        },
+    )
+    assert p_wan["model"] == "wan3.0-video"
+    assert p_wan["prompt"] == "Panda playing bamboo flute"
+    assert p_wan["duration"] == 6
+    assert p_wan["resolution"] == "720p"
+    assert p_wan["image_url"] == "https://img.example/panda.png"
 
 
 def test_kling_4_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:

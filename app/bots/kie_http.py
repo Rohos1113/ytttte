@@ -525,10 +525,15 @@ VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "veo-3-1": "veo-3-1",
     "seedance_2_0": "seedance-2-0",
     "seedance-2-0": "seedance-2-0",
-    "minimax_h3_t2v": "minimax-h3-t2v",
-    "minimax-h3-t2v": "minimax-h3-t2v",
+    "minimax_h3_t2v": "minimax-h3",
+    "minimax-h3-t2v": "minimax-h3",
+    "minimax_h3": "minimax-h3",
+    "minimax-h3": "minimax-h3",
+    "MiniMax-H3": "minimax-h3",
     "wan_3_0": "wan-3-0",
     "wan-3-0": "wan-3-0",
+    "wan3.0-video": "wan-3-0",
+    "wan-3.0-video": "wan-3-0",
 }
 
 # Маппинг генераторов картинок на ID модели / семейства в kie_catalog

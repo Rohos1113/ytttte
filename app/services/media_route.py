@@ -64,10 +64,14 @@ KIE_VIDEO_IDS = frozenset(
         "kling-v3-turbo-i2v",
         "kling-v3-turbo-t2v",
         "hailuo-2-3-i2v",
+        "minimax-h3",
         "minimax-h3-t2v",
+        "MiniMax-H3",
         "wan-2-7-i2v",
         "wan-2-7-t2v",
         "wan-3-0",
+        "wan3.0-video",
+        "wan-3.0-video",
     }
 )
 
@@ -80,6 +84,12 @@ _ALIASES = {
     "veo-3-1-lite": "veo-3-1-lite",
     "veo-3-1-fast": "veo-3-1-lite",
     "kling-2-6": "kling-2-6",
+    "minimax-h3-t2v": "minimax-h3",
+    "minimax-h3": "minimax-h3",
+    "minimax-h3": "minimax-h3",
+    "wan-3-0": "wan-3-0",
+    "wan3.0-video": "wan-3-0",
+    "wan-3.0-video": "wan-3-0",
 }
 
 
