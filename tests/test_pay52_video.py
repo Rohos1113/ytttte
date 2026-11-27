@@ -232,10 +232,10 @@ async def test_poll_task_fails_honestly_on_400_invalid_token(monkeypatch: pytest
 
 def test_minimax_and_wan_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.bots.pay52_video import (
-        normalize_pay52_video_model,
-        pay52_video_supports_model,
-        pay52_video_key_for_model,
         build_pay52_video_payload,
+        normalize_pay52_video_model,
+        pay52_video_key_for_model,
+        pay52_video_supports_model,
     )
 
     monkeypatch.setenv("PAY52_MINIMAX_KEY", "key-minimax")

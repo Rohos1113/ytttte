@@ -248,11 +248,11 @@ async def test_usage_history_shows_unknown_price_as_null(env):
 
 async def test_usage_history_deduplicates_create_gens_and_media_calls(env, monkeypatch):
     """Генерация из вкладки «Создать» не должна дублироваться в истории расходов."""
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
     client: AsyncClient = env["client"]
     admin = env["admin"]
     tenant_id = admin.user_id
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # 1. Запись в базе данных (фактический вызов провайдера)
     async with env["factory"]() as s:

@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -380,7 +380,7 @@ async def create_coupon_endpoint(
 ) -> dict:
     """Создать купон (только для администратора)."""
     import secrets
-    from datetime import UTC, datetime, timedelta
+    from datetime import datetime, timedelta
 
     from app.services.coupon_service import create_coupon
     from app.services.studio_auth import current_identity
@@ -622,9 +622,7 @@ def _clean_model_name(raw: str) -> tuple[str, str]:
         "flux-dev": "Flux Dev",
         "flux-3/klein-text-to-image": "Flux 3 Klein",
         "flux-3-klein": "Flux 3 Klein",
-        "gpt-image-2": "GPT Image 2",
         "gpt-image-2-text-to-image": "GPT Image 2",
-        "gpt-image-2.5": "GPT Image 2.5",
         "gpt-image-2-5": "GPT Image 2.5",
         "gpt-image-2-5-flare": "GPT Image 2.5 Flare",
         "gpt-image-2-5-flare-text-to-image": "GPT Image 2.5 Flare",
@@ -887,7 +885,7 @@ async def usage_history(
         dt = mc.created_at
         if dt:
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             ts = dt.timestamp()
         else:
             ts = 0.0
@@ -1036,7 +1034,7 @@ async def usage_history(
             try:
                 g_dt = datetime.fromisoformat(str(g_created).replace("Z", "+00:00"))
                 if g_dt.tzinfo is None:
-                    g_dt = g_dt.replace(tzinfo=timezone.utc)
+                    g_dt = g_dt.replace(tzinfo=UTC)
                 g_ts = g_dt.timestamp()
             except Exception:
                 g_ts = 0.0
@@ -1058,9 +1056,7 @@ async def usage_history(
                     s_m = sig["model_raw"]
                     s_disp = sig["display_name"]
                     if (
-                        s_m == g_kie_id
-                        or s_m == g_model_id
-                        or s_m == g_model_raw
+                        s_m in (g_kie_id, g_model_id, g_model_raw)
                         or (g_kie_id and g_kie_id in s_m)
                         or (s_m and s_m in g_kie_id)
                         or s_disp == g_display_low

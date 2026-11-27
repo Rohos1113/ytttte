@@ -86,7 +86,6 @@ _ALIASES = {
     "kling-2-6": "kling-2-6",
     "minimax-h3-t2v": "minimax-h3",
     "minimax-h3": "minimax-h3",
-    "minimax-h3": "minimax-h3",
     "wan-3-0": "wan-3-0",
     "wan3.0-video": "wan-3-0",
     "wan-3.0-video": "wan-3-0",
