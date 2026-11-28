@@ -267,7 +267,7 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
   {
     slug: "veo-3-1-lite",
     studioId: "veo_3_1_lite",
-    displayName: "veo-3.1-fast-generate-preview",
+    displayName: "Veo 3.1 Fast",
     description:
       "Outsee Veo 720p: звук/4–6с дожимаем локально; кадры — http URL (история → Старт).",
     icon: "/icons/google.svg",

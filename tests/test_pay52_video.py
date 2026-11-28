@@ -334,4 +334,46 @@ def test_kling_4_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     assert p_img["image_url"] == "https://img.example/frame.png"
 
 
+def test_veo_fast_support_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.bots.pay52_video import (
+        build_pay52_video_payload,
+        normalize_pay52_video_model,
+        pay52_video_key_for_model,
+        pay52_video_supports_model,
+    )
+
+    monkeypatch.setenv("SEEDANCE_FAST_KEY", "key-fast")
+    s = Settings()
+
+    assert pay52_video_supports_model("veo-3-1-lite") is True
+    assert pay52_video_supports_model("veo-3.1-fast-generate-preview") is True
+    assert pay52_video_supports_model("veo-3-1-fast") is True
+    assert pay52_video_supports_model("veo") is True
+
+    assert pay52_video_key_for_model("veo-3-1-lite", cfg=s) == "key-fast"
+    assert pay52_video_key_for_model("veo-3.1-fast-generate-preview", cfg=s) == "key-fast"
+    assert pay52_video_key_for_model("veo-3-1-fast", cfg=s) == "key-fast"
+
+    assert normalize_pay52_video_model("veo-3-1-lite") == "veo-3.1-fast-generate-preview"
+    assert normalize_pay52_video_model("veo-3.1-fast-generate-preview") == "veo-3.1-fast-generate-preview"
+
+    # Veo payload
+    spec = {"id": "veo-3-1-lite"}
+    p_veo = build_pay52_video_payload(
+        spec,
+        {
+            "prompt": "Golden retriever playing in snow",
+            "duration": 6,
+            "resolution": "720p",
+            "aspect_ratio": "16:9",
+        },
+    )
+    assert p_veo["model"] == "veo-3.1-fast-generate-preview"
+    assert p_veo["prompt"] == "Golden retriever playing in snow"
+    assert p_veo["duration"] == 6
+    assert p_veo["resolution"] == "720p"
+    assert p_veo["ratio"] == "16:9"
+
+
+
 

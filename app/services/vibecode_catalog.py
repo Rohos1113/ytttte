@@ -162,7 +162,7 @@ def _build_kie_video_catalog_raw() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = [
         {
             "id": "veo-3-1-lite",
-            "display_name": "veo-3.1-fast-generate-preview",
+            "display_name": "Veo 3.1 Fast",
             "is_image": False,
             "is_video": True,
             "owned_by": "outsee",

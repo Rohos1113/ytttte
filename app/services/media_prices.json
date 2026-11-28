@@ -501,6 +501,18 @@
       "unit": "item",
       "usd_per_call": 0.0405
     },
+    "pay52:veo-3-1-lite": {
+      "unit": "item",
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3-1-lite@720p": {
+      "unit": "item",
+      "usd_per_call": 0.0182
+    },
+    "pay52:veo-3-1-lite@1080p": {
+      "unit": "item",
+      "usd_per_call": 0.0405
+    },
     "pay52:gpt-image-2": {
       "unit": "item",
       "usd_per_unit": 0.0195

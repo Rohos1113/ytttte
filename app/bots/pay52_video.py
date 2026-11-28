@@ -50,6 +50,10 @@ def normalize_pay52_video_model(raw: str) -> str:
         return "MiniMax-H3"
     if "wan" in s:
         return "wan3.0-video"
+    if "veo" in s:
+        return "veo-3.1-fast-generate-preview"
+    if "kling" in s:
+        return "kling-4.0"
     if "mini-ref" in s or "mini_ref" in s:
         return "seedance-2.0-mini-ref"
     if "mini" in s:
@@ -58,10 +62,6 @@ def normalize_pay52_video_model(raw: str) -> str:
         return "seedance-2.5"
     if "fast" in s:
         return "seedance-2.0-fast"
-    if "kling" in s:
-        return "kling-4.0"
-    if "veo" in s:
-        return "veo-3.1-fast-generate-preview"
     if "seedance" in s:
         return "seedance-2.0-fast"
     clean = (raw or "").strip()
@@ -77,7 +77,7 @@ def pay52_video_supports_model(model_name: str) -> bool:
         or "kling-4" in name_low
         or "kling_4" in name_low
         or ("kling" in name_low and "3" not in name_low and "2" not in name_low)
-        or "veo-3.1-fast" in name_low
+        or "veo" in name_low
         or "minimax" in name_low
         or "h3" in name_low
         or "wan" in name_low
@@ -89,6 +89,15 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
         return ""
     s = cfg or settings
     name_low = (model_name or "").lower()
+    if "veo" in name_low:
+        return (
+            getattr(s, "pay52_veo_key", "")
+            or getattr(s, "pay52_video_key", "")
+            or s.seedance_fast_key
+            or s.seedance_mini_key
+            or s.seedance_overseas_key
+            or ""
+        ).strip()
     if "minimax" in name_low or "h3" in name_low:
         return (
             getattr(s, "pay52_minimax_key", "")
@@ -315,6 +324,36 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
         if content:
             payload["metadata"] = {"content": content}
         return payload
+
+    # 4. Veo 3.1 Fast (veo-3.1-fast-generate-preview)
+    if "veo" in model_raw.lower():
+        all_images = []
+        if first_frame:
+            su = str(first_frame).strip()
+            if su:
+                all_images.append(su)
+        if last_frame:
+            su = str(last_frame).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+        for u in ref_images:
+            su = str(u).strip()
+            if su and su not in all_images:
+                all_images.append(su)
+
+        valid_res = raw_res if raw_res in ("720p", "1080p") else "720p"
+        payload_veo: dict[str, Any] = {
+            "model": "veo-3.1-fast-generate-preview",
+            "prompt": prompt,
+            "duration": min(8, max(4, dur_int)),
+            "resolution": valid_res,
+        }
+        if raw_ratio:
+            payload_veo["ratio"] = raw_ratio
+        if all_images:
+            payload_veo["image_url"] = all_images[0]
+            payload_veo["referenceImages"] = all_images[:3]
+        return payload_veo
 
     # 2. Модель Seedance 2.0 Fast (seedance-2.0-fast)
     if "fast" in model_raw.lower():
@@ -732,10 +771,19 @@ async def run_generation(
     key = pay52_video_key_for_model(model_name)
 
     # Если payload ещё не сформирован под 52pay, трансформируем его
-    if "metadata" not in payload and "referenceImages" not in payload and "model" not in payload:
-        final_body = build_pay52_video_payload(spec, payload)
-    elif payload.get("input") and isinstance(payload["input"], dict):
+    _52PAY_MODELS = {
+        "seedance-2.0-fast",
+        "seedance-2.0-mini",
+        "seedance-2.5",
+        "kling-4.0",
+        "MiniMax-H3",
+        "wan3.0-video",
+        "veo-3.1-fast-generate-preview",
+    }
+    if payload.get("input") and isinstance(payload["input"], dict):
         final_body = build_pay52_video_payload(spec, payload["input"])
+    elif payload.get("model") not in _52PAY_MODELS and "metadata" not in payload and "referenceImages" not in payload:
+        final_body = build_pay52_video_payload(spec, payload)
     else:
         final_body = payload
 

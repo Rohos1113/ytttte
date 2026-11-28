@@ -87,6 +87,10 @@ _VIDEO: dict[str, str] = {
     "kling-4.0/reference-to-video": "seedance_overseas_key",
     "kling-4.0/flash-reference-to-video": "seedance_overseas_key",
     "veo-3.1-fast-generate-preview": "seedance_fast_key",
+    "veo-3-1-lite": "seedance_fast_key",
+    "veo-3-1-fast": "seedance_fast_key",
+    "veo-3.1-fast": "seedance_fast_key",
+    "veo": "seedance_fast_key",
     "minimax-h3": "pay52_minimax_key",
     "minimax-h3-t2v": "pay52_minimax_key",
     "MiniMax-H3": "pay52_minimax_key",
@@ -105,7 +109,7 @@ def _key(settings, field: str) -> str:
     if "claude" in field:
         # Fallback на любой настроенный ключ Клода
         return str(getattr(settings, "pay52_claude_low_key", "") or getattr(settings, "pay52_claude_high_key", "") or "").strip()
-    if "seedance" in field:
+    if "seedance" in field or "veo" in field:
         return str(getattr(settings, "seedance_fast_key", "") or getattr(settings, "seedance_mini_key", "") or getattr(settings, "seedance_overseas_key", "") or "").strip()
     if "seedream" in field:
         return str(getattr(settings, "pay52_seedream_key", "") or "").strip()
