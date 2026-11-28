@@ -165,8 +165,8 @@ def _build_kie_video_catalog_raw() -> list[dict[str, Any]]:
             "display_name": "Veo 3.1 Fast",
             "is_image": False,
             "is_video": True,
-            "owned_by": "outsee",
-            "provider": "outsee",
+            "owned_by": "kie",
+            "provider": "kie",
             "pricing": {"currency": "usd", "usd_per_video": 0.15},
         },
     ]

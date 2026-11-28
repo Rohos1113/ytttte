@@ -45,13 +45,10 @@ KIE_IMAGE_IDS = frozenset(
         "wan-2-7-image",
     }
 )
-OUTSEE_VIDEO_IDS = frozenset(
-    {
-        "veo-3-1-lite",
-    }
-)
+OUTSEE_VIDEO_IDS: frozenset[str] = frozenset()
 KIE_VIDEO_IDS = frozenset(
     {
+        "veo-3-1-lite",
         "veo-3-1",
         "kling-2-6",
         "seedance-2-0",

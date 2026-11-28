@@ -275,7 +275,7 @@ function videoExtra(
 }
 
 const VIDEO_EXTRA: CatalogModel[] = [
-  videoExtra("veo-3-1-lite", "Veo 3.1 Fast (52pay)", 0.0182, "52pay"),
+  videoExtra("veo-3-1-lite", "Veo 3.1 Fast", 0.0182, "kie"),
   videoExtra("veo-3-1", "Veo 3.1", 0.0312, "kie"),
   videoExtra("seedance-2-0-mini", "Seedance 2.0 Mini", 0.0243, "52pay"),
   videoExtra("seedance-2-0-fast", "Seedance 2.0 Fast", 0.0466, "52pay"),

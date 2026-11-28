@@ -277,6 +277,10 @@
       "unit": "second",
       "usd_per_call": 0.3
     },
+    "kie:veo-3-1-lite": {
+      "unit": "item",
+      "usd_per_call": 0.1875
+    },
     "kie:seedance-2-0": {
       "unit": "second",
       "usd_per_unit": 0.205
@@ -498,18 +502,6 @@
       "usd_per_call": 0.0182
     },
     "pay52:veo-3.1-fast-generate-preview@1080p": {
-      "unit": "item",
-      "usd_per_call": 0.0405
-    },
-    "pay52:veo-3-1-lite": {
-      "unit": "item",
-      "usd_per_call": 0.0182
-    },
-    "pay52:veo-3-1-lite@720p": {
-      "unit": "item",
-      "usd_per_call": 0.0182
-    },
-    "pay52:veo-3-1-lite@1080p": {
       "unit": "item",
       "usd_per_call": 0.0405
     },
